@@ -15,10 +15,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const SETTINGS_PATH = path.join(
-	os.homedir(),
-	'Library/Application Support/Cursor/User/settings.json',
-);
+const SETTINGS_PATH = process.platform === 'win32'
+	? path.join(process.env.APPDATA, 'Cursor', 'User', 'settings.json')
+	: path.join(os.homedir(), 'Library', 'Application Support', 'Cursor', 'User', 'settings.json');
 const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), '.cursor/make-app-contexts');
 
 let concurrency = 10;
