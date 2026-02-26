@@ -20,7 +20,10 @@ set -e
 REPO="minsu-kang/make-custom-app-skill"
 BRANCH="master"
 SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
+RULES_DIR="$HOME/.cursor/rules"
+
 SKILL_FILES=("SKILL.md" "download-app.js" "review-changes.js" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
+RULE_FILES=("make-app-code-review.mdc")
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -87,16 +90,19 @@ if [ -d "$SKILL_DIR" ]; then
 fi
 
 mkdir -p "$SKILL_DIR"
+mkdir -p "$RULES_DIR"
 
-# ── Install Files ──
+# ── Detect Source ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null)" && pwd 2>/dev/null || echo "")"
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/SKILL.md" ]; then
-    info "Installing from local files..."
-    echo ""
+# ── Install Skill Files (skill/ → ~/.cursor/skills/make-custom-app/) ──
+info "Installing skill files..."
+echo ""
+
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/SKILL.md" ]; then
     for file in "${SKILL_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/$file" ]; then
-            cp "$SCRIPT_DIR/$file" "$SKILL_DIR/$file"
+        if [ -f "$SCRIPT_DIR/skill/$file" ]; then
+            cp "$SCRIPT_DIR/skill/$file" "$SKILL_DIR/$file"
             ok "$file"
         else
             warn "$file (not found, skipped)"
@@ -113,11 +119,39 @@ else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
 
     for file in "${SKILL_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/$file" "$BASE_URL/$file" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/$file" "$BASE_URL/skill/$file" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ]; then
             ok "$file"
         else
             rm -f "$SKILL_DIR/$file"
+            warn "$file (download failed: HTTP $HTTP_CODE)"
+        fi
+    done
+fi
+
+# ── Install Rule Files (rules/ → ~/.cursor/rules/) ──
+echo ""
+info "Installing rule files..."
+echo ""
+
+if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/rules" ]; then
+    for file in "${RULE_FILES[@]}"; do
+        if [ -f "$SCRIPT_DIR/rules/$file" ]; then
+            cp "$SCRIPT_DIR/rules/$file" "$RULES_DIR/$file"
+            ok "$file"
+        else
+            warn "$file (not found, skipped)"
+        fi
+    done
+else
+    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+
+    for file in "${RULE_FILES[@]}"; do
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$RULES_DIR/$file" "$BASE_URL/rules/$file" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            ok "$file"
+        else
+            rm -f "$RULES_DIR/$file"
             warn "$file (download failed: HTTP $HTTP_CODE)"
         fi
     done
@@ -144,7 +178,9 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/download-app.js" ]; then
     fi
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  ${BOLD}Installed to:${NC} $SKILL_DIR"
+    echo -e "  ${BOLD}Installed to:${NC}"
+    echo -e "    Skill: $SKILL_DIR"
+    echo -e "    Rules: $RULES_DIR"
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
     echo -e "  1. Restart Cursor"

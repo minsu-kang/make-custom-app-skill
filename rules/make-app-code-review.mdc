@@ -1,0 +1,34 @@
+---
+description: Required inputs and Jira integration guide for Make custom app code reviews
+alwaysApply: true
+---
+
+# Make App Code Review Requirements
+
+Follow these rules when a user requests a Make app code review.
+
+## Required: app-slug and version
+
+If the user does not provide `app-slug` and `version`, do not proceed with the review. Ask first:
+
+> Please provide the **app slug** and **version** for the code review.
+> Example: `slug: slack`, `version: 4`
+
+## Recommended: Jira ticket link
+
+After confirming slug/version, if no Jira ticket link is provided, suggest attaching one:
+
+> If you have a Jira ticket link, please attach it. The ticket's Acceptance Criteria, change list, and comments help provide a more accurate review.
+> Example: `https://make.atlassian.net/browse/IEN-12345`
+
+## When Jira ticket is attached: Verify Atlassian MCP connection
+
+If the user attaches a Jira ticket link, verify that the Atlassian MCP server is connected. If MCP tools (`getJiraIssue`, etc.) are unavailable or return errors, guide the user:
+
+> The Atlassian MCP server is not connected. To automatically fetch Jira ticket information, follow these steps:
+>
+> 1. Go to **Cursor Settings** → **MCP** tab
+> 2. Add/enable the **Atlassian MCP Server**
+> 3. **Restart** Cursor
+>
+> Please request the review again after setup is complete!
