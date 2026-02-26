@@ -137,6 +137,127 @@ If changes are detected, guide the user to run the download command in an extern
 
 **Important**: If either of the two conditions above is met, always execute this workflow **automatically**. Do not ask the user whether to save context. Do not execute for general Make platform questions (not related to a specific app).
 
+## Code Review Workflow
+
+Workflow for AI to fetch uncommitted changes from a Make app and perform a code review.
+
+### Trigger
+
+Execute this workflow if any of the following conditions are met:
+
+- User requests a code review (e.g., "code review", "review changes", "코드 리뷰", "리뷰 해줘")
+- User asks to review changes for a specific app
+
+### Steps
+
+**1. App Detection**: Determine the app slug and version.
+- If the user explicitly mentions it: use that app
+- Extract from open file path: `sdk/apps/{slug}/{version}/` pattern
+- If unclear: ask the user
+
+**2. Check App Code & Run Scripts**: The review script (`review-changes.js`) must be run **every time** a review is requested — including re-reviews. The changes data becomes stale after the developer modifies code, so fresh data must always be fetched from the API.
+
+First, check if `~/.cursor/make-app-contexts/{slug}-v{version}/` folder exists.
+
+- **If the code folder does NOT exist** → Guide the user to run **both** download-app.js and review-changes.js:
+
+> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the commands below in order:
+>
+> ```
+> node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
+> node ~/.cursor/skills/make-custom-app/review-changes.js {app-slug} {app-version}
+> ```
+>
+> Let me know when it's done!
+
+- **If the code folder already exists** → Guide the user to run review-changes.js (must run every time, even for re-reviews):
+
+> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
+>
+> ```
+> node ~/.cursor/skills/make-custom-app/review-changes.js {app-slug} {app-version}
+> ```
+>
+> Let me know when it's done!
+
+**3. Read Review Data**: After the user confirms completion, read the review data.
+
+```
+~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
+```
+
+**4. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change to perform the review.
+
+**5. Context Loading (Optional)**: If full context of the changed component is needed, read related files from `~/.cursor/make-app-contexts/{slug}-v{version}/` for reference.
+
+### Review Output Format
+
+Provide review results in the following structure:
+
+```
+## Code Review: {App Name} v{Version}
+
+### Summary
+- Total {N} change(s)
+- Overall verdict: LGTM / Changes Requested / Needs Discussion
+
+### Per-Change Review
+
+#### [{#}] {group}/{item}/{code}
+- **Verdict**: LGTM | Breaking Change | Bug | Improvement Needed
+- **Change Summary**: (one-line summary)
+- **Detailed Analysis**: (old → new comparison, estimated reason for change, scope of impact)
+- **Suggestions**: (if any)
+```
+
+### Review Criteria
+
+Evaluate each change against the following criteria:
+
+#### Breaking Changes (risk of breaking existing scenarios)
+- Interface output fields removed/renamed → existing scenario mappings may break
+- Expect/Parameters fields removed/renamed → existing scenario settings become invalid
+- Connection parameters changed → existing connections may break
+- Module type changed → scenario compatibility broken
+- Trigger configuration changed (id/date field, type, order) → risk of duplicate/missed triggers
+- API URL path changes that alter functionality
+
+#### Bugs (potential bugs)
+- Incorrect variable references in IML expressions (e.g., `{{parameters.filed}}` typo)
+- Missing required fields (no response.output, no error handling, etc.)
+- JSON structure errors (missing brackets, incorrect nesting)
+- Infinite loop potential in pagination (condition always true)
+- Temp variable mismatch in sequential requests
+- Output not using `{{item}}` when iterate is used
+
+#### Improvements (recommended enhancements)
+- Missing or generic-only error handling
+- Missing log sanitize (Authorization, API key, or other sensitive data exposed)
+- Missing pagination (risk of data loss with large datasets)
+- Unnecessary API calls (could be skipped with condition)
+- Hardcoded values (baseUrl, API version, etc. → should move to base.imljson)
+- Missing `ifempty()` / null checks
+- Missing `label` in interface fields (UX degradation)
+- Duplicate code patterns (common logic could be extracted to RPC or base)
+
+#### Security
+- Sensitive data sent without log sanitize
+- API key exposed in URL query string
+- User input not validated
+
+#### LGTM (no issues)
+- None of the above apply and the code correctly follows Make app patterns
+
+### Important Rules
+
+- **ALWAYS run review-changes.js before every review** — never rely on a previously saved `latest.json`. The user must run the script each time, including re-reviews after code changes. Stale review data leads to meaningless reviews.
+- If there are 0 changes: inform the user "No uncommitted changes found."
+- Focus the review on **old_value → new_value comparison**. If only new_value exists (new component), evaluate quality of new_value only.
+- If any breaking change is found, the overall verdict must be **Changes Requested**.
+- If any bug is found, the overall verdict must be **Changes Requested**.
+- If only improvements are found, the overall verdict can be **LGTM (with suggestions)**.
+- Do NOT modify local code in `make-app-contexts` after review. Local code sync is the responsibility of download-app.js.
+
 ## App Components
 
 A Make app consists of the following components:
@@ -572,3 +693,5 @@ imt-app-runtime-path: /path/provided/by/user/imt-app-runtime
 ```
 
 After adding it, inform the user that setup is complete and answer their original question.
+
+imt-app-runtime-path: /Users/kej1857/Documents/GitHub/imt-app-runtime
