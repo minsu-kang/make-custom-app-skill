@@ -5,11 +5,16 @@ set -e
 # Make Custom App Skill Installer for Cursor
 # ============================================================
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
+#   Fresh install / Update:
+#     curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
 #
-#   or clone & run:
-#   git clone https://github.com/minsu-kang/make-custom-app-skill.git
-#   cd make-custom-app-skill && ./install.sh
+#   Clone & install:
+#     git clone https://github.com/minsu-kang/make-custom-app-skill.git
+#     cd make-custom-app-skill && ./install.sh
+#
+#   Flags:
+#     --update    Skip confirmation prompt (for scripted updates)
+#     --force     Remove everything and do a clean install
 # ============================================================
 
 REPO="minsu-kang/make-custom-app-skill"
@@ -29,22 +34,56 @@ ok()    { echo -e "${GREEN}✓${NC} $1"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
 fail()  { echo -e "${RED}✗${NC} $1"; exit 1; }
 
+MODE="install"
+for arg in "$@"; do
+    case "$arg" in
+        --update) MODE="update" ;;
+        --force)  MODE="force" ;;
+    esac
+done
+
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║   Make Custom App Skill Installer for Cursor ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Check Existing Installation ──
+# ── Preserve User Config ──
+SAVED_RUNTIME_PATH=""
+
 if [ -d "$SKILL_DIR" ]; then
-    warn "Existing installation detected: $SKILL_DIR"
-    echo ""
-    read -p "  Overwrite? (y/N): " overwrite
-    if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
-        info "Installation cancelled."
-        exit 0
+    if [ -f "$SKILL_DIR/SKILL.md" ]; then
+        LAST_LINE=$(tail -1 "$SKILL_DIR/SKILL.md")
+        if [[ "$LAST_LINE" == imt-app-runtime-path:* ]]; then
+            SAVED_RUNTIME_PATH="$LAST_LINE"
+        fi
     fi
-    echo ""
+
+    case "$MODE" in
+        update)
+            info "Updating existing installation..."
+            echo ""
+            ;;
+        force)
+            warn "Force mode: removing existing installation..."
+            rm -rf "$SKILL_DIR"
+            echo ""
+            ;;
+        install)
+            warn "Existing installation detected: $SKILL_DIR"
+            echo ""
+            echo -e "  ${BOLD}(u)${NC} Update — overwrite skill files, preserve user config"
+            echo -e "  ${BOLD}(f)${NC} Force  — clean install, remove everything"
+            echo -e "  ${BOLD}(c)${NC} Cancel"
+            echo ""
+            read -p "  Choose [u/f/c]: " choice
+            case "$choice" in
+                [Uu]) MODE="update" ; echo "" ;;
+                [Ff]) MODE="force" ; rm -rf "$SKILL_DIR" ; echo "" ;;
+                *)    info "Installation cancelled." ; exit 0 ;;
+            esac
+            ;;
+    esac
 fi
 
 mkdir -p "$SKILL_DIR"
@@ -84,11 +123,25 @@ else
     done
 fi
 
+# ── Restore User Config ──
+if [ -n "$SAVED_RUNTIME_PATH" ] && [ -f "$SKILL_DIR/SKILL.md" ]; then
+    CURRENT_LAST=$(tail -1 "$SKILL_DIR/SKILL.md")
+    if [[ "$CURRENT_LAST" != imt-app-runtime-path:* ]]; then
+        echo "" >> "$SKILL_DIR/SKILL.md"
+        echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
+    fi
+    ok "Restored user config (imt-app-runtime-path)"
+fi
+
 # ── Verify Installation ──
 echo ""
 if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/download-app.js" ]; then
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}${BOLD}  Installation Complete!${NC}"
+    if [ "$MODE" = "update" ]; then
+        echo -e "${GREEN}${BOLD}  Update Complete!${NC}"
+    else
+        echo -e "${GREEN}${BOLD}  Installation Complete!${NC}"
+    fi
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${BOLD}Installed to:${NC} $SKILL_DIR"
