@@ -5,7 +5,7 @@ set -e
 # Make Custom App Skill Installer for Cursor
 # ============================================================
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
 #
 #   or clone & run:
 #   git clone https://github.com/minsu-kang/make-custom-app-skill.git
@@ -13,9 +13,9 @@ set -e
 # ============================================================
 
 REPO="minsu-kang/make-custom-app-skill"
-BRANCH="main"
+BRANCH="master"
 SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
-SKILL_FILES=("SKILL.md" "download-app.js" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
+SKILL_FILES=("SKILL.md" "download-app.js" "review-changes.js" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
