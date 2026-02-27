@@ -258,6 +258,93 @@ Evaluate each change against the following criteria:
 - If only improvements are found, the overall verdict can be **LGTM (with suggestions)**.
 - Do NOT modify local code in `make-app-contexts` after review. Local code sync is the responsibility of download-app.js.
 
+## Bug Investigation Workflow
+
+Workflow for investigating a bug reported via Jira ticket or user description, tracing the root cause through app code, and applying a fix.
+
+### Trigger
+
+Execute this workflow if any of the following conditions are met:
+
+- User shares a Jira ticket link about a Make app bug
+- User describes a bug in a specific Make app module (e.g., "this module throws PARSING_ERROR")
+- User asks to investigate an error in a Make app
+
+### Steps
+
+**1. Gather Context**: Collect all available information about the bug.
+- **Jira ticket**: Use the Atlassian MCP (`getJiraIssue`) to fetch ticket details — summary, description, priority, attachments
+- **User description**: Error message, affected module, steps to reproduce
+- **Key data to extract**: Error message, affected URL, input data, request/response bodies, reproduction steps
+
+**2. App Detection & Code Download**: Identify the app and ensure code is available.
+- Determine app slug and version from the ticket/description (e.g., "MONDAY.COM v2" → `monday`, `2`)
+- Check if `~/.cursor/make-app-contexts/{slug}-v{version}/` exists
+- If not, guide the user to run the download command (see "App Code Download" section)
+- Load the context file `{slug}-v{version}.md` if it exists
+
+**3. Identify Affected Component**: Locate the module/function where the error occurs.
+- Match the error to a specific module from `metadata.json`
+- Read the module's `api.imljson` to understand the request construction
+- Identify custom functions called in IML expressions (e.g., `{{functionName(args)}}`)
+
+**4. Trace Execution**: Follow the data flow with the user's actual input.
+- Read the module's `expect.imljson` to understand parameter structure
+- Read the RPC that generates dynamic parameters (if any)
+- Trace through custom functions (`functions/{name}/code.js`) with the actual input data
+- Compare expected vs actual output at each step
+
+**5. Check Impact Scope**: Determine if other components are affected.
+- Search for all usages of the affected function/pattern across the app
+- Check if other modules use the same RPC or custom function
+- Assess whether the fix could have side effects on other modules
+
+**6. Fix & Test**:
+- Apply the minimal fix to the affected file(s)
+- Add test cases in `test.js` covering:
+  - The bug scenario (must fail before fix, pass after)
+  - Edge cases (null, undefined, empty values, boundary conditions)
+  - Existing functionality (ensure no regression)
+
+**7. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
+
+**8. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections.
+
+### Developer Notes Template
+
+When the user needs to write Developer Notes for a Jira ticket, generate the following structure:
+
+```markdown
+### Root Cause
+
+{Concise technical explanation of what causes the bug, including:
+- Which function/component has the bug
+- What condition triggers it
+- Why it produces the wrong result}
+
+### Fix
+
+{Description of the changes made:
+- What was changed and why
+- How the new logic works}
+
+### Affected Components
+
+- {module/function name} — {label/description}
+- ...
+
+### Changed Files
+
+- {file path relative to app root}
+- ...
+```
+
+Rules:
+- Write in English (Jira is shared across teams)
+- Be specific about the technical cause — include function names, variable names, and code flow
+- Explain **why** the old code was wrong, not just **what** was changed
+- List ALL affected components, not just the one reported in the ticket
+
 ## App Components
 
 A Make app consists of the following components:
