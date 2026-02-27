@@ -155,26 +155,14 @@ Execute this workflow if any of the following conditions are met:
 - Extract from open file path: `sdk/apps/{slug}/{version}/` pattern
 - If unclear: ask the user
 
-**2. Check App Code & Run Scripts**: The review script (`review-changes.js`) must be run **every time** a review is requested — including re-reviews. The changes data becomes stale after the developer modifies code, so fresh data must always be fetched from the API.
+**2. Check App Code & Run Scripts**: Both `download-app.js` and `review-changes.js` must be run **every time** a review is requested — including re-reviews. The local code in `make-app-contexts` may be stale even if the folder exists, and the changes data must always be freshly fetched from the API.
 
-First, check if `~/.cursor/make-app-contexts/{slug}-v{version}/` folder exists.
-
-- **If the code folder does NOT exist** → Guide the user to run **both** download-app.js and review-changes.js:
+Guide the user to run **both** scripts in order:
 
 > Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the commands below in order:
 >
 > ```
 > node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
-> node ~/.cursor/skills/make-custom-app/review-changes.js {app-slug} {app-version}
-> ```
->
-> Let me know when it's done!
-
-- **If the code folder already exists** → Guide the user to run review-changes.js (must run every time, even for re-reviews):
-
-> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
->
-> ```
 > node ~/.cursor/skills/make-custom-app/review-changes.js {app-slug} {app-version}
 > ```
 >
@@ -250,7 +238,7 @@ Evaluate each change against the following criteria:
 
 ### Important Rules
 
-- **ALWAYS run review-changes.js before every review** — never rely on a previously saved `latest.json`. The user must run the script each time, including re-reviews after code changes. Stale review data leads to meaningless reviews.
+- **ALWAYS run both download-app.js and review-changes.js before every review** — never rely on previously saved local code or `latest.json`. The local code in `make-app-contexts` may be stale, and review data must be freshly fetched each time, including re-reviews after code changes.
 - If there are 0 changes: inform the user "No uncommitted changes found."
 - Focus the review on **old_value → new_value comparison**. If only new_value exists (new component), evaluate quality of new_value only.
 - If any breaking change is found, the overall verdict must be **Changes Requested**.
