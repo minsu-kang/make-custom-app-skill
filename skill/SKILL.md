@@ -287,6 +287,7 @@ Execute this workflow if any of the following conditions are met:
 - Match the error to a specific module from `metadata.json`
 - Read the module's `api.imljson` to understand the request construction
 - Identify custom functions called in IML expressions (e.g., `{{functionName(args)}}`)
+- **Shared function pattern**: If the error originates in a custom function (not directly in `api.imljson`), grep for the function name across all `modules/*/api.imljson` files to find every module that calls it — the bug likely affects all of them
 
 **4. Trace Execution**: Follow the data flow with the user's actual input.
 - Read the module's `expect.imljson` to understand parameter structure
@@ -299,16 +300,34 @@ Execute this workflow if any of the following conditions are met:
 - Check if other modules use the same RPC or custom function
 - Assess whether the fix could have side effects on other modules
 
-**6. Fix & Test**:
-- Apply the minimal fix to the affected file(s)
+**6. Present Findings**: Before applying a fix, present the root cause analysis to the user.
+- Summarize: error flow, root cause, why it happens, affected components
+- Wait for user confirmation before proceeding to the fix
+- This prevents wasted effort from an incorrect diagnosis
+
+**7. Fix & Test**: Apply the fix to the user's **SDK working directory** (the temporary path the user has open).
+- Apply the minimal fix to the affected file(s) in `var/folders/.../apps-sdk-internal/sdk/apps/...`
+- **Do NOT** directly modify files in `~/.cursor/make-app-contexts/` — code sync is the responsibility of `download-app.js` after the fix is committed
 - Add test cases in `test.js` covering:
   - The bug scenario (must fail before fix, pass after)
   - Edge cases (null, undefined, empty values, boundary conditions)
   - Existing functionality (ensure no regression)
 
-**7. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
+**8. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
 
-**8. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections.
+**9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. Only the `.md` summary file is updated here — code files in `make-app-contexts/` are NOT modified (see Step 7).
+
+**10. Post-Commit Sync**: When the user confirms the fix has been committed, guide them to re-run the download command to sync `make-app-contexts` with the committed code.
+
+> 커밋이 완료되었으니 로컬 코드를 동기화합니다. **Cursor menu bar → Terminal → New Window**에서 아래 명령어를 실행해주세요:
+>
+> ```
+> node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
+> ```
+>
+> 완료되면 알려주세요!
+
+This ensures `make-app-contexts` always reflects the latest committed state, preventing stale code from being used in future reviews or investigations.
 
 ### Developer Notes Template
 
