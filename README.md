@@ -47,14 +47,16 @@ make-custom-app-skill/
 ├── install.sh
 ├── skill/                              # → installed to ~/.cursor/skills/make-custom-app/
 │   ├── SKILL.md                        #   Main skill instructions
-│   ├── download-app.js                 #   App source code downloader
-│   ├── review-changes.js               #   Code review change fetcher
 │   ├── builtin-iml-functions.md        #   IML function reference
 │   ├── communication-reference.md      #   Communication (API) spec
 │   ├── examples.md                     #   Instagram app examples
 │   └── runtime-reference.md            #   imt-app-runtime internals
+├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/
+│   ├── download-app.js                 #   App source code downloader
+│   └── review-changes.js               #   Code review change fetcher
 └── rules/                              # → installed to ~/.cursor/rules/
-    └── make-app-code-review.mdc        #   Code review input requirements
+    ├── make-app-code-review.mdc        #   Code review input requirements
+    └── version-sync.mdc               #   Version & changelog sync rule
 ```
 
 ### Skill vs Rules
@@ -73,12 +75,17 @@ make-custom-app-skill/
 | File | Description |
 |------|-------------|
 | `SKILL.md` | Main skill — IMLJSON patterns, app context management, code review workflow |
-| `download-app.js` | Downloads full app source code from Make API |
-| `review-changes.js` | Fetches uncommitted changes for code review |
 | `builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
 | `communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
 | `examples.md` | Real-world Instagram for Business app examples |
 | `runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
+
+### Script Files (`scripts/` → `~/.cursor/skills/make-custom-app/`)
+
+| File | Description |
+|------|-------------|
+| `download-app.js` | Downloads full app source code from Make API |
+| `review-changes.js` | Fetches uncommitted changes for code review |
 
 ### Rule Files (`~/.cursor/rules/`)
 

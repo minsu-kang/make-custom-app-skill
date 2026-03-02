@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3] - 2026-03-02
+
+- Moved scripts (`download-app.js`, `review-changes.js`) to separate `scripts/` folder
+- Updated `install.sh` to install scripts from `scripts/` directory
+- Translated all Korean text to English in `skill/SKILL.md` and `scripts/download-app.js`
+
 ## [1.0.2] - 2026-03-02
 
 - Added `version-sync.mdc` rule to keep `version.json`, `skill/SKILL.md`, and `CHANGELOG.md` in sync
