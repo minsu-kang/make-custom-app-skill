@@ -85,6 +85,7 @@ make-custom-app-skill/
 | File | Description |
 |------|-------------|
 | `make-app-code-review.mdc` | Enforces required inputs (app-slug, version) and recommends Jira ticket attachment for code reviews. Guides Atlassian MCP setup if needed. |
+| `version-sync.mdc` | Ensures `version.json` and `skill/SKILL.md` frontmatter versions stay in sync before commits. |
 
 ## First Use
 

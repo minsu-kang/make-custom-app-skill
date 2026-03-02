@@ -24,7 +24,7 @@ RULES_DIR="$HOME/.cursor/rules"
 VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md" "download-app.js" "review-changes.js" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
-RULE_FILES=("make-app-code-review.mdc")
+RULE_FILES=("make-app-code-review.mdc" "version-sync.mdc")
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

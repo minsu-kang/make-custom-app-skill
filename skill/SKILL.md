@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.0.0
+version: 1.0.2
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -12,12 +12,12 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
 
 **This check must run once when the skill is first loaded.** After the first check, skip it for subsequent uses in the same conversation.
 
-1. Read the `version` field from the frontmatter above (currently `1.0.0`)
+1. Read the `version` field from the frontmatter above (currently `1.0.2`)
 2. Fetch the latest version info from: `https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/version.json`
 3. Compare versions:
-   - **If the installed version is OLDER than the latest version**: Display the warning below and **stop — do not answer the user's question until they upgrade**.
-   - **If versions match**: Proceed normally.
-   - **If the fetch fails** (network error, timeout): Proceed normally — do not block the user.
+    - **If the installed version is OLDER than the latest version**: Display the warning below and **stop — do not answer the user's question until they upgrade**.
+    - **If versions match**: Proceed normally.
+    - **If the fetch fails** (network error, timeout): Proceed normally — do not block the user.
 
 **Upgrade warning message (copy exactly):**
 
@@ -72,23 +72,27 @@ If **either of the two conditions below** is met, execute the workflow **automat
 - **Condition 2**: When the open file path belongs to `var/folders/*/apps-sdk-internal/sdk/apps/{app-slug}/{app-version}/`
 
 **1. App Detection**: Determine app info from the conditions above.
+
 - Condition 1: From the app name/version mentioned by the user
 - Condition 2: Extract `sdk/apps/{app-slug}/{app-version}` from the open file path
 
 **2. Code Download/Sync Guide (Top Priority — Must Follow)**: Once an app is detected, **check the code storage status and provide guidance before answering the question.**
+
 - **If the code folder doesn't exist** → Guide the user to run the download command **first** (see "App Code Download" below). **Never answer the user's question first. Only provide the download command and end the turn.** Only answer the question after the user confirms completion.
 - **If the code folder exists** → Execute the sync logic below:
-  1. Read the contents of the file the user has open (temporary folder)
-  2. Compare with the corresponding file in `~/.cursor/make-app-contexts/{slug}-v{version}/`
-     - Path mapping: `var/folders/.../sdk/apps/{slug}/{ver}/modules/X/api.imljson` → `make-app-contexts/{slug}-v{ver}/modules/X/api.imljson`
-  3. If contents differ → Guide the user to run the sync command **first** (see "Individual Component Sync" below). **Do not include the answer alongside the sync guide. Only provide the sync guide and end the turn.** Only answer the question after the user confirms completion.
-  4. If contents match → No update needed, answer the question immediately.
+    1. Read the contents of the file the user has open (temporary folder)
+    2. Compare with the corresponding file in `~/.cursor/make-app-contexts/{slug}-v{version}/`
+        - Path mapping: `var/folders/.../sdk/apps/{slug}/{ver}/modules/X/api.imljson` → `make-app-contexts/{slug}-v{ver}/modules/X/api.imljson`
+    3. If contents differ → Guide the user to run the sync command **first** (see "Individual Component Sync" below). **Do not include the answer alongside the sync guide. Only provide the sync guide and end the turn.** Only answer the question after the user confirms completion.
+    4. If contents match → No update needed, answer the question immediately.
 
 **3. Load Existing Context**: Read `~/.cursor/make-app-contexts/{app-slug}-v{version}.md`.
+
 - If the file exists, start with knowledge of the app's structure/patterns/caveats
 - If the file doesn't exist, it's a new app — create it immediately after download completes
 
 **4. Answer the Question**: Answer the user's original question after code storage/sync is complete.
+
 - Also update the `.md` summary file if new information was learned
 
 > **⚠️ Core Principle**: If download/sync is needed in step 2, **do not provide an answer to the user's original question for any reason.** Even if the file contents have already been read, defer the answer until the user confirms download/sync completion.
@@ -140,12 +144,14 @@ If changes are detected, guide the user to run the download command in an extern
 # {AppName} v{Version}
 
 ## App Overview
+
 - slug: {slug}
 - label: {label}
 - API: {base URL}
 - Auth method: OAuth2 / API Key / Basic / ...
 
 ## Structure
+
 - Connection: {connection names}
 - Modules: {module list (with types)}
 - RPCs: {RPC list}
@@ -153,13 +159,16 @@ If changes are detected, guide the user to run the download command in an extern
 - Custom Functions: {function list}
 
 ## Key Patterns
+
 - {Unique patterns used in this app}
 - {API characteristics, error handling methods, etc.}
 
 ## Caveats
+
 - {Known issues, API limitations, etc.}
 
 ## Work History
+
 - {date}: {work description}
 ```
 
@@ -179,6 +188,7 @@ Execute this workflow if any of the following conditions are met:
 ### Steps
 
 **1. App Detection**: Determine the app slug and version.
+
 - If the user explicitly mentions it: use that app
 - Extract from open file path: `sdk/apps/{slug}/{version}/` pattern
 - If unclear: ask the user
@@ -231,6 +241,7 @@ Provide review results in the following structure:
 Evaluate each change against the following criteria:
 
 #### Breaking Changes (risk of breaking existing scenarios)
+
 - Interface output fields removed/renamed → existing scenario mappings may break
 - Expect/Parameters fields removed/renamed → existing scenario settings become invalid
 - Connection parameters changed → existing connections may break
@@ -239,6 +250,7 @@ Evaluate each change against the following criteria:
 - API URL path changes that alter functionality
 
 #### Bugs (potential bugs)
+
 - Incorrect variable references in IML expressions (e.g., `{{parameters.filed}}` typo)
 - Missing required fields (no response.output, no error handling, etc.)
 - JSON structure errors (missing brackets, incorrect nesting)
@@ -247,6 +259,7 @@ Evaluate each change against the following criteria:
 - Output not using `{{item}}` when iterate is used
 
 #### Improvements (recommended enhancements)
+
 - Missing or generic-only error handling
 - Missing log sanitize (Authorization, API key, or other sensitive data exposed)
 - Missing pagination (risk of data loss with large datasets)
@@ -257,11 +270,13 @@ Evaluate each change against the following criteria:
 - Duplicate code patterns (common logic could be extracted to RPC or base)
 
 #### Security
+
 - Sensitive data sent without log sanitize
 - API key exposed in URL query string
 - User input not validated
 
 #### LGTM (no issues)
+
 - None of the above apply and the code correctly follows Make app patterns
 
 ### Important Rules
@@ -289,45 +304,52 @@ Execute this workflow if any of the following conditions are met:
 ### Steps
 
 **1. Gather Context**: Collect all available information about the bug.
+
 - **Jira ticket**: Use the Atlassian MCP (`getJiraIssue`) to fetch ticket details — summary, description, priority, attachments
 - **User description**: Error message, affected module, steps to reproduce
 - **Key data to extract**: Error message, affected URL, input data, request/response bodies, reproduction steps
 
 **2. App Detection & Code Download**: Identify the app and ensure code is available.
+
 - Determine app slug and version from the ticket/description (e.g., "MONDAY.COM v2" → `monday`, `2`)
 - Check if `~/.cursor/make-app-contexts/{slug}-v{version}/` exists
 - If not, guide the user to run the download command (see "App Code Download" section)
 - Load the context file `{slug}-v{version}.md` if it exists
 
 **3. Identify Affected Component**: Locate the module/function where the error occurs.
+
 - Match the error to a specific module from `metadata.json`
 - Read the module's `api.imljson` to understand the request construction
 - Identify custom functions called in IML expressions (e.g., `{{functionName(args)}}`)
 - **Shared function pattern**: If the error originates in a custom function (not directly in `api.imljson`), grep for the function name across all `modules/*/api.imljson` files to find every module that calls it — the bug likely affects all of them
 
 **4. Trace Execution**: Follow the data flow with the user's actual input.
+
 - Read the module's `expect.imljson` to understand parameter structure
 - Read the RPC that generates dynamic parameters (if any)
 - Trace through custom functions (`functions/{name}/code.js`) with the actual input data
 - Compare expected vs actual output at each step
 
 **5. Check Impact Scope**: Determine if other components are affected.
+
 - Search for all usages of the affected function/pattern across the app
 - Check if other modules use the same RPC or custom function
 - Assess whether the fix could have side effects on other modules
 
 **6. Present Findings**: Before applying a fix, present the root cause analysis to the user.
+
 - Summarize: error flow, root cause, why it happens, affected components
 - Wait for user confirmation before proceeding to the fix
 - This prevents wasted effort from an incorrect diagnosis
 
 **7. Fix & Test**: Apply the fix to the user's **SDK working directory** (the temporary path the user has open).
+
 - Apply the minimal fix to the affected file(s) in `var/folders/.../apps-sdk-internal/sdk/apps/...`
 - **Do NOT** directly modify files in `~/.cursor/make-app-contexts/` — code sync is the responsibility of `download-app.js` after the fix is committed
 - Add test cases in `test.js` covering:
-  - The bug scenario (must fail before fix, pass after)
-  - Edge cases (null, undefined, empty values, boundary conditions)
-  - Existing functionality (ensure no regression)
+    - The bug scenario (must fail before fix, pass after)
+    - Edge cases (null, undefined, empty values, boundary conditions)
+    - Existing functionality (ensure no regression)
 
 **8. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
 
@@ -353,6 +375,7 @@ When the user needs to write Developer Notes for a Jira ticket, generate the fol
 ### Root Cause
 
 {Concise technical explanation of what causes the bug, including:
+
 - Which function/component has the bug
 - What condition triggers it
 - Why it produces the wrong result}
@@ -360,6 +383,7 @@ When the user needs to write Developer Notes for a Jira ticket, generate the fol
 ### Fix
 
 {Description of the changes made:
+
 - What was changed and why
 - How the new logic works}
 
@@ -375,6 +399,7 @@ When the user needs to write Developer Notes for a Jira ticket, generate the fol
 ```
 
 Rules:
+
 - Write in English (Jira is shared across teams)
 - Be specific about the technical cause — include function names, variable names, and code flow
 - Explain **why** the old code was wrong, not just **what** was changed
@@ -384,44 +409,44 @@ Rules:
 
 A Make app consists of the following components:
 
-| Component | IMLJSON Files | Description |
-|-----------|--------------|-------------|
-| **Base** | `base.imljson` | Common settings inherited by all modules/RPCs (baseUrl, auth, error handling, logging) |
-| **Common** | `common.imljson` | Encrypted common data (API secrets, etc.). Locked after app approval |
-| **Connection** | `api.imljson`, `parameters.imljson` | Auth configuration (OAuth2, OAuth1, JWT, API Key, Basic) |
-| **Module** | `api.imljson`, `parameters.imljson`, `expect.imljson`, `interface.imljson`, `samples.imljson` | Functional execution unit |
-| **RPC** | `api.imljson`, `parameters.imljson` | Remote procedure call for dynamic options/fields |
-| **Webhook** | `api.imljson` | Webhook configuration for instant triggers |
+| Component      | IMLJSON Files                                                                                 | Description                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Base**       | `base.imljson`                                                                                | Common settings inherited by all modules/RPCs (baseUrl, auth, error handling, logging) |
+| **Common**     | `common.imljson`                                                                              | Encrypted common data (API secrets, etc.). Locked after app approval                   |
+| **Connection** | `api.imljson`, `parameters.imljson`                                                           | Auth configuration (OAuth2, OAuth1, JWT, API Key, Basic)                               |
+| **Module**     | `api.imljson`, `parameters.imljson`, `expect.imljson`, `interface.imljson`, `samples.imljson` | Functional execution unit                                                              |
+| **RPC**        | `api.imljson`, `parameters.imljson`                                                           | Remote procedure call for dynamic options/fields                                       |
+| **Webhook**    | `api.imljson`                                                                                 | Webhook configuration for instant triggers                                             |
 
 ## Module Types
 
-| Type | Purpose | Characteristics |
-|------|---------|----------------|
-| **Action** | Single request → single result | CRUD operations (Create, Get, Update, Delete) |
-| **Search** | Search/list → multiple results | `iterate`, `limit`, pagination support |
+| Type                  | Purpose                             | Characteristics                                               |
+| --------------------- | ----------------------------------- | ------------------------------------------------------------- |
+| **Action**            | Single request → single result      | CRUD operations (Create, Get, Update, Delete)                 |
+| **Search**            | Search/list → multiple results      | `iterate`, `limit`, pagination support                        |
 | **Trigger (Polling)** | Periodic polling → detect new items | `trigger.type` (id/date), `trigger.order`, Static params only |
-| **Instant Trigger** | Webhook → real-time reception | Linked to Webhook, Communication is optional |
-| **Responder** | Return webhook response | Defines only response (status, headers, body) |
-| **Universal** | General purpose | CRUD type can be specified |
+| **Instant Trigger**   | Webhook → real-time reception       | Linked to Webhook, Communication is optional                  |
+| **Responder**         | Return webhook response             | Defines only response (status, headers, body)                 |
+| **Universal**         | General purpose                     | CRUD type can be specified                                    |
 
 ## IML Expressions
 
 Used within IMLJSON strings in `{{expression}}` format. Key variables:
 
-| Variable | Description |
-|----------|-------------|
+| Variable             | Description                    |
+| -------------------- | ------------------------------ |
 | `{{parameters.xxx}}` | Module mapping parameter value |
-| `{{connection.xxx}}` | Connection stored data |
-| `{{common.xxx}}` | Common data |
-| `{{body}}` | Response body |
-| `{{body.xxx}}` | Response body field |
-| `{{statusCode}}` | HTTP status code |
-| `{{headers.xxx}}` | Response header |
-| `{{item}}` | Current item in iterate |
-| `{{item.xxx}}` | Iterate item field |
-| `{{temp.xxx}}` | Temporary variable |
-| `{{payload.xxx}}` | Webhook payload |
-| `{{webhook.xxx}}` | Webhook parameter |
+| `{{connection.xxx}}` | Connection stored data         |
+| `{{common.xxx}}`     | Common data                    |
+| `{{body}}`           | Response body                  |
+| `{{body.xxx}}`       | Response body field            |
+| `{{statusCode}}`     | HTTP status code               |
+| `{{headers.xxx}}`    | Response header                |
+| `{{item}}`           | Current item in iterate        |
+| `{{item.xxx}}`       | Iterate item field             |
+| `{{temp.xxx}}`       | Temporary variable             |
+| `{{payload.xxx}}`    | Webhook payload                |
+| `{{webhook.xxx}}`    | Webhook parameter              |
 
 For the full list of built-in functions, see the reference files in the language folders.
 
@@ -429,23 +454,23 @@ Key functions: `if()`, `ifempty()`, `switch()`, `get()`, `pick()`, `omit()`, `co
 
 ### Runtime Additional Functions (provided by imt-app-runtime)
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `jwt()` | `jwt(payload, secret, alg?, options?)` | Generate JWT token. Default alg: `HS256` |
-| `generateJwtWithKeyId()` | `generateJwtWithKeyId(payload, hmacKey, jwtAlg?, thumbprintAlg?, options?)` | Generate JWT with RFC7517 kid header |
-| `cryptoSign()` | `cryptoSign(algorithm, data, key, outputEncoding?)` | Cryptographic signing. Default outputEncoding: `hex` |
-| `mime()` | `mime(filename)` | Return MIME type from filename |
-| `parseJSON()` | `parseJSON(string)` | Parse JSON string |
-| `createJSON()` | `createJSON(object)` | Convert object to JSON string |
-| `parseXML()` | `parseXML(string)` | Parse XML string to object |
-| `createXML()` | `createXML(object)` | Convert object to XML string |
-| `toDataStructure()` | `toDataStructure(data, type?)` | Generate data structure. Default type: `json` |
-| `isArray()` | `isArray(value)` | Check if value is array |
-| `pop()` | `pop(array)` | Remove/return last element of array |
-| `shift()` | `shift(array)` | Remove/return first element of array |
-| `errorFactory()` | `errorFactory(errorType, message)` | Create custom error |
+| Function                 | Signature                                                                   | Description                                          |
+| ------------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `jwt()`                  | `jwt(payload, secret, alg?, options?)`                                      | Generate JWT token. Default alg: `HS256`             |
+| `generateJwtWithKeyId()` | `generateJwtWithKeyId(payload, hmacKey, jwtAlg?, thumbprintAlg?, options?)` | Generate JWT with RFC7517 kid header                 |
+| `cryptoSign()`           | `cryptoSign(algorithm, data, key, outputEncoding?)`                         | Cryptographic signing. Default outputEncoding: `hex` |
+| `mime()`                 | `mime(filename)`                                                            | Return MIME type from filename                       |
+| `parseJSON()`            | `parseJSON(string)`                                                         | Parse JSON string                                    |
+| `createJSON()`           | `createJSON(object)`                                                        | Convert object to JSON string                        |
+| `parseXML()`             | `parseXML(string)`                                                          | Parse XML string to object                           |
+| `createXML()`            | `createXML(object)`                                                         | Convert object to XML string                         |
+| `toDataStructure()`      | `toDataStructure(data, type?)`                                              | Generate data structure. Default type: `json`        |
+| `isArray()`              | `isArray(value)`                                                            | Check if value is array                              |
+| `pop()`                  | `pop(array)`                                                                | Remove/return last element of array                  |
+| `shift()`                | `shift(array)`                                                              | Remove/return first element of array                 |
+| `errorFactory()`         | `errorFactory(errorType, message)`                                          | Create custom error                                  |
 
-Backtick escaping: Use `` {{parameters.`key.with.dots`}} `` when keys contain `.`, `-`, or spaces
+Backtick escaping: Use ``{{parameters.`key.with.dots`}}`` when keys contain `.`, `-`, or spaces
 
 ## Communication (api.imljson) Structure
 
@@ -453,36 +478,36 @@ For detailed specs, see `{lang}/communication-reference.md` in the language fold
 
 ```json
 {
-    "url": "/endpoint/{{parameters.id}}",
-    "method": "GET|POST|PUT|DELETE|PATCH",
-    "headers": { "Custom-Header": "value" },
-    "qs": { "param": "{{parameters.param}}" },
-    "body": { "field": "{{parameters.field}}" },
-    "type": "json|urlencoded|multipart/form-data|binary|text",
-    "temp": { "myVar": "{{body.someValue}}" },
-    "condition": "{{parameters.optionalParam}}",
-    "response": {
-        "output": "{{body}}",
-        "iterate": "{{body.items}}",
-        "limit": "{{parameters.limit}}",
-        "trigger": {
-            "id": "{{item.id}}",
-            "date": "{{item.createdAt}}",
-            "type": "date",
-            "order": "desc"
-        },
-        "valid": "{{body.status != 'error'}}",
-        "error": {
-            "message": "[{{statusCode}}] {{body.error.message}}",
-            "type": "RuntimeError"
-        },
-        "temp": { "nextCursor": "{{body.nextCursor}}" },
-        "wrapper": { "id": "{{item.id}}", "data": "{{item}}" }
-    },
-    "pagination": {
-        "condition": "{{body.hasMore}}",
-        "qs": { "cursor": "{{temp.nextCursor}}" }
-    }
+	"url": "/endpoint/{{parameters.id}}",
+	"method": "GET|POST|PUT|DELETE|PATCH",
+	"headers": { "Custom-Header": "value" },
+	"qs": { "param": "{{parameters.param}}" },
+	"body": { "field": "{{parameters.field}}" },
+	"type": "json|urlencoded|multipart/form-data|binary|text",
+	"temp": { "myVar": "{{body.someValue}}" },
+	"condition": "{{parameters.optionalParam}}",
+	"response": {
+		"output": "{{body}}",
+		"iterate": "{{body.items}}",
+		"limit": "{{parameters.limit}}",
+		"trigger": {
+			"id": "{{item.id}}",
+			"date": "{{item.createdAt}}",
+			"type": "date",
+			"order": "desc"
+		},
+		"valid": "{{body.status != 'error'}}",
+		"error": {
+			"message": "[{{statusCode}}] {{body.error.message}}",
+			"type": "RuntimeError"
+		},
+		"temp": { "nextCursor": "{{body.nextCursor}}" },
+		"wrapper": { "id": "{{item.id}}", "data": "{{item}}" }
+	},
+	"pagination": {
+		"condition": "{{body.hasMore}}",
+		"qs": { "cursor": "{{temp.nextCursor}}" }
+	}
 }
 ```
 
@@ -492,15 +517,15 @@ Writing Communication as an array executes them sequentially:
 
 ```json
 [
-    {
-        "url": "/first-call",
-        "response": { "temp": { "token": "{{body.token}}" } }
-    },
-    {
-        "url": "/second-call",
-        "headers": { "Authorization": "Bearer {{temp.token}}" },
-        "response": { "output": "{{body}}" }
-    }
+	{
+		"url": "/first-call",
+		"response": { "temp": { "token": "{{body.token}}" } }
+	},
+	{
+		"url": "/second-call",
+		"headers": { "Authorization": "Bearer {{temp.token}}" },
+		"response": { "output": "{{body}}" }
+	}
 ]
 ```
 
@@ -510,16 +535,16 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ```json
 [
-    {
-        "name": "fieldName",
-        "type": "text",
-        "label": "Field Label",
-        "help": "Description text",
-        "required": true,
-        "default": "defaultValue",
-        "advanced": false,
-        "multiline": false
-    }
+	{
+		"name": "fieldName",
+		"type": "text",
+		"label": "Field Label",
+		"help": "Description text",
+		"required": true,
+		"default": "defaultValue",
+		"advanced": false,
+		"multiline": false
+	}
 ]
 ```
 
@@ -531,13 +556,13 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ```json
 {
-    "name": "status",
-    "type": "select",
-    "label": "Status",
-    "options": [
-        { "label": "Active", "value": "active" },
-        { "label": "Inactive", "value": "inactive" }
-    ]
+	"name": "status",
+	"type": "select",
+	"label": "Status",
+	"options": [
+		{ "label": "Active", "value": "active" },
+		{ "label": "Inactive", "value": "inactive" }
+	]
 }
 ```
 
@@ -545,10 +570,10 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ```json
 {
-    "name": "projectId",
-    "type": "select",
-    "label": "Project",
-    "options": { "store": "rpc://listProjects" }
+	"name": "projectId",
+	"type": "select",
+	"label": "Project",
+	"options": { "store": "rpc://listProjects" }
 }
 ```
 
@@ -556,13 +581,13 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ```json
 {
-    "name": "address",
-    "type": "collection",
-    "label": "Address",
-    "spec": [
-        { "name": "city", "type": "text", "label": "City" },
-        { "name": "zip", "type": "text", "label": "ZIP Code" }
-    ]
+	"name": "address",
+	"type": "collection",
+	"label": "Address",
+	"spec": [
+		{ "name": "city", "type": "text", "label": "City" },
+		{ "name": "zip", "type": "text", "label": "ZIP Code" }
+	]
 }
 ```
 
@@ -570,10 +595,10 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ```json
 {
-    "name": "tags",
-    "type": "array",
-    "label": "Tags",
-    "spec": { "type": "text", "label": "Tag" }
+	"name": "tags",
+	"type": "array",
+	"label": "Tags",
+	"spec": { "type": "text", "label": "Tag" }
 }
 ```
 
@@ -583,14 +608,14 @@ Defines module output structure. Same syntax as Parameters but uses `spec` for n
 
 ```json
 [
-    { "name": "id", "type": "uinteger", "label": "ID" },
-    { "name": "name", "type": "text", "label": "Name" },
-    {
-        "name": "emails",
-        "type": "array",
-        "label": "Emails",
-        "spec": { "type": "email", "label": "Email" }
-    }
+	{ "name": "id", "type": "uinteger", "label": "ID" },
+	{ "name": "name", "type": "text", "label": "Name" },
+	{
+		"name": "emails",
+		"type": "array",
+		"label": "Emails",
+		"spec": { "type": "email", "label": "Email" }
+	}
 ]
 ```
 
@@ -600,18 +625,18 @@ RPC dynamic interface: Can use `"rpc://nameOfRPC"` string
 
 ```json
 {
-    "baseUrl": "https://api.example.com/v1",
-    "headers": {
-        "Authorization": "Bearer {{connection.accessToken}}"
-    },
-    "response": {
-        "error": {
-            "message": "[{{statusCode}}] {{body.error.message}}"
-        }
-    },
-    "log": {
-        "sanitize": ["request.headers.Authorization"]
-    }
+	"baseUrl": "https://api.example.com/v1",
+	"headers": {
+		"Authorization": "Bearer {{connection.accessToken}}"
+	},
+	"response": {
+		"error": {
+			"message": "[{{statusCode}}] {{body.error.message}}"
+		}
+	},
+	"log": {
+		"sanitize": ["request.headers.Authorization"]
+	}
 }
 ```
 
@@ -669,21 +694,21 @@ Per-status-code error handling:
 
 ```json
 {
-    "output": "{{item}}",
-    "iterate": "{{body.events}}",
-    "condition": "{{body.type == 'event'}}",
-    "respond": {
-        "status": 200,
-        "type": "json",
-        "body": { "status": "ok" }
-    },
-    "verification": {
-        "condition": "{{body.challenge}}",
-        "respond": {
-            "status": 200,
-            "body": { "challenge": "{{body.challenge}}" }
-        }
-    }
+	"output": "{{item}}",
+	"iterate": "{{body.events}}",
+	"condition": "{{body.type == 'event'}}",
+	"respond": {
+		"status": 200,
+		"type": "json",
+		"body": { "status": "ok" }
+	},
+	"verification": {
+		"condition": "{{body.challenge}}",
+		"respond": {
+			"status": 200,
+			"body": { "challenge": "{{body.challenge}}" }
+		}
+	}
 }
 ```
 
@@ -691,23 +716,23 @@ Per-status-code error handling:
 
 ```json
 {
-    "url": "/api/items",
-    "qs": { "sort": "created_at", "order": "desc" },
-    "response": {
-        "limit": "{{parameters.limit}}",
-        "output": "{{item}}",
-        "iterate": "{{body.data}}",
-        "trigger": {
-            "id": "{{item.id}}",
-            "date": "{{item.created_at}}",
-            "type": "date",
-            "order": "desc"
-        }
-    },
-    "pagination": {
-        "condition": "{{body.has_more}}",
-        "qs": { "cursor": "{{body.next_cursor}}" }
-    }
+	"url": "/api/items",
+	"qs": { "sort": "created_at", "order": "desc" },
+	"response": {
+		"limit": "{{parameters.limit}}",
+		"output": "{{item}}",
+		"iterate": "{{body.data}}",
+		"trigger": {
+			"id": "{{item.id}}",
+			"date": "{{item.created_at}}",
+			"type": "date",
+			"order": "desc"
+		}
+	},
+	"pagination": {
+		"condition": "{{body.has_more}}",
+		"qs": { "cursor": "{{body.next_cursor}}" }
+	}
 }
 ```
 
@@ -715,30 +740,30 @@ Per-status-code error handling:
 
 ```json
 {
-    "response": {
-        "status": 200,
-        "headers": { "content-type": "application/json" },
-        "body": { "result": "{{parameters.result}}" }
-    }
+	"response": {
+		"status": 200,
+		"headers": { "content-type": "application/json" },
+		"body": { "result": "{{parameters.result}}" }
+	}
 }
 ```
 
 ## Runtime Limitations (imt-app-runtime)
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `maxRequestCount` | 100 | Max HTTP requests per module |
-| `maxPaginationRequestCount` | 50 | Max pagination requests |
-| `maxPastRecords` | 3200 | Max past records for Trigger |
-| timeout | 40s (max 300s) | Configurable via `timeout` in Common |
+| Setting                     | Default        | Description                          |
+| --------------------------- | -------------- | ------------------------------------ |
+| `maxRequestCount`           | 100            | Max HTTP requests per module         |
+| `maxPaginationRequestCount` | 50             | Max pagination requests              |
+| `maxPastRecords`            | 3200           | Max past records for Trigger         |
+| timeout                     | 40s (max 300s) | Configurable via `timeout` in Common |
 
 These values can be overridden in `common.imljson`:
 
 ```json
 {
-    "maxRequestCount": 200,
-    "maxPaginationRequestCount": 100,
-    "timeout": 300000
+	"maxRequestCount": 200,
+	"maxPaginationRequestCount": 100,
+	"timeout": 300000
 }
 ```
 
@@ -801,6 +826,7 @@ Guide the user as follows:
 > The `imt-app-runtime` source code is needed to accurately reference the internal workings of the Make app runtime.
 >
 > Please open **GitHub Desktop** and clone the following repository:
+>
 > - Repository: `niceinnovative/imt-app-runtime` (Make internal repo)
 > - Clone to any local path you prefer
 >
