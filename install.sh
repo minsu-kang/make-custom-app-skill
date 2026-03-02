@@ -21,6 +21,7 @@ REPO="minsu-kang/make-custom-app-skill"
 BRANCH="master"
 SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
 RULES_DIR="$HOME/.cursor/rules"
+VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md" "download-app.js" "review-changes.js" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
 RULE_FILES=("make-app-code-review.mdc")
@@ -170,11 +171,19 @@ fi
 # ── Verify Installation ──
 echo ""
 if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/download-app.js" ]; then
+    INSTALLED_VERSION=""
+    if [ -f "$SKILL_DIR/SKILL.md" ]; then
+        INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')
+    fi
+
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     if [ "$MODE" = "update" ]; then
         echo -e "${GREEN}${BOLD}  Update Complete!${NC}"
     else
         echo -e "${GREEN}${BOLD}  Installation Complete!${NC}"
+    fi
+    if [ -n "$INSTALLED_VERSION" ]; then
+        echo -e "${GREEN}${BOLD}  Version: $INSTALLED_VERSION${NC}"
     fi
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     echo ""
