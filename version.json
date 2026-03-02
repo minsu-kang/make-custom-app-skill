@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "released": "2026-03-02",
   "min_version": "1.0.0",
-  "changelog": "Added version check system",
+  "changelog": "Version check system test",
   "update_command": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update"
 }
