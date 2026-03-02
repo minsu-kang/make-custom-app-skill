@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Make Custom App 전체 소스코드 다운로드 스크립트
+ * Make Custom App full source code download script
  *
- * 사용법:
+ * Usage:
  *   node download-app.js <app-slug> <app-version> [output-dir]
  *   node download-app.js google-docs 1
  *   node download-app.js instagram 5 /tmp/instagram-v5
  *
- * ~/.cursor/make-app-contexts/{slug}-v{version}/ 에 저장
- * Cursor 설정에서 API 키와 환경 정보를 자동으로 읽음
+ * Saves to ~/.cursor/make-app-contexts/{slug}-v{version}/
+ * Automatically reads API key and environment from Cursor settings
  */
 
 const fs = require('fs');
@@ -55,7 +55,7 @@ function loadSettings() {
 
 	const env = environments.find((e) => e.uuid === activeUuid) || environments[0];
 	if (!env) {
-		console.error('ERROR: apps-sdk.environments 설정을 찾을 수 없습니다.');
+		console.error('ERROR: apps-sdk.environments configuration not found.');
 		process.exit(1);
 	}
 
@@ -88,7 +88,7 @@ async function apiGet(url, auth, retries = 0) {
 		if (resp.status === 404) return null;
 		if (resp.status === 429) {
 			if (retries >= MAX_RETRIES) {
-				console.error(`  ✗ 429 재시도 초과: ${url}`);
+				console.error(`  ✗ 429 retry limit exceeded: ${url}`);
 				return null;
 			}
 			concurrency = Math.max(2, Math.floor(concurrency / 2));
@@ -96,7 +96,7 @@ async function apiGet(url, auth, retries = 0) {
 			const delay = retryAfter
 				? parseInt(retryAfter, 10) * 1000
 				: BASE_DELAY_MS * Math.pow(2, retries);
-			console.error(`  ⏳ 429 Rate Limit → ${delay}ms 후 재시도 (동시성: ${concurrency})`);
+			console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms (concurrency: ${concurrency})`);
 			await sleep(delay);
 			return apiGet(url, auth, retries + 1);
 		}
@@ -161,8 +161,8 @@ async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
 		const originHost = origin.includes('/') ? origin.split('/')[0] : origin;
 		if (currentHost !== originHost) {
 			const newUrl = baseUrl.replace(currentHost, originHost);
-			console.log(`  Origin 감지: ${origin}`);
-			console.log(`  URL 변경: ${baseUrl} → ${newUrl}`);
+			console.log(`  Origin detected: ${origin}`);
+			console.log(`  URL changed: ${baseUrl} → ${newUrl}`);
 			return { baseUrl: newUrl, origin };
 		}
 	}
@@ -173,8 +173,8 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	let { baseUrl, auth } = loadSettings();
 	const stats = { saved: 0, skipped: 0 };
 
-	console.log(`설정된 API: ${baseUrl}`);
-	console.log(`앱: ${appSlug} v${appVersion}\n`);
+	console.log(`Configured API: ${baseUrl}`);
+	console.log(`App: ${appSlug} v${appVersion}\n`);
 
 	const resolved = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
 	baseUrl = resolved.baseUrl;
@@ -183,8 +183,8 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	const outputDir = customOutputDir || path.join(DEFAULT_CONTEXTS_DIR, `${appSlug}-v${appVersion}`);
 	fs.mkdirSync(outputDir, { recursive: true });
 
-	console.log(`실제 API: ${baseUrl}`);
-	console.log(`저장: ${outputDir}\n`);
+	console.log(`Actual API: ${baseUrl}`);
+	console.log(`Output: ${outputDir}\n`);
 
 	const appBase = `${baseUrl}/sdk/apps`;
 	const verBase = `${appBase}/${appSlug}/${appVersion}`;
@@ -210,7 +210,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		auth,
 	);
 	const modules = modResp?.appModules || [];
-	console.log(`  ${modules.length}개 모듈 발견`);
+	console.log(`  ${modules.length} module(s) found`);
 
 	const moduleTasks = modules.flatMap((mod) => {
 		const files = MODULE_FILES[mod.typeId] || MODULE_FILES[4];
@@ -230,7 +230,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	console.log('\n=== Connections ===');
 	const connResp = await apiGetJson(`${appBase}/${appSlug}/connections`, auth);
 	const connections = connResp?.appConnections || [];
-	console.log(`  ${connections.length}개 연결 발견`);
+	console.log(`  ${connections.length} connection(s) found`);
 
 	const connTasks = connections.flatMap((conn) =>
 		CONNECTION_FILES.map((ft) => async () => {
@@ -249,7 +249,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	console.log('\n=== Webhooks ===');
 	const whResp = await apiGetJson(`${appBase}/${appSlug}/webhooks`, auth);
 	const webhooks = whResp?.appWebhooks || [];
-	console.log(`  ${webhooks.length}개 웹훅 발견`);
+	console.log(`  ${webhooks.length} webhook(s) found`);
 
 	const whTasks = webhooks.flatMap((wh) =>
 		WEBHOOK_FILES.map((ft) => async () => {
@@ -268,7 +268,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	console.log('\n=== RPCs ===');
 	const rpcResp = await apiGetJson(`${verBase}/rpcs`, auth);
 	const rpcs = rpcResp?.appRpcs || [];
-	console.log(`  ${rpcs.length}개 RPC 발견`);
+	console.log(`  ${rpcs.length} RPC(s) found`);
 
 	const rpcTasks = rpcs.flatMap((rpc) =>
 		RPC_FILES.map((ft) => async () => {
@@ -287,7 +287,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	console.log('\n=== Functions ===');
 	const funcResp = await apiGetJson(`${verBase}/functions`, auth);
 	const functions = funcResp?.appFunctions || [];
-	console.log(`  ${functions.length}개 함수 발견`);
+	console.log(`  ${functions.length} function(s) found`);
 
 	const funcTasks = functions.flatMap((func) =>
 		FUNCTION_FILES.map((ft) => async () => {
@@ -324,17 +324,17 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	saveFile(outputDir, 'metadata.json', JSON.stringify(metadata, null, 2));
 	console.log('\n  ✓ metadata.json');
 
-	console.log(`\n=== 완료 ===`);
-	console.log(`  저장: ${stats.saved}개 파일`);
-	console.log(`  스킵: ${stats.skipped}개 (빈 파일)`);
-	console.log(`  경로: ${outputDir}`);
+	console.log(`\n=== Done ===`);
+	console.log(`  Saved: ${stats.saved} file(s)`);
+	console.log(`  Skipped: ${stats.skipped} (empty)`);
+	console.log(`  Path: ${outputDir}`);
 }
 
 const [appSlug, appVersion, outputDir] = process.argv.slice(2);
 
 if (!appSlug || !appVersion) {
-	console.log('사용법: node download-app.js <app-slug> <app-version> [output-dir]');
-	console.log('예시:   node download-app.js google-docs 1');
+	console.log('Usage: node download-app.js <app-slug> <app-version> [output-dir]');
+	console.log('Example: node download-app.js google-docs 1');
 	console.log('        node download-app.js instagram 5 /tmp/instagram-v5');
 	process.exit(1);
 }

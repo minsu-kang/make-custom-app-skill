@@ -21,17 +21,17 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
 
 **Upgrade warning message (copy exactly):**
 
-> ⚠️ **Make Custom App 스킬 업데이트가 필요합니다!**
+> ⚠️ **Make Custom App skill update required!**
 >
-> 현재 설치된 버전: `{installed_version}` → 최신 버전: `{latest_version}`
+> Installed version: `{installed_version}` → Latest version: `{latest_version}`
 >
-> 아래 명령어를 **외부 터미널** (Cursor menu bar → Terminal → New Window)에서 실행해주세요:
+> Please run the following command in an **external terminal** (Cursor menu bar → Terminal → New Window):
 >
 > ```
 > curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update
 > ```
 >
-> 업데이트 후 **Cursor를 재시작**하고 다시 질문해주세요!
+> After updating, **restart Cursor** and ask your question again!
 
 ---
 
@@ -182,7 +182,7 @@ Workflow for AI to fetch uncommitted changes from a Make app and perform a code 
 
 Execute this workflow if any of the following conditions are met:
 
-- User requests a code review (e.g., "code review", "review changes", "코드 리뷰", "리뷰 해줘")
+- User requests a code review (e.g., "code review", "review changes")
 - User asks to review changes for a specific app
 
 ### Steps
@@ -357,13 +357,13 @@ Execute this workflow if any of the following conditions are met:
 
 **10. Post-Commit Sync**: When the user confirms the fix has been committed, guide them to re-run the download command to sync `make-app-contexts` with the committed code.
 
-> 커밋이 완료되었으니 로컬 코드를 동기화합니다. **Cursor menu bar → Terminal → New Window**에서 아래 명령어를 실행해주세요:
+> Commit complete — syncing local code. Please run the following command in **Cursor menu bar → Terminal → New Window**:
 >
 > ```
 > node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
 > ```
 >
-> 완료되면 알려주세요!
+> Let me know when it's done!
 
 This ensures `make-app-contexts` always reflects the latest committed state, preventing stale code from being used in future reviews or investigations.
 
