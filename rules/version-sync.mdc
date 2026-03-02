@@ -1,24 +1,24 @@
 ---
-description: 버전 변경 시 SKILL.md·CHANGELOG.md 동기화, 커밋 시 CHANGELOG 자동 업데이트
+description: Sync versions across version.json, SKILL.md, and CHANGELOG.md on commits
 globs: version.json, skill/SKILL.md, CHANGELOG.md
 alwaysApply: false
 ---
 
 # Version & Changelog Sync Rule
 
-## 버전 동기화
+## Version Sync
 
-`version.json`의 `version`을 변경하면 `skill/SKILL.md` frontmatter의 `version`도 반드시 동일하게 맞출 것.
+When `version.json`'s `version` field is changed, `skill/SKILL.md` frontmatter `version` must be updated to the same value.
 
-## 커밋 시 CHANGELOG 자동 업데이트
+## Auto-Update CHANGELOG on Commit
 
-커밋을 생성할 때 `CHANGELOG.md`에 변경 내용을 추가할 것.
+When creating a commit, add the changes to `CHANGELOG.md`.
 
-- 버전이 올라간 경우: 새 버전 섹션(`## [x.y.z] - YYYY-MM-DD`)을 추가
-- 버전이 그대로인 경우: 현재 최상위 버전 섹션에 항목 추가
+- If the version was bumped: add a new version section (`## [x.y.z] - YYYY-MM-DD`)
+- If the version is unchanged: append entries to the current top-level version section
 
 ```markdown
-# CHANGELOG.md 예시
+# Example CHANGELOG.md
 
 ## [1.1.0] - 2026-03-05
 - Added new feature X
