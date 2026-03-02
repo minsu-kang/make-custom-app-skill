@@ -21,19 +21,39 @@ Works with the **Make Apps SDK** VS Code/Cursor extension. The agent understands
 
 ## Installation
 
-### Option 1: One-liner
+### macOS / Linux
+
+**Option 1: One-liner**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
 ```
 
-### Option 2: Clone & install
+**Option 2: Clone & install**
 
 ```bash
 git clone https://github.com/minsu-kang/make-custom-app-skill.git
 cd make-custom-app-skill
 ./install.sh
 ```
+
+### Windows (PowerShell)
+
+**Option 1: One-liner**
+
+```powershell
+irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.ps1 | iex
+```
+
+**Option 2: Clone & install**
+
+```powershell
+git clone https://github.com/minsu-kang/make-custom-app-skill.git
+cd make-custom-app-skill
+.\install.ps1
+```
+
+> **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
 Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/`.
 
@@ -44,7 +64,8 @@ After installation, **restart Cursor**. The skill activates automatically when y
 ```
 make-custom-app-skill/
 ├── README.md
-├── install.sh
+├── install.sh                         # Installer (macOS/Linux)
+├── install.ps1                        # Installer (Windows)
 ├── skill/                              # → installed to ~/.cursor/skills/make-custom-app/
 │   ├── SKILL.md                        #   Main skill instructions
 │   ├── builtin-iml-functions.md        #   IML function reference

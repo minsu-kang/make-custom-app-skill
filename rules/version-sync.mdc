@@ -8,7 +8,10 @@ alwaysApply: false
 
 ## Version Sync
 
-When `version.json`'s `version` field is changed, `skill/SKILL.md` frontmatter `version` must be updated to the same value.
+When `version.json`'s `version` field is changed:
+1. Update `skill/SKILL.md` frontmatter `version` to the same value
+2. Search `skill/SKILL.md` body for any hardcoded version strings (e.g. `` `1.x.x` ``) and update them
+3. **Never hardcode version numbers in body text** — if a reference to "current version" exists, it should say "Read the `version` field from the frontmatter" without repeating the actual number
 
 ## Auto-Update CHANGELOG on Commit
 

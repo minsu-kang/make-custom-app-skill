@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.0] - 2026-03-02
+
+- Added `install.ps1` — Windows PowerShell installer with full feature parity to `install.sh`
+- Updated `README.md` with OS-specific installation instructions (macOS/Linux + Windows)
+
 ## [1.1.0] - 2026-03-02
 
 - Added MCP server for shared app context via Pinecone vector DB
