@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0] - 2026-03-02
+
+- Added MCP server for shared app context via Pinecone vector DB
+- Added Pinecone auto-sync workflow to SKILL.md (triggers on context save, Jira work, code review)
+- Added interactive MCP server setup to install.sh (API key input, auto-register)
+- Added `register.js` script for automated Cursor MCP registration
+- Added ESLint with TypeScript + Prettier flat config to mcp-server
+- Added Vitest with 44 unit/integration tests for mcp-server
+- Improved MCP server detection logic (auto-detect default installed path)
+
 ## [1.0.3] - 2026-03-02
 
 - Moved scripts (`download-app.js`, `review-changes.js`) to separate `scripts/` folder

@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.0.3
+version: 1.1.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -12,7 +12,7 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
 
 **This check must run once when the skill is first loaded.** After the first check, skip it for subsequent uses in the same conversation.
 
-1. Read the `version` field from the frontmatter above (currently `1.0.3`)
+1. Read the `version` field from the frontmatter above (currently `1.1.0`)
 2. Fetch the latest version info from: `https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/version.json`
 3. Compare versions:
     - **If the installed version is OLDER than the latest version**: Display the warning below and **stop — do not answer the user's question until they upgrade**.
@@ -94,6 +94,7 @@ If **either of the two conditions below** is met, execute the workflow **automat
 **4. Answer the Question**: Answer the user's original question after code storage/sync is complete.
 
 - Also update the `.md` summary file if new information was learned
+- **After creating or updating the `.md` file, execute "Shared Context (Pinecone) Auto-Sync" automatically.**
 
 > **⚠️ Core Principle**: If download/sync is needed in step 2, **do not provide an answer to the user's original question for any reason.** Even if the file contents have already been read, defer the answer until the user confirms download/sync completion.
 
@@ -174,6 +175,170 @@ If changes are detected, guide the user to run the download command in an extern
 
 **Important**: If either of the two conditions above is met, always execute this workflow **automatically**. Do not ask the user whether to save context. Do not execute for general Make platform questions (not related to a specific app).
 
+## Shared Context (Pinecone) Auto-Sync
+
+Automatically syncs local context to the shared Pinecone vector DB via the `make-app-context` MCP server. This enables team-wide knowledge sharing — any context saved locally is immediately searchable by all team members.
+
+### Trigger (Auto-Execute — No User Confirmation Needed)
+
+Execute auto-sync **automatically** whenever any of the following occurs during a conversation:
+
+- A `{slug}-v{version}.md` context file is **created or updated**
+- Developer notes are generated for a Jira ticket (bug investigation, feature work)
+- A code review is completed
+
+### MCP Server Availability Check
+
+Before calling any MCP tool, check if the server is available by looking at the available MCP servers list.
+
+**Detection logic (execute in order):**
+
+1. **Check if `user-make-app-context` exists** in the available MCP servers.
+   - If yes → **MCP server is ready.** Proceed to "Auto-Sync Actions" below.
+   - If no → Continue to step 2.
+
+2. **Resolve the mcp-server path** (check in order, use the first match):
+   a. `mcp-server-path:` line at the end of this SKILL.md file → use that path.
+   b. Default installed path `~/.cursor/skills/make-custom-app/mcp-server/` → if `package.json` exists there, use this path.
+   - If a path is found → Continue to step 3.
+   - If neither exists → **MCP server is not installed.** Show the "Full Setup Guide" below and end the turn.
+
+3. **Check if `dist/index.js` exists** at the resolved path.
+   - If yes → Check if `.env` exists:
+     - `.env` exists → The server is built but not registered. Show the "Register Only Guide" below.
+     - `.env` missing → Show the "Configure & Register Guide" below.
+   - If no → The server needs to be built. Show the "Build & Register Guide" below.
+
+### Setup Guides
+
+#### Full Setup Guide (MCP server not installed)
+
+> **Shared context MCP server is not installed yet.**
+>
+> This server enables team-wide sharing of app contexts via Pinecone.
+>
+> Open **Cursor menu bar → Terminal → New Window** and run the installer:
+>
+> ```
+> curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
+> ```
+>
+> After installation completes, configure the MCP server:
+>
+> ```
+> cd ~/.cursor/skills/make-custom-app/mcp-server
+> cp .env.example .env
+> ```
+>
+> Fill in `PINECONE_API_KEY`, `OPENAI_API_KEY`, `PINECONE_INDEX_NAME` in the `.env` file, then:
+>
+> ```
+> npm run register
+> ```
+>
+> **Restart Cursor** after completion!
+
+After the user confirms setup, if `mcp-server-path:` is not already present, append it to the **very last line** of this SKILL.md file:
+
+```
+mcp-server-path: {path-to-mcp-server-directory}
+```
+
+#### Build & Register Guide (code exists but not built)
+
+> **MCP server needs to be built.**
+>
+> Open **Cursor menu bar → Terminal → New Window** and run:
+>
+> ```
+> cd {mcp-server-path}
+> npm install
+> npm run build
+> ```
+>
+> Then configure and register:
+>
+> ```
+> cp .env.example .env     # skip if .env already exists
+> ```
+>
+> Fill in `PINECONE_API_KEY`, `OPENAI_API_KEY`, `PINECONE_INDEX_NAME` in the `.env` file, then:
+>
+> ```
+> npm run register
+> ```
+>
+> **Restart Cursor** after completion!
+
+#### Configure & Register Guide (built but .env not configured)
+
+> **MCP server is built but not configured yet.**
+>
+> Open **Cursor menu bar → Terminal → New Window** and run:
+>
+> ```
+> cd {mcp-server-path}
+> cp .env.example .env
+> ```
+>
+> Fill in `PINECONE_API_KEY`, `OPENAI_API_KEY`, `PINECONE_INDEX_NAME` in the `.env` file, then:
+>
+> ```
+> npm run register
+> ```
+>
+> **Restart Cursor** after completion!
+
+#### Register Only Guide (built and configured but not registered with Cursor)
+
+> **MCP server is built but not registered with Cursor.**
+>
+> Open **Cursor menu bar → Terminal → New Window** and run:
+>
+> ```
+> cd {mcp-server-path}
+> npm run register
+> ```
+>
+> **Restart Cursor** after completion!
+
+### Auto-Sync Actions
+
+Once the MCP server is confirmed available, execute the appropriate upsert **automatically without asking**:
+
+**After context file create/update** — call `upsert_app_context`:
+
+```
+MCP server: user-make-app-context
+Tool: upsert_app_context
+Arguments: { slug: "{app-slug}", version: "{app-version}" }
+```
+
+**After Jira ticket work** (bug investigation, feature, code review) — call `upsert_jira_ticket`:
+
+```
+MCP server: user-make-app-context
+Tool: upsert_jira_ticket
+Arguments: {
+  ticket_key: "{JIRA-KEY}",
+  slug: "{app-slug}",
+  version: "{app-version}",
+  ticket_type: "bugfix" | "feature" | "review",
+  summary: "{ticket summary}",
+  description: "{ticket description}",
+  acceptance_criteria: "{acceptance criteria, if any}",
+  developer_notes: "{developer notes, if generated}",
+  review_result: "{review result, if code review}"
+}
+```
+
+### Important Rules
+
+- **Always auto-sync after saving context.** Never skip this step or ask the user whether to sync.
+- If MCP server is not available, **show the appropriate setup guide and end the turn.** Do not skip the guide.
+- If the MCP call fails with a transient error (network, timeout), inform the user and suggest retrying later. Do not block the rest of the workflow.
+- The `upsert_app_context` reads from `~/.cursor/make-app-contexts/` — ensure the local files are saved before calling it.
+
 ## Code Review Workflow
 
 Workflow for AI to fetch uncommitted changes from a Make app and perform a code review.
@@ -215,6 +380,8 @@ Guide the user to run **both** scripts in order:
 **4. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change to perform the review.
 
 **5. Context Loading (Optional)**: If full context of the changed component is needed, read related files from `~/.cursor/make-app-contexts/{slug}-v{version}/` for reference.
+
+**6. Auto-Sync to Pinecone**: After the review is complete, execute "Shared Context (Pinecone) Auto-Sync" — call `upsert_jira_ticket` with `ticket_type: "review"` and the review result.
 
 ### Review Output Format
 
@@ -353,7 +520,7 @@ Execute this workflow if any of the following conditions are met:
 
 **8. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
 
-**9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. Only the `.md` summary file is updated here — code files in `make-app-contexts/` are NOT modified (see Step 7).
+**9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. Only the `.md` summary file is updated here — code files in `make-app-contexts/` are NOT modified (see Step 7). **After updating, execute "Shared Context (Pinecone) Auto-Sync" — both `upsert_app_context` and `upsert_jira_ticket`.**
 
 **10. Post-Commit Sync**: When the user confirms the fix has been committed, guide them to re-run the download command to sync `make-app-contexts` with the committed code.
 

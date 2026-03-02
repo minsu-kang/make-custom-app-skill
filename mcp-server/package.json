@@ -1,0 +1,31 @@
+{
+  "name": "make-app-context-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for shared Make app context via Pinecone vector DB",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "register": "node register.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "openai": "^4.80.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
+  }
+}
