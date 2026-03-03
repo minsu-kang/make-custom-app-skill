@@ -75,9 +75,11 @@ make-custom-app-skill/
 │       └── runtime-reference.md        #   imt-app-runtime internals
 ├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/
 │   ├── download-app.js                 #   App source code downloader
+│   ├── update-app.js                   #   Push code changes to Make via SDK API
 │   └── review-changes.js               #   Code review change fetcher
 └── rules/                              # → installed to ~/.cursor/rules/
     ├── make-app-code-review.mdc        #   Code review input requirements
+    ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
     └── version-sync.mdc               #   Version & changelog sync rule
 ```
 
@@ -107,6 +109,7 @@ make-custom-app-skill/
 | File | Description |
 |------|-------------|
 | `download-app.js` | Downloads full app source code from Make API |
+| `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
 | `review-changes.js` | Fetches uncommitted changes for code review |
 
 ### Rule Files (`~/.cursor/rules/`)
@@ -114,6 +117,7 @@ make-custom-app-skill/
 | File | Description |
 |------|-------------|
 | `make-app-code-review.mdc` | Enforces required inputs (app-slug, version) and recommends Jira ticket attachment for code reviews. Guides Atlassian MCP setup if needed. |
+| `make-app-auto-actions.mdc` | Enforces mandatory actions: context file update, Pinecone sync, related ticket lookup, test code, version check, code download/sync first, external terminal, fresh fetch before review. |
 | `version-sync.mdc` | Ensures `version.json` and `skill/SKILL.md` frontmatter versions stay in sync before commits. |
 
 ## First Use

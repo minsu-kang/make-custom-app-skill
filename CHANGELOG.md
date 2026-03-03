@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.5] - 2026-03-03
+
+- Updated README with `update-app.js` and `make-app-auto-actions.mdc` documentation
+
 ## [1.3.4] - 2026-03-03
 
 - Added version check, code download/sync first, external terminal only, and fresh fetch before code review rules to `make-app-auto-actions.mdc`
