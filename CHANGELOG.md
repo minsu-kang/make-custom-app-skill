@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0] - 2026-03-03
+
+- Added `update-app.js` script to push code changes directly to Make via SDK Admin API
+- Updated Bug Investigation Workflow (Step 7) to use `update-app.js` instead of manual SDK editing
+- Updated Code Review Workflow to reference `update-app.js` for applying fixes
+- Added "App Code Update" section to SKILL.md documenting `update-app.js` usage and component path format
+
 ## [1.2.0] - 2026-03-02
 
 - Added `install.ps1` — Windows PowerShell installer with full feature parity to `install.sh`
@@ -25,7 +32,7 @@
 
 - Added `version-sync.mdc` rule to keep `version.json`, `skill/SKILL.md`, and `CHANGELOG.md` in sync
 - Added `CHANGELOG.md` for tracking release history
-- Updated `install.sh` to install `version-sync.mdc` rule
+- Updated `install.sh` to install scripts from `scripts/` directory
 - Updated `README.md` with `version-sync.mdc` documentation
 - Removed `changelog` field from `version.json` (replaced by `CHANGELOG.md`)
 

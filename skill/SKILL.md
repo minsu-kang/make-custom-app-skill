@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.2.0
+version: 1.3.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -122,6 +122,44 @@ node ~/.cursor/skills/make-custom-app/download-app.js openai-gpt-3 1
 - Checks the app's `origin` (actual storage zone) first and routes requests to that zone
 - Dynamic concurrency (auto-decreases on 429) + exponential backoff retry
 - Storage path: `~/.cursor/make-app-contexts/{slug}-v{version}/`
+
+### App Code Update (Push Changes to Make)
+
+Pushes local IMLJSON code changes directly to Make via the SDK Admin API. No need to manually edit files in the VS Code SDK — write the fixed code to `make-app-contexts` and push with `update-app.js`.
+
+Guide the user as follows:
+
+> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
+>
+> ```
+> node ~/.cursor/skills/make-custom-app/update-app.js {app-slug} {app-version} {component-path} {file-path}
+> ```
+>
+> Let me know when it's done!
+
+Component path format:
+
+| Path | Target |
+|------|--------|
+| `module/<name>/<section>` | Module section (api, parameters, expect, interface, samples, scope) |
+| `connection/<name>/<section>` | Connection section (api, common, scopes, scope, parameters) |
+| `rpc/<name>/<section>` | RPC section (api, parameters) |
+| `webhook/<name>/<section>` | Webhook section (api, parameters, attach, detach) |
+| `function/<name>/<section>` | Function file (code, test) |
+| `base` | App base |
+| `common` | App common data |
+| `groups` | App groups |
+
+Example:
+
+```bash
+node ~/.cursor/skills/make-custom-app/update-app.js zoom 2 module/listWebinarRegistrants/api ~/.cursor/make-app-contexts/zoom-v2/modules/listWebinarRegistrants/api.imljson
+```
+
+- Uses the same SDK Admin API credentials as `download-app.js`
+- Resolves app origin automatically (routes to correct zone)
+- Works with all apps accessible via the SDK (including internal/compiled apps)
+- Changes are saved as **uncommitted** — user must still commit and deploy via SDK
 
 ### Individual Component Sync (When Code Folder Already Exists)
 
@@ -449,6 +487,7 @@ Evaluate each change against the following criteria:
 ### Important Rules
 
 - **ALWAYS run both download-app.js and review-changes.js before every review** — never rely on previously saved local code or `latest.json`. The local code in `make-app-contexts` may be stale, and review data must be freshly fetched each time, including re-reviews after code changes.
+- After review, if fixes are needed, apply them using `update-app.js` (see "App Code Update" section) instead of manually editing in the SDK.
 - If there are 0 changes: inform the user "No uncommitted changes found."
 - Focus the review on **old_value → new_value comparison**. If only new_value exists (new component), evaluate quality of new_value only.
 - If any breaking change is found, the overall verdict must be **Changes Requested**.
@@ -509,18 +548,28 @@ Execute this workflow if any of the following conditions are met:
 - Wait for user confirmation before proceeding to the fix
 - This prevents wasted effort from an incorrect diagnosis
 
-**7. Fix & Test**: Apply the fix to the user's **SDK working directory** (the temporary path the user has open).
+**7. Fix & Apply**: Apply the fix and push it to Make.
 
-- Apply the minimal fix to the affected file(s) in `var/folders/.../apps-sdk-internal/sdk/apps/...`
-- **Do NOT** directly modify files in `~/.cursor/make-app-contexts/` — code sync is the responsibility of `download-app.js` after the fix is committed
-- Add test cases in `test.js` covering:
+- Write the fixed code to `~/.cursor/make-app-contexts/{slug}-v{version}/` (the local code store)
+- Guide the user to push the fix using `update-app.js` (see "App Code Update" section):
+
+> Open **Cursor menu bar → Terminal → New Window** and run:
+>
+> ```
+> node ~/.cursor/skills/make-custom-app/update-app.js {app-slug} {app-version} {component-path} {file-path}
+> ```
+>
+> Let me know when it's done!
+
+- Changes are pushed as **uncommitted** to Make — the user must still commit and deploy via SDK
+- If custom functions have test cases, update `test.js` covering:
     - The bug scenario (must fail before fix, pass after)
     - Edge cases (null, undefined, empty values, boundary conditions)
     - Existing functionality (ensure no regression)
 
 **8. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
 
-**9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. Only the `.md` summary file is updated here — code files in `make-app-contexts/` are NOT modified (see Step 7). **After updating, execute "Shared Context (Pinecone) Auto-Sync" — both `upsert_app_context` and `upsert_jira_ticket`.**
+**9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. **After updating, execute "Shared Context (Pinecone) Auto-Sync" — both `upsert_app_context` and `upsert_jira_ticket`.**
 
 **10. Post-Commit Sync**: When the user confirms the fix has been committed, guide them to re-run the download command to sync `make-app-contexts` with the committed code.
 

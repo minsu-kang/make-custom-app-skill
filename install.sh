@@ -24,7 +24,7 @@ RULES_DIR="$HOME/.cursor/rules"
 VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js")
+SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js")
 RULE_FILES=("make-app-code-review.mdc" "version-sync.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
