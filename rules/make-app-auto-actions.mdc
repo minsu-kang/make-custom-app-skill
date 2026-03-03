@@ -26,10 +26,47 @@ Execute MCP calls immediately after saving the context file:
 - **Analyzing a subtask**: Always fetch the parent task to understand the goal, AC, and scope of changes.
 - **Analyzing a parent task**: Always fetch subtasks to understand progress, QA issues, and granular work items.
 
-## 4. QA Subtask Investigation
+## 4. IML Function Test Code
+
+When modifying a custom IML function (`functions/{name}/code.js`), always create or update the corresponding `test.js` file (`functions/{name}/test.js`). Tests must cover:
+
+- The bug scenario being fixed (should fail before fix, pass after)
+- Edge cases (null, undefined, empty string, empty array)
+- Existing functionality (no regressions)
+
+Upload the test file via `update-app.js` with component path `function/{name}/test`.
+
+## 5. QA Subtask Investigation
 
 QA-created subtasks typically mean the parent task's implementation has a bug. Before investigating:
 
 1. **Search Pinecone first** — call `search_app_knowledge` with the app slug and relevant keywords (error message, module name, function name) to find prior context, related fixes, and known caveats from the team.
 2. **Load local context** — read `~/.cursor/make-app-contexts/{slug}-v{version}.md` for app patterns and work history.
 3. Then proceed with the bug investigation using all gathered context.
+
+## 6. Version Check
+
+When the Make Custom App skill is loaded at the start of a conversation, always compare the local `version` field in SKILL.md frontmatter against the remote `version.json`. If outdated, show the upgrade command and stop — do not answer until the user upgrades.
+
+## 7. Code Download/Sync First
+
+When a Make app is detected (by user mention or open file path), check code availability and freshness **before answering**:
+
+- Code folder missing → guide download first, do not answer the question
+- Code older than 24h → recommend re-download before proceeding
+- Open file differs from local store → guide sync first, do not answer the question
+
+Never answer the user's app-related question until code is confirmed available and up to date.
+
+## 8. External Terminal Only
+
+Scripts (`download-app.js`, `update-app.js`, `review-changes.js`) must always be run in an **external terminal** (Cursor menu bar → Terminal → New Window). Cursor's built-in terminal blocks network requests and `.cursor` directory writes due to sandbox restrictions.
+
+## 9. Fresh Fetch Before Code Review
+
+When a code review is requested, always guide the user to run **both** scripts fresh:
+
+1. `download-app.js` — fetch latest committed code
+2. `review-changes.js` — fetch uncommitted changes
+
+Never rely on previously saved local code or `latest.json`. This applies to re-reviews as well.

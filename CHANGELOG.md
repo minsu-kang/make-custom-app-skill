@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.4] - 2026-03-03
+
+- Added version check, code download/sync first, external terminal only, and fresh fetch before code review rules to `make-app-auto-actions.mdc`
+
 ## [1.3.3] - 2026-03-03
 
 - Added Windows support for settings path in `download-app.js`, `update-app.js`, `review-changes.js`
