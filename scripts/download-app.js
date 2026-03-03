@@ -315,6 +315,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		origin,
 		label: appObj.label || appSlug,
 		description: appObj.description || '',
+		downloadedAt: new Date().toISOString(),
 		modules: modules.map((m) => ({ name: m.name, label: m.label, typeId: m.typeId })),
 		connections: connections.map((c) => ({ name: c.name, label: c.label })),
 		webhooks: webhooks.map((w) => ({ name: w.name, label: w.label })),

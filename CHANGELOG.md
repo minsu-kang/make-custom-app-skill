@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.2] - 2026-03-03
+
+- Added `downloadedAt` timestamp to `metadata.json` in `download-app.js`
+- Added freshness check workflow to SKILL.md (1h fresh / 1–24h info / 24h+ recommend re-download)
+- Legacy metadata without `downloadedAt` is treated as stale
+
 ## [1.3.1] - 2026-03-03
 
 - Added commit checklist to code review output format for easier SDK commit tracking

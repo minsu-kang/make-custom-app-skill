@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.3.1
+version: 1.3.2
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -79,12 +79,18 @@ If **either of the two conditions below** is met, execute the workflow **automat
 **2. Code Download/Sync Guide (Top Priority — Must Follow)**: Once an app is detected, **check the code storage status and provide guidance before answering the question.**
 
 - **If the code folder doesn't exist** → Guide the user to run the download command **first** (see "App Code Download" below). **Never answer the user's question first. Only provide the download command and end the turn.** Only answer the question after the user confirms completion.
-- **If the code folder exists** → Execute the sync logic below:
-    1. Read the contents of the file the user has open (temporary folder)
-    2. Compare with the corresponding file in `~/.cursor/make-app-contexts/{slug}-v{version}/`
-        - Path mapping: `var/folders/.../sdk/apps/{slug}/{ver}/modules/X/api.imljson` → `make-app-contexts/{slug}-v{ver}/modules/X/api.imljson`
-    3. If contents differ → Guide the user to run the sync command **first** (see "Individual Component Sync" below). **Do not include the answer alongside the sync guide. Only provide the sync guide and end the turn.** Only answer the question after the user confirms completion.
-    4. If contents match → No update needed, answer the question immediately.
+- **If the code folder exists** → Check freshness first, then sync:
+    1. **Freshness check**: Read `~/.cursor/make-app-contexts/{slug}-v{version}/metadata.json` and check the `downloadedAt` field.
+        - **Within 1 hour** → Code is fresh. Skip re-download.
+        - **1–24 hours** → Inform the user: "Last download: X hour(s) ago. If you need the latest code, you can re-download." Proceed to answer, but give the user the option to re-download.
+        - **Over 24 hours** → Strongly recommend re-download: "Code was downloaded {N} day(s) ago. Re-downloading is recommended to ensure it's up to date." Provide the download command. **Do not answer the question until the user confirms re-download or explicitly says to proceed with the existing code.**
+        - **`downloadedAt` field missing** → Treat as over 24 hours (legacy data without timestamp).
+    2. **File sync** (only when the user has a file open — Condition 2):
+        1. Read the contents of the file the user has open (temporary folder)
+        2. Compare with the corresponding file in `~/.cursor/make-app-contexts/{slug}-v{version}/`
+            - Path mapping: `var/folders/.../sdk/apps/{slug}/{ver}/modules/X/api.imljson` → `make-app-contexts/{slug}-v{ver}/modules/X/api.imljson`
+        3. If contents differ → Guide the user to run the sync command **first** (see "Individual Component Sync" below). **Do not include the answer alongside the sync guide. Only provide the sync guide and end the turn.** Only answer the question after the user confirms completion.
+        4. If contents match → No update needed, answer the question immediately.
 
 **3. Load Existing Context**: Read `~/.cursor/make-app-contexts/{app-slug}-v{version}.md`.
 
