@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.6] - 2026-03-03
+
+- Restructured `make-app-auto-actions.mdc` into Before/During/After phases
+- Expanded `make-app-code-review.mdc` with Jira-driven review process, AC coverage table, and Developer Message section
+
 ## [1.3.5] - 2026-03-03
 
 - Updated README with `update-app.js` and `make-app-auto-actions.mdc` documentation

@@ -1,5 +1,5 @@
 ---
-description: Required inputs and Jira integration guide for Make custom app code reviews
+description: Required inputs, Jira-driven review process, and review criteria for Make custom app code reviews
 alwaysApply: true
 ---
 
@@ -7,21 +7,21 @@ alwaysApply: true
 
 Follow these rules when a user requests a Make app code review.
 
-## Required: app-slug and version
+## 1. Required: app-slug and version
 
 If the user does not provide `app-slug` and `version`, do not proceed with the review. Ask first:
 
 > Please provide the **app slug** and **version** for the code review.
 > Example: `slug: slack`, `version: 4`
 
-## Recommended: Jira ticket link
+## 2. Recommended: Jira ticket link
 
 After confirming slug/version, if no Jira ticket link is provided, suggest attaching one:
 
 > If you have a Jira ticket link, please attach it. The ticket's Acceptance Criteria, change list, and comments help provide a more accurate review.
 > Example: `https://make.atlassian.net/browse/IEN-12345`
 
-## When Jira ticket is attached: Verify Atlassian MCP connection
+## 3. Verify Atlassian MCP connection
 
 If the user attaches a Jira ticket link, verify that the Atlassian MCP server is connected. If MCP tools (`getJiraIssue`, etc.) are unavailable or return errors, guide the user:
 
@@ -32,3 +32,104 @@ If the user attaches a Jira ticket link, verify that the Atlassian MCP server is
 > 3. **Restart** Cursor
 >
 > Please request the review again after setup is complete!
+
+## 4. Jira-Driven Review Process
+
+When a Jira ticket is provided, follow this process to find and review the relevant code changes:
+
+### Step 1: Fetch Jira ticket details
+
+- Call `getJiraIssue` to retrieve the ticket's **description**, **Acceptance Criteria (AC)**, **subtasks**, and **comments**.
+- If the ticket is a subtask, also fetch the **parent task** to understand the full scope.
+- If the ticket is a parent task, also fetch **subtasks** to understand granular requirements and QA issues.
+
+### Step 2: Identify expected changes from the ticket
+
+Extract from the Jira ticket:
+- What modules/components should be changed
+- What behavior should be added, modified, or fixed
+- What edge cases the AC explicitly mentions
+
+### Step 3: Fetch actual code changes
+
+Guide the user to run `download-app.js` and `review-changes.js` (per auto-actions rule #9), then read `latest.json` to get the actual uncommitted changes.
+
+### Step 4: Cross-reference Jira AC with code changes
+
+For each change in `latest.json`, determine:
+- **Which AC item does this change fulfill?** — Map each code change to a specific AC item or ticket requirement.
+- **Are there AC items with no corresponding code change?** — Flag any unimplemented requirements.
+- **Are there code changes unrelated to the ticket?** — Flag unexpected changes that may be out of scope.
+
+### Step 5: Review each change
+
+For each code change, evaluate:
+- **Correctness**: Does the change correctly implement the AC requirement?
+- **Completeness**: Does it handle all edge cases mentioned in the AC?
+- **Breaking Changes**: Could this change break existing scenarios?
+- **Code Quality**: IML syntax, error handling, type safety, consistent patterns
+
+## 5. Review Output Format
+
+Include the following in the review output:
+
+```
+## Code Review: {App Name} v{Version}
+### Jira: {JIRA-KEY} — {ticket summary}
+
+### AC Coverage
+| AC Item | Status | Implemented In |
+|---------|--------|----------------|
+| {AC item 1} | Covered / Missing / Partial | {group/item/code} |
+| ... | ... | ... |
+
+### Per-Change Review
+#### [{#}] {group}/{item}/{code}
+- **Mapped AC**: {which AC item this implements, or "N/A — out of scope"}
+- **Verdict**: LGTM | Breaking Change | Bug | Improvement Needed
+- **Change Summary**: (one-line summary)
+- **Analysis**: (old → new comparison, correctness against AC)
+- **Suggestions**: (if any)
+
+### Overall Verdict
+- LGTM / Changes Requested / Needs Discussion
+- {summary of missing AC items or concerns}
+
+### Commit Checklist
+Commit message: `{JIRA-KEY}: {concise description}`
+- [ ] {group}/{item}/{code}
+- ...
+```
+
+## 6. Developer Message
+
+When the overall verdict is **Changes Requested** (i.e., any change has a verdict of Breaking Change, Bug, or Improvement Needed), generate a "To Developer" message that can be directly sent to the developer. The message should be:
+
+- Written in **English**
+- Professional but concise — ready to copy-paste into Jira comment, Slack, or Teams
+- Structured per issue found, with clear action items
+
+Format:
+
+```
+### To Developer — {JIRA-KEY}
+
+Hi, I reviewed the changes for {JIRA-KEY} ({app-slug} v{version}). Here are items that need attention:
+
+**[{severity}] {group}/{item}/{code}**
+- Issue: {clear description of the problem}
+- Expected: {what the correct behavior/code should be}
+- Suggestion: {how to fix it}
+
+{repeat for each issue}
+
+Once the above items are addressed, please request a re-review. Thanks!
+```
+
+Severity levels: `BREAKING` for breaking changes, `BUG` for bugs, `IMPROVEMENT` for improvement needed.
+
+If the verdict is **LGTM**, skip this section entirely.
+
+## 7. Review Without Jira Ticket
+
+If no Jira ticket is provided, perform a standard code quality review using the criteria in the skill's Code Review Workflow (breaking changes, bugs, IML patterns, error handling). The AC Coverage section can be omitted.
