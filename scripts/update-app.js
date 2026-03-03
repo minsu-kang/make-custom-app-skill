@@ -29,7 +29,9 @@ const os = require('os');
 
 const SETTINGS_PATH = path.join(
 	os.homedir(),
-	'Library/Application Support/Cursor/User/settings.json',
+	process.platform === 'win32'
+		? 'AppData/Roaming/Cursor/User/settings.json'
+		: 'Library/Application Support/Cursor/User/settings.json',
 );
 
 const MAX_RETRIES = 5;
@@ -115,13 +117,13 @@ async function apiGetJson(url, auth) {
 	return resp.json();
 }
 
-async function apiPut(url, auth, content, retries = 0) {
+async function apiPut(url, auth, content, contentType = 'application/jsonc', retries = 0) {
 	try {
 		const resp = await fetch(url, {
 			method: 'PUT',
 			headers: {
 				Authorization: auth,
-				'Content-Type': 'application/jsonc',
+				'Content-Type': contentType,
 				'x-imt-apps-sdk-version': '2.4.0',
 			},
 			body: content,
@@ -137,7 +139,7 @@ async function apiPut(url, auth, content, retries = 0) {
 				: BASE_DELAY_MS * Math.pow(2, retries);
 			console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms`);
 			await sleep(delay);
-			return apiPut(url, auth, content, retries + 1);
+			return apiPut(url, auth, content, contentType, retries + 1);
 		}
 		const body = await resp.text();
 		if (!resp.ok) {
@@ -148,7 +150,7 @@ async function apiPut(url, auth, content, retries = 0) {
 		if (retries < MAX_RETRIES) {
 			const delay = BASE_DELAY_MS * Math.pow(2, retries);
 			await sleep(delay);
-			return apiPut(url, auth, content, retries + 1);
+			return apiPut(url, auth, content, contentType, retries + 1);
 		}
 		return { ok: false, status: 0, message: err.message };
 	}
@@ -218,10 +220,14 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 	const content = fs.readFileSync(filePath, 'utf-8');
 	const apiUrl = buildApiUrl(baseUrl, appSlug, appVersion, componentPath);
 
+	const type = componentPath.split('/')[0];
+	const contentType = type === 'function' ? 'application/javascript' : 'application/jsonc';
+
 	console.log(`  PUT ${apiUrl}`);
+	console.log(`  Content-Type: ${contentType}`);
 	console.log(`  Content length: ${content.length} bytes\n`);
 
-	const result = await apiPut(apiUrl, auth, content);
+	const result = await apiPut(apiUrl, auth, content, contentType);
 
 	if (result.ok) {
 		console.log(`  ✓ Updated successfully (HTTP ${result.status})`);

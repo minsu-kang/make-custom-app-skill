@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.3] - 2026-03-03
+
+- Added Windows support for settings path in `download-app.js`, `update-app.js`, `review-changes.js`
+- Fixed `update-app.js` to use `application/javascript` content type for function code uploads
+- Added `apiPut` content type parameter for flexible content type handling
+- Added `make-app-auto-actions.mdc` rule to enforce auto context update, Pinecone sync, and related ticket lookup
+- Added QA subtask investigation workflow to rule (Pinecone search → local context → investigation)
+
 ## [1.3.2] - 2026-03-03
 
 - Added `downloadedAt` timestamp to `metadata.json` in `download-app.js`

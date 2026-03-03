@@ -20,7 +20,9 @@ const os = require('os');
 
 const SETTINGS_PATH = path.join(
 	os.homedir(),
-	'Library/Application Support/Cursor/User/settings.json',
+	process.platform === 'win32'
+		? 'AppData/Roaming/Cursor/User/settings.json'
+		: 'Library/Application Support/Cursor/User/settings.json',
 );
 const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), '.cursor/make-app-contexts');
 

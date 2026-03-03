@@ -1,0 +1,35 @@
+---
+description: Enforce automatic actions after Make app work (context update, Pinecone sync, related ticket lookup)
+alwaysApply: true
+---
+
+# Make App Auto Actions
+
+After completing any Make app work (bug investigation, code review, feature work), execute the following actions **automatically without asking**. Never skip or defer these.
+
+## 1. Context File Update
+
+Immediately create/update `~/.cursor/make-app-contexts/{slug}-v{version}.md` upon completion.
+
+- If the file doesn't exist, create it (include app structure, key patterns, caveats)
+- If the file exists, update relevant sections (Work History, Caveats, etc.)
+
+## 2. Pinecone Auto-Sync
+
+Execute MCP calls immediately after saving the context file:
+
+- `upsert_app_context` — sync app context
+- `upsert_jira_ticket` — when working on a Jira ticket (bugfix, feature, review)
+
+## 3. Related Ticket Lookup
+
+- **Analyzing a subtask**: Always fetch the parent task to understand the goal, AC, and scope of changes.
+- **Analyzing a parent task**: Always fetch subtasks to understand progress, QA issues, and granular work items.
+
+## 4. QA Subtask Investigation
+
+QA-created subtasks typically mean the parent task's implementation has a bug. Before investigating:
+
+1. **Search Pinecone first** — call `search_app_knowledge` with the app slug and relevant keywords (error message, module name, function name) to find prior context, related fixes, and known caveats from the team.
+2. **Load local context** — read `~/.cursor/make-app-contexts/{slug}-v{version}.md` for app patterns and work history.
+3. Then proceed with the bug investigation using all gathered context.
