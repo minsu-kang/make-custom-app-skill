@@ -1033,10 +1033,10 @@ Functions are written as plain JavaScript functions in `function functionName(ar
 
 ## Detailed Reference
 
-- Built-in IML functions: [builtin-iml-functions.md](builtin-iml-functions.md)
-- Communication detailed spec: [communication-reference.md](communication-reference.md)
-- Real-world examples (Instagram app): [examples.md](examples.md)
-- Runtime internals (middleware, limits, edge cases): [runtime-reference.md](runtime-reference.md)
+- Built-in IML functions: [builtin-iml-functions.md](references/builtin-iml-functions.md)
+- Communication detailed spec: [communication-reference.md](references/communication-reference.md)
+- Real-world examples (Instagram app): [examples.md](references/examples.md)
+- Runtime internals (middleware, limits, edge cases): [runtime-reference.md](references/runtime-reference.md)
 
 ## imt-app-runtime Source Setup
 

@@ -23,7 +23,8 @@ SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
 RULES_DIR="$HOME/.cursor/rules"
 VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
-SKILL_FILES=("SKILL.md" "builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
+SKILL_FILES=("SKILL.md")
+REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md")
 SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js")
 RULE_FILES=("make-app-code-review.mdc" "version-sync.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
@@ -129,6 +130,36 @@ else
         else
             rm -f "$SKILL_DIR/$file"
             warn "$file (download failed: HTTP $HTTP_CODE)"
+        fi
+    done
+fi
+
+# ── Install Reference Files (skill/references/ → ~/.cursor/skills/make-custom-app/references/) ──
+echo ""
+info "Installing reference files..."
+echo ""
+
+mkdir -p "$SKILL_DIR/references"
+
+if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/references" ]; then
+    for file in "${REFERENCE_FILES[@]}"; do
+        if [ -f "$SCRIPT_DIR/skill/references/$file" ]; then
+            cp "$SCRIPT_DIR/skill/references/$file" "$SKILL_DIR/references/$file"
+            ok "references/$file"
+        else
+            warn "references/$file (not found, skipped)"
+        fi
+    done
+else
+    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+
+    for file in "${REFERENCE_FILES[@]}"; do
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/references/$file" "$BASE_URL/skill/references/$file" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            ok "references/$file"
+        else
+            rm -f "$SKILL_DIR/references/$file"
+            warn "references/$file (download failed: HTTP $HTTP_CODE)"
         fi
     done
 fi

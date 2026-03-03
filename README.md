@@ -68,10 +68,11 @@ make-custom-app-skill/
 ├── install.ps1                        # Installer (Windows)
 ├── skill/                              # → installed to ~/.cursor/skills/make-custom-app/
 │   ├── SKILL.md                        #   Main skill instructions
-│   ├── builtin-iml-functions.md        #   IML function reference
-│   ├── communication-reference.md      #   Communication (API) spec
-│   ├── examples.md                     #   Instagram app examples
-│   └── runtime-reference.md            #   imt-app-runtime internals
+│   └── references/                     #   Reference documents
+│       ├── builtin-iml-functions.md    #   IML function reference
+│       ├── communication-reference.md  #   Communication (API) spec
+│       ├── examples.md                 #   Instagram app examples
+│       └── runtime-reference.md        #   imt-app-runtime internals
 ├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/
 │   ├── download-app.js                 #   App source code downloader
 │   └── review-changes.js               #   Code review change fetcher
@@ -96,10 +97,10 @@ make-custom-app-skill/
 | File | Description |
 |------|-------------|
 | `SKILL.md` | Main skill — IMLJSON patterns, app context management, code review workflow |
-| `builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
-| `communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
-| `examples.md` | Real-world Instagram for Business app examples |
-| `runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
+| `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
+| `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
+| `references/examples.md` | Real-world Instagram for Business app examples |
+| `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 
 ### Script Files (`scripts/` → `~/.cursor/skills/make-custom-app/`)
 

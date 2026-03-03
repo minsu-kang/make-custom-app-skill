@@ -30,7 +30,8 @@ $SKILL_DIR = Join-Path $env:USERPROFILE ".cursor\skills\make-custom-app"
 $RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules"
 $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
-$SKILL_FILES = @("SKILL.md", "builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md")
+$SKILL_FILES = @("SKILL.md")
+$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js")
 $RULE_FILES = @("make-app-code-review.mdc", "version-sync.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
@@ -145,6 +146,41 @@ else {
         }
         else {
             Write-Warn "$file (download failed)"
+        }
+    }
+}
+
+# ── Install Reference Files (skill/references/ → ~/.cursor/skills/make-custom-app/references/) ──
+Write-Host ""
+Write-Info "Installing reference files..."
+Write-Host ""
+
+$REFERENCES_DIR = Join-Path $SKILL_DIR "references"
+New-Item -ItemType Directory -Force -Path $REFERENCES_DIR | Out-Null
+
+$localReferencesDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\references" } else { "" }
+
+if ($ScriptDir -and (Test-Path $localReferencesDir)) {
+    foreach ($file in $REFERENCE_FILES) {
+        $src = Join-Path $localReferencesDir $file
+        if (Test-Path $src) {
+            Copy-Item -Force $src (Join-Path $REFERENCES_DIR $file)
+            Write-Ok "references/$file"
+        }
+        else {
+            Write-Warn "references/$file (not found, skipped)"
+        }
+    }
+}
+else {
+    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
+    foreach ($file in $REFERENCE_FILES) {
+        $outPath = Join-Path $REFERENCES_DIR $file
+        if (Download-File "$baseUrl/skill/references/$file" $outPath) {
+            Write-Ok "references/$file"
+        }
+        else {
+            Write-Warn "references/$file (download failed)"
         }
     }
 }
