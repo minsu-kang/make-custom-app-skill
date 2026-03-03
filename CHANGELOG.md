@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.1] - 2026-03-03
+
+- Added commit checklist to code review output format for easier SDK commit tracking
+
 ## [1.3.0] - 2026-03-03
 
 - Added `update-app.js` script to push code changes directly to Make via SDK Admin API

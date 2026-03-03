@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.3.0
+version: 1.3.1
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -439,6 +439,16 @@ Provide review results in the following structure:
 - **Change Summary**: (one-line summary)
 - **Detailed Analysis**: (old → new comparison, estimated reason for change, scope of impact)
 - **Suggestions**: (if any)
+
+### Commit Checklist
+
+At the end of every review, include a commit checklist so the user can easily see what to commit in the SDK:
+
+Commit message: `{JIRA-KEY}: {concise description of changes}`
+
+- [ ] {group}/{item}/{code}
+- [ ] {group}/{item}/{code}
+- ...
 ```
 
 ### Review Criteria
