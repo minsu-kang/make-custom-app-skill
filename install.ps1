@@ -32,7 +32,7 @@ $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js")
+$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js")
 $RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "version-sync.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
