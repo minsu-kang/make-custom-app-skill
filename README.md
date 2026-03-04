@@ -76,7 +76,10 @@ make-custom-app-skill/
 ├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/scripts/
 │   ├── download-app.js                 #   App source code downloader
 │   ├── update-app.js                   #   Push code changes to Make via SDK API
-│   └── review-changes.js               #   Code review change fetcher
+│   ├── review-changes.js               #   Code review change fetcher
+│   ├── create-component.js             #   Create new components (module, rpc, function, connection, webhook)
+│   ├── update-component.js             #   Update component metadata (label, description, connection)
+│   └── delete-component.js             #   Delete components (with public/private app check)
 └── rules/                              # → installed to ~/.cursor/rules/
     ├── make-app-code-review.mdc        #   Code review input requirements
     ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
@@ -111,6 +114,9 @@ make-custom-app-skill/
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
 | `review-changes.js` | Fetches uncommitted changes for code review |
+| `create-component.js` | Creates new components (module, rpc, function, connection, webhook) via POST |
+| `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
+| `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 
 ### Rule Files (`~/.cursor/rules/`)
 
