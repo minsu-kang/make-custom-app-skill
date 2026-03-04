@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.7] - 2026-03-04
+
+- Installer update mode now cleans old files before reinstalling (preserves `.env` and `imt-app-runtime-path`)
+- Scripts installed to `scripts/` subdirectory instead of skill root
+
 ## [1.3.6] - 2026-03-03
 
 - Restructured `make-app-auto-actions.mdc` into Before/During/After phases

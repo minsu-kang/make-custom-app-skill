@@ -65,9 +65,16 @@ if (Test-Path $SKILL_DIR) {
         }
     }
 
+    $SavedEnv = ""
+    $savedEnvFile = Join-Path $SKILL_DIR "mcp-server\.env"
+    if (Test-Path $savedEnvFile) {
+        $SavedEnv = Get-Content $savedEnvFile -Raw
+    }
+
     switch ($Mode) {
         "update" {
-            Write-Info "Updating existing installation..."
+            Write-Info "Updating existing installation (cleaning old files)..."
+            Remove-Item -Recurse -Force $SKILL_DIR
             Write-Host ""
         }
         "force" {
@@ -84,7 +91,7 @@ if (Test-Path $SKILL_DIR) {
             Write-Host ""
             $choice = Read-Host "    Choose [u/f/c]"
             switch -Regex ($choice) {
-                "^[Uu]$" { $Mode = "update"; Write-Host "" }
+                "^[Uu]$" { $Mode = "update"; Remove-Item -Recurse -Force $SKILL_DIR; Write-Host "" }
                 "^[Ff]$" { $Mode = "force"; Remove-Item -Recurse -Force $SKILL_DIR; Write-Host "" }
                 default   { Write-Info "Installation cancelled."; exit 0 }
             }
@@ -94,6 +101,13 @@ if (Test-Path $SKILL_DIR) {
 
 New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
 New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
+
+# ── Restore preserved .env ──
+if ($SavedEnv) {
+    $restoreMcpDir = Join-Path $SKILL_DIR "mcp-server"
+    New-Item -ItemType Directory -Force -Path $restoreMcpDir | Out-Null
+    Set-Content -Path (Join-Path $restoreMcpDir ".env") -Value $SavedEnv -Encoding UTF8
+}
 
 # ── Detect Source ──
 $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { "" }
@@ -190,29 +204,32 @@ Write-Host ""
 Write-Info "Installing script files..."
 Write-Host ""
 
+$SCRIPTS_DEST = Join-Path $SKILL_DIR "scripts"
+New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
+
 $localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "scripts\download-app.js" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localDownloadJs)) {
     foreach ($file in $SCRIPT_FILES) {
         $src = Join-Path $ScriptDir "scripts\$file"
         if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $SKILL_DIR $file)
-            Write-Ok $file
+            Copy-Item -Force $src (Join-Path $SCRIPTS_DEST $file)
+            Write-Ok "scripts/$file"
         }
         else {
-            Write-Warn "$file (not found, skipped)"
+            Write-Warn "scripts/$file (not found, skipped)"
         }
     }
 }
 else {
     $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
     foreach ($file in $SCRIPT_FILES) {
-        $outPath = Join-Path $SKILL_DIR $file
+        $outPath = Join-Path $SCRIPTS_DEST $file
         if (Download-File "$baseUrl/scripts/$file" $outPath) {
-            Write-Ok $file
+            Write-Ok "scripts/$file"
         }
         else {
-            Write-Warn "$file (download failed)"
+            Write-Warn "scripts/$file (download failed)"
         }
     }
 }
@@ -402,7 +419,7 @@ if ($SavedRuntimePath -and (Test-Path $skillMdPath)) {
 
 # ── Verify Installation ──
 Write-Host ""
-$downloadJsPath = Join-Path $SKILL_DIR "download-app.js"
+$downloadJsPath = Join-Path $SKILL_DIR "scripts\download-app.js"
 
 if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath)) {
     $installedVersion = ""

@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.3.6
+version: 1.3.7
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -113,7 +113,7 @@ Guide the user as follows:
 > Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
 >
 > ```
-> node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
+> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
 > ```
 >
 > Let me know when it's done!
@@ -121,7 +121,7 @@ Guide the user as follows:
 Replace `{app-slug}` and `{app-version}` with actual values. Example:
 
 ```bash
-node ~/.cursor/skills/make-custom-app/download-app.js openai-gpt-3 1
+node ~/.cursor/skills/make-custom-app/scripts/download-app.js openai-gpt-3 1
 ```
 
 - Automatically reads API key/environment from Cursor settings (`settings.json`)
@@ -138,7 +138,7 @@ Guide the user as follows:
 > Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
 >
 > ```
-> node ~/.cursor/skills/make-custom-app/update-app.js {app-slug} {app-version} {component-path} {file-path}
+> node ~/.cursor/skills/make-custom-app/scripts/update-app.js {app-slug} {app-version} {component-path} {file-path}
 > ```
 >
 > Let me know when it's done!
@@ -159,7 +159,7 @@ Component path format:
 Example:
 
 ```bash
-node ~/.cursor/skills/make-custom-app/update-app.js zoom 2 module/listWebinarRegistrants/api ~/.cursor/make-app-contexts/zoom-v2/modules/listWebinarRegistrants/api.imljson
+node ~/.cursor/skills/make-custom-app/scripts/update-app.js zoom 2 module/listWebinarRegistrants/api ~/.cursor/make-app-contexts/zoom-v2/modules/listWebinarRegistrants/api.imljson
 ```
 
 - Uses the same SDK Admin API credentials as `download-app.js`
@@ -409,8 +409,8 @@ Guide the user to run **both** scripts in order:
 > Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the commands below in order:
 >
 > ```
-> node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
-> node ~/.cursor/skills/make-custom-app/review-changes.js {app-slug} {app-version}
+> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+> node ~/.cursor/skills/make-custom-app/scripts/review-changes.js {app-slug} {app-version}
 > ```
 >
 > Let me know when it's done!
@@ -572,7 +572,7 @@ Execute this workflow if any of the following conditions are met:
 > Open **Cursor menu bar → Terminal → New Window** and run:
 >
 > ```
-> node ~/.cursor/skills/make-custom-app/update-app.js {app-slug} {app-version} {component-path} {file-path}
+> node ~/.cursor/skills/make-custom-app/scripts/update-app.js {app-slug} {app-version} {component-path} {file-path}
 > ```
 >
 > Let me know when it's done!
@@ -592,7 +592,7 @@ Execute this workflow if any of the following conditions are met:
 > Commit complete — syncing local code. Please run the following command in **Cursor menu bar → Terminal → New Window**:
 >
 > ```
-> node ~/.cursor/skills/make-custom-app/download-app.js {app-slug} {app-version}
+> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
 > ```
 >
 > Let me know when it's done!

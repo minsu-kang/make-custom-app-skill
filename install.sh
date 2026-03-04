@@ -67,9 +67,15 @@ if [ -d "$SKILL_DIR" ]; then
         fi
     fi
 
+    SAVED_ENV=""
+    if [ -f "$SKILL_DIR/mcp-server/.env" ]; then
+        SAVED_ENV=$(cat "$SKILL_DIR/mcp-server/.env")
+    fi
+
     case "$MODE" in
         update)
-            info "Updating existing installation..."
+            info "Updating existing installation (cleaning old files)..."
+            rm -rf "$SKILL_DIR"
             echo ""
             ;;
         force)
@@ -86,7 +92,7 @@ if [ -d "$SKILL_DIR" ]; then
             echo ""
             read -p "  Choose [u/f/c]: " choice </dev/tty
             case "$choice" in
-                [Uu]) MODE="update" ; echo "" ;;
+                [Uu]) MODE="update" ; rm -rf "$SKILL_DIR" ; echo "" ;;
                 [Ff]) MODE="force" ; rm -rf "$SKILL_DIR" ; echo "" ;;
                 *)    info "Installation cancelled." ; exit 0 ;;
             esac
@@ -96,6 +102,12 @@ fi
 
 mkdir -p "$SKILL_DIR"
 mkdir -p "$RULES_DIR"
+
+# ── Restore preserved .env ──
+if [ -n "$SAVED_ENV" ]; then
+    mkdir -p "$MCP_SERVER_DIR"
+    printf '%s\n' "$SAVED_ENV" > "$MCP_SERVER_DIR/.env"
+fi
 
 # ── Detect Source ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null)" && pwd 2>/dev/null || echo "")"
@@ -164,30 +176,33 @@ else
     done
 fi
 
-# ── Install Script Files (scripts/ → ~/.cursor/skills/make-custom-app/) ──
+# ── Install Script Files (scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
 echo ""
 info "Installing script files..."
 echo ""
 
+SCRIPTS_DEST="$SKILL_DIR/scripts"
+mkdir -p "$SCRIPTS_DEST"
+
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/scripts/download-app.js" ]; then
     for file in "${SCRIPT_FILES[@]}"; do
         if [ -f "$SCRIPT_DIR/scripts/$file" ]; then
-            cp "$SCRIPT_DIR/scripts/$file" "$SKILL_DIR/$file"
-            ok "$file"
+            cp "$SCRIPT_DIR/scripts/$file" "$SCRIPTS_DEST/$file"
+            ok "scripts/$file"
         else
-            warn "$file (not found, skipped)"
+            warn "scripts/$file (not found, skipped)"
         fi
     done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
 
     for file in "${SCRIPT_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/$file" "$BASE_URL/scripts/$file" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/$file" "$BASE_URL/scripts/$file" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ]; then
-            ok "$file"
+            ok "scripts/$file"
         else
-            rm -f "$SKILL_DIR/$file"
-            warn "$file (download failed: HTTP $HTTP_CODE)"
+            rm -f "$SCRIPTS_DEST/$file"
+            warn "scripts/$file (download failed: HTTP $HTTP_CODE)"
         fi
     done
 fi
@@ -344,7 +359,7 @@ fi
 
 # ── Verify Installation ──
 echo ""
-if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/download-app.js" ]; then
+if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ]; then
     INSTALLED_VERSION=""
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
         INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')

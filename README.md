@@ -73,7 +73,7 @@ make-custom-app-skill/
 │       ├── communication-reference.md  #   Communication (API) spec
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
-├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/
+├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/scripts/
 │   ├── download-app.js                 #   App source code downloader
 │   ├── update-app.js                   #   Push code changes to Make via SDK API
 │   └── review-changes.js               #   Code review change fetcher
@@ -104,7 +104,7 @@ make-custom-app-skill/
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 
-### Script Files (`scripts/` → `~/.cursor/skills/make-custom-app/`)
+### Script Files (`scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
 
 | File | Description |
 |------|-------------|
