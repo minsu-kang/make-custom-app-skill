@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.9] - 2026-03-04
+
+- Added Apps UX best practices reference (`app-ux-best-practices.md`) covering naming, hints, fields, messages, and all IEN UX guidelines from Confluence
+- Fixed `create-component.js` module creation to use `typeId` instead of `type_id`
+
 ## [1.3.8] - 2026-03-04
 
 - Added missing `make-app-auto-actions.mdc` to installer rule file list

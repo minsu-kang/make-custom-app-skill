@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.3.8
+version: 1.3.9
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -1031,12 +1031,42 @@ functions/
 
 Functions are written as plain JavaScript functions in `function functionName(args) { ... }` form. Executed within the IML sandbox at runtime.
 
+### Code Conventions (ES6+)
+
+IML functions must follow ES6+ conventions. Reference the patterns below when writing `code.js`:
+
+| Pattern | Use | Avoid |
+|---|---|---|
+| Variables | `const` / `let` | `var` |
+| Strings | Template literals `` `Hello ${name}` `` | `'Hello ' + name` |
+| Callbacks | Arrow functions `(x) => x.id` | `function(x) { return x.id; }` |
+| Iteration | `.map()`, `.forEach()`, `.filter()`, `for...of` | `for (var i = 0; ...)` |
+| Null checks | `value != null`, `value?.prop` | `value !== undefined && value !== null` |
+| Destructuring | `const { alias, value } = entry` | `const alias = entry.alias; const value = entry.value;` |
+| Default params | `function fn(opts = {})` | `opts = opts \|\| {}` |
+
+Example (following conventions):
+
+```js
+function buildSelectQuery(parameters) {
+    const selectParts = [];
+
+    parameters.functions?.forEach((fn) => {
+        const alias = fn.alias || `${fn.functionType.toLowerCase()}_${fn.columnId}`;
+        selectParts.push(`{ type: FUNCTION, function: ${fn.functionType}, as: "${alias}" }`);
+    });
+
+    return `[${selectParts.join(', ')}]`;
+}
+```
+
 ## Detailed Reference
 
 - Built-in IML functions: [builtin-iml-functions.md](references/builtin-iml-functions.md)
 - Communication detailed spec: [communication-reference.md](references/communication-reference.md)
 - Real-world examples (Instagram app): [examples.md](references/examples.md)
 - Runtime internals (middleware, limits, edge cases): [runtime-reference.md](references/runtime-reference.md)
+- Apps UX best practices (naming, hints, fields, messages, patterns): [app-ux-best-practices.md](references/app-ux-best-practices.md)
 
 ## imt-app-runtime Source Setup
 

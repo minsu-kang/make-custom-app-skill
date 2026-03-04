@@ -206,7 +206,7 @@ function buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args) {
 				name,
 				label,
 				description: description || label,
-				type_id: tid,
+				typeId: tid,
 			};
 			if (connection) body.connection = connection;
 			return { url: `${verBase}/modules`, body, display: `Module "${label}" (${TYPE_LABELS[tid]})` };
