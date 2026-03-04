@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.8] - 2026-03-04
+
+- Added missing `make-app-auto-actions.mdc` to installer rule file list
+
 ## [1.3.7] - 2026-03-04
 
 - Installer update mode now cleans old files before reinstalling (preserves `.env` and `imt-app-runtime-path`)
