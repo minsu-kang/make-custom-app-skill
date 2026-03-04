@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.3.9
+version: 1.4.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -578,10 +578,10 @@ Execute this workflow if any of the following conditions are met:
 > Let me know when it's done!
 
 - Changes are pushed as **uncommitted** to Make — the user must still commit and deploy via SDK
-- If custom functions have test cases, update `test.js` covering:
-    - The bug scenario (must fail before fix, pass after)
-    - Edge cases (null, undefined, empty values, boundary conditions)
-    - Existing functionality (ensure no regression)
+- **All custom IML functions must have `test.js`** — for new functions, create it; for existing functions, update it. Test cases must cover:
+    - Core functionality (expected inputs → expected outputs)
+    - Edge cases (null, undefined, empty arrays, boundary conditions)
+    - For bug fixes: the bug scenario (must fail before fix, pass after) + regression tests
 
 **8. Write Developer Notes**: Generate notes for the Jira ticket (see Developer Notes Template below).
 
@@ -599,9 +599,23 @@ Execute this workflow if any of the following conditions are met:
 
 This ensures `make-app-contexts` always reflects the latest committed state, preventing stale code from being used in future reviews or investigations.
 
-### Developer Notes Template
+### Developer Notes
 
-When the user needs to write Developer Notes for a Jira ticket, generate the following structure:
+Generate Developer Notes for the Jira ticket using the appropriate template below (see "Developer Notes Templates" section).
+
+## Developer Notes Templates
+
+Generate Developer Notes for any Jira ticket (bug, feature, or other) when work is completed. Use the appropriate template based on the ticket type.
+
+### Common Rules
+
+- Write in English (Jira is shared across teams)
+- Be specific about the technical details — include function names, variable names, and code flow
+- List ALL affected/created components, not just the primary one
+- In Changed Files, mark each file as **(new)** or **(modified)** to distinguish new additions from edits to existing files
+- Include the template output as a Jira comment or in the ticket's Developer Notes field
+
+### Bug Fix Template
 
 ```markdown
 ### Root Cause
@@ -626,16 +640,48 @@ When the user needs to write Developer Notes for a Jira ticket, generate the fol
 
 ### Changed Files
 
-- {file path relative to app root}
+- {file path relative to app root} **(new)** or **(modified)**
 - ...
 ```
 
-Rules:
+### Feature Template
 
-- Write in English (Jira is shared across teams)
-- Be specific about the technical cause — include function names, variable names, and code flow
-- Explain **why** the old code was wrong, not just **what** was changed
-- List ALL affected components, not just the one reported in the ticket
+```markdown
+### Summary
+
+{What was implemented and why — link to the API/feature being integrated}
+
+### Implementation
+
+{Technical description of how the feature works:
+
+- Architecture decisions and rationale
+- Key patterns used (e.g., GraphQL query construction, RPC reuse)
+- API requirements (version, auth, endpoints)}
+
+### New Components
+
+- {component type}: {name} — {label/description}
+- ...
+
+### Reused Components
+
+- {component type}: {name} — {how it's used in this feature}
+- ...
+
+### Changed Files
+
+- {file path relative to app root} **(new)** or **(modified)**
+- ...
+
+### Testing Notes
+
+{How to test the feature:
+
+- Required setup (board structure, column types, data)
+- Example parameter values
+- Expected output}
+```
 
 ## App Components
 
@@ -652,14 +698,34 @@ A Make app consists of the following components:
 
 ## Module Types
 
-| Type                  | Purpose                             | Characteristics                                               |
-| --------------------- | ----------------------------------- | ------------------------------------------------------------- |
-| **Action**            | Single request → single result      | CRUD operations (Create, Get, Update, Delete)                 |
-| **Search**            | Search/list → multiple results      | `iterate`, `limit`, pagination support                        |
-| **Trigger (Polling)** | Periodic polling → detect new items | `trigger.type` (id/date), `trigger.order`, Static params only |
-| **Instant Trigger**   | Webhook → real-time reception       | Linked to Webhook, Communication is optional                  |
-| **Responder**         | Return webhook response             | Defines only response (status, headers, body)                 |
-| **Universal**         | General purpose                     | CRUD type can be specified                                    |
+| Type                  | type_id | Purpose                             | Characteristics                                               |
+| --------------------- | ------- | ----------------------------------- | ------------------------------------------------------------- |
+| **Trigger (Polling)** | 1       | Periodic polling → detect new items | `trigger.type` (id/date), `trigger.order`, Static params only |
+| **Action**            | 4       | Single request → single result      | CRUD operations (Create, Get, Update, Delete)                 |
+| **Search**            | 9       | Search/list → multiple results      | `iterate`, `limit`, pagination support                        |
+| **Instant Trigger**   | 10      | Webhook → real-time reception       | Linked to Webhook, Communication is optional                  |
+| **Responder**         | 11      | Return webhook response             | Defines only response (status, headers, body)                 |
+| **Universal**         | 12      | General purpose                     | CRUD type can be specified                                    |
+
+### Module Type Selection (Critical)
+
+**Multiple output bundles (`iterate`) only work with Search modules (type_id: 9).** Action modules always produce a single output bundle — even if `iterate` is specified in the response, only the last item is output.
+
+Choose the correct type based on expected output:
+
+| Expected Output | Correct Type | Why |
+|---|---|---|
+| Always 1 result (e.g., Create, Get, Update, Delete) | **Action** (4) | Single bundle |
+| Potentially multiple results (e.g., List, Search, Aggregate with group_by) | **Search** (9) | Needs `iterate` + `limit` |
+| Periodic check for new items | **Trigger** (1) | Needs `trigger` config |
+| Real-time webhook reception | **Instant Trigger** (10) | Linked to Webhook |
+
+Search modules **must** include in their response:
+- `"iterate"` — the array to iterate over
+- `"limit"` — `"{{parameters.limit}}"` to control max bundles
+
+And in their expect:
+- `limit` parameter with `"type": "uinteger"`, `"default": 10`, `"required": true`
 
 ## IML Expressions
 
@@ -800,14 +866,95 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 
 ### RPC Dynamic Options
 
+Two formats for calling RPCs from parameters:
+
+**Simple format** — dropdown only, no nested parameters generated on selection:
+
 ```json
 {
-	"name": "projectId",
+	"name": "columnId",
 	"type": "select",
-	"label": "Project",
-	"options": { "store": "rpc://listProjects" }
+	"label": "Column",
+	"options": "rpc://RpcBoardColumns?filterAllOutputColumns=true",
+	"editable": true
 }
 ```
+
+**Store format** — enables nested parameters that appear dynamically when a value is selected (use when the RPC returns `nested` in its output):
+
+```json
+{
+	"name": "boardId",
+	"type": "select",
+	"label": "Board ID",
+	"options": {
+		"store": "rpc://RpcBoards",
+		"nested": [
+			{
+				"name": "columnId",
+				"type": "select",
+				"label": "Column",
+				"options": "rpc://RpcBoardColumns?filterAllOutputColumns=true"
+			}
+		]
+	}
+}
+```
+
+#### Query Parameter Passing
+
+Pass additional parameters to RPCs using query string syntax: `rpc://RpcName?param=value`
+
+```
+rpc://RpcBoardColumns?filterAllOutputColumns=true
+rpc://RpcBoardColumns?filterChangeableColumnsWithoutName=true
+rpc://RpcBoardColumns?filterOnlyFileColumns=true
+```
+
+#### Conditional RPCs (Critical)
+
+Many RPCs use `"condition"` fields in their `api.imljson` to branch into different behaviors. If no condition matches, the RPC returns **empty results** (no error, just no data).
+
+**Rule: Before using any RPC, read its `api.imljson` to check for `condition` fields. If conditions exist, pass the required flag via query string.**
+
+Example — `RpcBoardColumns` has 6 condition branches:
+
+```json
+// api.imljson of RpcBoardColumns
+[
+    { "condition": "{{parameters.filterChangeableColumns == 'true'}}", ... },
+    { "condition": "{{parameters.filterChangeableColumnsWithoutName == 'true'}}", ... },
+    { "condition": "{{parameters.filterAllOutputColumns == 'true'}}", ... },
+    { "condition": "{{parameters.filterOnlyFileColumns == 'true'}}", ... },
+    ...
+]
+```
+
+Calling `rpc://RpcBoardColumns` without any flag → **no condition matches → empty dropdown**. Must use `rpc://RpcBoardColumns?filterAllOutputColumns=true` (or another flag).
+
+#### Nested Parameter Inheritance
+
+RPCs nested inside a parent select's `options.nested` automatically receive the parent's selected value. This enables dependent dropdowns:
+
+```json
+{
+    "name": "boardId",
+    "type": "select",
+    "options": {
+        "store": "rpc://RpcBoards",
+        "nested": [
+            {
+                "name": "columnId",
+                "type": "select",
+                // RpcBoardColumns receives `boardId` automatically
+                "options": "rpc://RpcBoardColumns?filterAllOutputColumns=true"
+            }
+        ]
+    }
+}
+```
+
+This inheritance works through multiple nesting levels (e.g., `boardId` → `selectMode` options → nested array → column select). The parent parameter values are always available to child RPCs regardless of depth.
 
 ### Collection Type
 
@@ -851,7 +998,64 @@ Defines module output structure. Same syntax as Parameters but uses `spec` for n
 ]
 ```
 
-RPC dynamic interface: Can use `"rpc://nameOfRPC"` string
+### Dynamic Interface via RPC
+
+Use `"rpc://nameOfRPC"` as an element in the interface array to generate output fields dynamically based on user parameters.
+
+**Module interface.imljson**:
+```json
+[
+	{ "name": "id", "type": "uinteger", "label": "ID" },
+	"rpc://RpcMyDynamicInterface"
+]
+```
+
+The RPC replaces its position in the array with a dynamically generated field definition.
+
+**RPC api.imljson pattern**:
+```json
+[
+	{
+		"url": "/api/endpoint",
+		"method": "POST",
+		"body": { "query": "..." },
+		"response": {
+			"output": {
+				"name": "data",
+				"type": "collection",
+				"label": "Dynamic Output",
+				"spec": "{{buildMyInterface(parameters.fields, body.data.columns)}}"
+			}
+		}
+	}
+]
+```
+
+**Mapped parameter safety**: When module parameters may contain mapping expressions (e.g., `{{4.boardId}}`), the RPC must handle them safely. Mapped values are unresolved strings at design time (e.g., `"{{4.boardId}}"`) — they are not null, so `!= null` checks pass, but they are not valid IDs.
+
+**Handling mapped parameters**: At design time, mapped values are unresolved strings (e.g., `"{{4.boardId}}"`). They are not null, so `!= null` checks pass, but they are not valid IDs. To detect mapped values, create a custom IML function like:
+
+```js
+function isImlVariableIncluded(value = '') {
+	return /\{\{.*?\}\}/.test(value);
+}
+```
+
+Then use it in conditions to skip API calls when the parameter is mapped:
+
+```json
+{
+	"condition": "{{parameters.boardId != null && !isImlVariableIncluded(parameters.boardId)}}",
+	"url": "/api/endpoint",
+	"response": { "output": { "spec": "{{buildMyInterface(...)}}" } }
+},
+{
+	"condition": "{{parameters.boardId == null || isImlVariableIncluded(parameters.boardId)}}",
+	"response": { "output": { "name": "data", "type": "collection", "spec": [] } }
+}
+```
+
+Alternatively, if the app already has a `validateID` function, use `validateID(ifempty(parameters.boardId, 0))` in the query body to convert invalid values to `0` (API returns empty results gracefully).
 
 ## Base Pattern
 
@@ -1030,6 +1234,25 @@ functions/
 ```
 
 Functions are written as plain JavaScript functions in `function functionName(args) { ... }` form. Executed within the IML sandbox at runtime.
+
+### test.js (Required)
+
+Every IML function **must** have a `test.js` file. Tests use `it()` blocks with `assert`. The function is available globally (no import needed). Prefer `assert.deepStrictEqual` for objects/arrays, `assert.strictEqual` for primitives.
+
+```js
+it('should return expected result for valid input', () => {
+	assert.deepStrictEqual(myFunction({ key: 'value' }), { expected: 'output' });
+});
+
+it('should handle null input gracefully', () => {
+	assert.deepStrictEqual(myFunction(null), {});
+});
+```
+
+Required test coverage:
+- **Happy path**: Core functionality with typical inputs
+- **Edge cases**: null, undefined, empty arrays/objects, missing optional fields
+- **Type variations**: Different data types the function may encounter (string, number, boolean, array)
 
 ### Code Conventions (ES6+)
 

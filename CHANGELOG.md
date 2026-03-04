@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0] - 2026-03-04
+
+- Added IML function `test.js` mandatory rule with `assert.deepStrictEqual` / `assert.strictEqual` examples
+- Added Dynamic Interface via RPC documentation with mapped parameter handling patterns (`isImlVariableIncluded`, `validateID`)
+- Added Developer Notes `Changed Files` rule: mark each file as **(new)** or **(modified)**
+- Updated RPC Dynamic Options section with conditional RPC flags and nested parameter inheritance
+- Updated Module Type Selection with `type_id` table and `iterate` restriction (Search only)
+- Added ES6+ code conventions for IML functions
+
 ## [1.3.9] - 2026-03-04
 
 - Added Apps UX best practices reference (`app-ux-best-practices.md`) covering naming, hints, fields, messages, and all IEN UX guidelines from Confluence
