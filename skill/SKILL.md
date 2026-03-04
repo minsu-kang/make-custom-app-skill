@@ -829,7 +829,12 @@ Writing Communication as an array executes them sequentially:
 
 ## Parameters Structure
 
-Both Expect (mappable params) and Parameters (static params) use the same syntax:
+Both Expect (mappable params) and Parameters (static params) use the same syntax.
+
+**Expect (mappable) limitations**:
+- IML expressions (`{{...}}`) do NOT work inside `expect.imljson`
+- `condition` is NOT supported in expect specs
+- `editable` is deprecated in expect — use only in connection `parameters.imljson`
 
 ```json
 [
@@ -875,8 +880,7 @@ Two formats for calling RPCs from parameters:
 	"name": "columnId",
 	"type": "select",
 	"label": "Column",
-	"options": "rpc://RpcBoardColumns?filterAllOutputColumns=true",
-	"editable": true
+	"options": "rpc://RpcBoardColumns?filterAllOutputColumns=true"
 }
 ```
 
@@ -1209,7 +1213,7 @@ These values can be overridden in `common.imljson`:
 
 ## Important Notes
 
-- Connection `parameters` → use `editable: true` (modules use `mappable`)
+- `editable: true` → connection `parameters.imljson` only (deprecated in module expect)
 - Connection reserved words: Do not use `teamID`, `accountName`
 - Common data cannot be changed after app approval
 - Triggers use Static Parameters only (cannot map as it's the first module)
