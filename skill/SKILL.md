@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.4.3
+version: 1.4.4
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -586,7 +586,7 @@ This ensures `make-app-contexts` always reflects the latest committed state, pre
 
 ### Developer Notes
 
-Generate Developer Notes for the Jira ticket using the appropriate template below (see "Developer Notes Templates" section).
+Generate Developer Notes for the Jira ticket using the appropriate template below (see "Developer Notes Templates" section). **Auto-write to Jira**: Use `editJiraIssue` to set `customfield_10483` (Developer Notes field) with ADF (Atlassian Document Format) content including tables. This must be done automatically — never skip this step.
 
 ## Developer Notes Templates
 
@@ -598,7 +598,8 @@ Generate Developer Notes for any Jira ticket (bug, feature, or other) when work 
 - Be specific about the technical details — include function names, variable names, and code flow
 - List ALL affected/created components, not just the primary one
 - In Changed Files, mark each file as **(new)** or **(modified)** to distinguish new additions from edits to existing files
-- Include the template output as a Jira comment or in the ticket's Developer Notes field
+- **Always write to Jira field `customfield_10483`** (Developer Notes) using `editJiraIssue` with ADF format — never post as a comment
+- Use **tables** for Root Cause, Fix, Affected Components, and Changed Files sections for readability
 
 ### Bug Fix Template
 
@@ -1223,6 +1224,8 @@ functions/
 ```
 
 Functions are written as plain JavaScript functions in `function functionName(args) { ... }` form. Executed within the IML sandbox at runtime.
+
+> **⚠️ Size limit**: `code.js` has a **5000 character** hard limit enforced by the Make SDK API (error `IM005`). If a function exceeds this limit, reduce size by removing unnecessary comments, shortening variable names, or extracting logic into a separate helper function.
 
 ### test.js (Required)
 
