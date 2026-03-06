@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.4.2
+version: 1.4.3
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -102,27 +102,19 @@ If **either of the two conditions below** is met, execute the workflow **automat
 - Also update the `.md` summary file if new information was learned
 - **After creating or updating the `.md` file, execute "Shared Context (Pinecone) Auto-Sync" automatically.**
 
-> **⚠️ Core Principle**: If download/sync is needed in step 2, **do not provide an answer to the user's original question for any reason.** Even if the file contents have already been read, defer the answer until the user confirms download/sync completion.
+> **⚠️ Core Principle**: If download/sync is needed in step 2, **do not provide an answer to the user's original question for any reason.** Auto-execute the download/sync first, and only answer after it completes successfully.
 
 ### App Code Download / Sync Execution
 
-**Important**: Cursor's built-in terminal blocks Node.js network requests and writing to `.cursor` subdirectories due to sandbox restrictions. Must be run in an **external terminal outside Cursor**.
+**Auto-execute**: Run the download script automatically using the Shell tool. Do NOT ask the user to run it manually.
 
-Guide the user as follows:
-
-> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
->
-> ```
-> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
-> ```
->
-> Let me know when it's done!
-
-Replace `{app-slug}` and `{app-version}` with actual values. Example:
-
-```bash
-node ~/.cursor/skills/make-custom-app/scripts/download-app.js openai-gpt-3 1
 ```
+Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+required_permissions: ["all"]
+block_until_ms: 120000
+```
+
+Replace `{app-slug}` and `{app-version}` with actual values.
 
 - Automatically reads API key/environment from Cursor settings (`settings.json`)
 - Checks the app's `origin` (actual storage zone) first and routes requests to that zone
@@ -133,15 +125,15 @@ node ~/.cursor/skills/make-custom-app/scripts/download-app.js openai-gpt-3 1
 
 Pushes local IMLJSON code changes directly to Make via the SDK Admin API. No need to manually edit files in the VS Code SDK — write the fixed code to `make-app-contexts` and push with `update-app.js`.
 
-Guide the user as follows:
+**User approval required**: Before running `update-app.js`, always show the user what will be pushed and ask for confirmation. Only execute after the user explicitly approves.
 
-> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the command below:
->
-> ```
-> node ~/.cursor/skills/make-custom-app/scripts/update-app.js {app-slug} {app-version} {component-path} {file-path}
-> ```
->
-> Let me know when it's done!
+```
+1. Show: "다음 변경사항을 Make에 푸시합니다: {component-path} — 진행할까요?"
+2. Wait for user approval
+3. Shell tool: node ~/.cursor/skills/make-custom-app/scripts/update-app.js {app-slug} {app-version} {component-path} {file-path}
+   required_permissions: ["all"]
+   block_until_ms: 30000
+```
 
 Component path format:
 
@@ -181,7 +173,7 @@ var/folders/.../sdk/apps/google-docs/1/modules/createADocument/api.imljson
 ~/.cursor/make-app-contexts/google-docs-v1/modules/createADocument/api.imljson
 ```
 
-If changes are detected, guide the user to run the download command in an external terminal.
+If changes are detected, auto-execute the download command to sync.
 
 ### Per-App Context File Content (Template)
 
@@ -404,18 +396,21 @@ Execute this workflow if any of the following conditions are met:
 
 **2. Check App Code & Run Scripts**: Both `download-app.js` and `review-changes.js` must be run **every time** a review is requested — including re-reviews. The local code in `make-app-contexts` may be stale even if the folder exists, and the changes data must always be freshly fetched from the API.
 
-Guide the user to run **both** scripts in order:
+**Auto-execute** both scripts in order using the Shell tool:
 
-> Open **Cursor menu bar → Terminal → New Window** (or macOS Terminal.app) and run the commands below in order:
->
-> ```
-> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
-> node ~/.cursor/skills/make-custom-app/scripts/review-changes.js {app-slug} {app-version}
-> ```
->
-> Let me know when it's done!
+```
+Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+required_permissions: ["all"]
+block_until_ms: 120000
+```
 
-**3. Read Review Data**: After the user confirms completion, read the review data.
+```
+Shell tool: node ~/.cursor/skills/make-custom-app/scripts/review-changes.js {app-slug} {app-version}
+required_permissions: ["all"]
+block_until_ms: 60000
+```
+
+**3. Read Review Data**: After scripts complete, read the review data.
 
 ```
 ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
@@ -567,15 +562,7 @@ Execute this workflow if any of the following conditions are met:
 **7. Fix & Apply**: Apply the fix and push it to Make.
 
 - Write the fixed code to `~/.cursor/make-app-contexts/{slug}-v{version}/` (the local code store)
-- Guide the user to push the fix using `update-app.js` (see "App Code Update" section):
-
-> Open **Cursor menu bar → Terminal → New Window** and run:
->
-> ```
-> node ~/.cursor/skills/make-custom-app/scripts/update-app.js {app-slug} {app-version} {component-path} {file-path}
-> ```
->
-> Let me know when it's done!
+- Push the fix using `update-app.js` (see "App Code Update" section) — **always ask user for approval before executing**.
 
 - Changes are pushed as **uncommitted** to Make — the user must still commit and deploy via SDK
 - **All custom IML functions must have `test.js`** — for new functions, create it; for existing functions, update it. Test cases must cover:
@@ -587,15 +574,13 @@ Execute this workflow if any of the following conditions are met:
 
 **9. Update Context**: Update `{slug}-v{version}.md` with the bug details and fix in the Work History and Caveats sections. **After updating, execute "Shared Context (Pinecone) Auto-Sync" — both `upsert_app_context` and `upsert_jira_ticket`.**
 
-**10. Post-Commit Sync**: When the user confirms the fix has been committed, guide them to re-run the download command to sync `make-app-contexts` with the committed code.
+**10. Post-Commit Sync**: When the user confirms the fix has been committed, **auto-execute** the download command to sync `make-app-contexts` with the committed code.
 
-> Commit complete — syncing local code. Please run the following command in **Cursor menu bar → Terminal → New Window**:
->
-> ```
-> node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
-> ```
->
-> Let me know when it's done!
+```
+Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+required_permissions: ["all"]
+block_until_ms: 120000
+```
 
 This ensures `make-app-contexts` always reflects the latest committed state, preventing stale code from being used in future reviews or investigations.
 

@@ -19,19 +19,31 @@ When the Make Custom App skill is loaded at the start of a conversation, always 
 
 When a Make app is detected (by user mention or open file path), check code availability and freshness **before answering**:
 
-- Code folder missing → guide download first, do not answer the question
+- Code folder missing → run download automatically, do not answer the question until complete
 - Code older than 24h → recommend re-download before proceeding
-- Open file differs from local store → guide sync first, do not answer the question
+- Open file differs from local store → run download automatically to sync, do not answer the question until complete
 
 Never answer the user's app-related question until code is confirmed available and up to date.
 
-### 3. External Terminal Only
+### 3. Auto-Execute Scripts
 
-Scripts (`download-app.js`, `update-app.js`, `review-changes.js`) must always be run in an **external terminal** (Cursor menu bar → Terminal → New Window). Cursor's built-in terminal blocks network requests and `.cursor` directory writes due to sandbox restrictions.
+All scripts must be run **automatically by the agent** using the Shell tool with `required_permissions: ["all"]`. Do NOT ask the user to run them manually.
+
+**Read-only scripts** (auto-execute without asking):
+- `download-app.js` — fetch app code
+- `review-changes.js` — fetch uncommitted changes
+
+**Write scripts** (require user approval before execution):
+- `update-app.js` — push code changes to Make
+- `create-component.js` — create new app component in Make
+- `update-component.js` — update app component metadata in Make
+- `delete-component.js` — delete app component from Make
+
+For write scripts, always show what will be changed and ask for explicit user confirmation before executing.
 
 ### 4. Fresh Fetch Before Code Review
 
-When a code review is requested, always guide the user to run **both** scripts fresh:
+When a code review is requested, always run **both** scripts fresh automatically:
 
 1. `download-app.js` — fetch latest committed code
 2. `review-changes.js` — fetch uncommitted changes
@@ -63,7 +75,7 @@ When modifying a custom IML function (`functions/{name}/code.js`), always create
 - Edge cases (null, undefined, empty string, empty array)
 - Existing functionality (no regressions)
 
-Upload the test file via `update-app.js` with component path `function/{name}/test`.
+Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
 
 ---
 

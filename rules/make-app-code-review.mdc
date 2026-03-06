@@ -62,7 +62,7 @@ Extract from the Jira ticket **AND all subtasks**:
 
 ### Step 3: Fetch actual code changes
 
-Guide the user to run `download-app.js` and `review-changes.js` (per auto-actions rule #9), then read `latest.json` to get the actual uncommitted changes.
+Auto-execute `download-app.js` and `review-changes.js` (per auto-actions rule #3), then read `latest.json` to get the actual uncommitted changes. If the user has already run both scripts, skip re-execution and read the existing `latest.json`.
 
 ### Step 4: Filter changes — ONLY review ticket-related changes
 

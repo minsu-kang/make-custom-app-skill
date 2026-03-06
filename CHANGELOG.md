@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3] - 2026-03-06
+
+- Read-only scripts (`download-app.js`, `review-changes.js`) now auto-execute via Shell tool — no more manual external terminal
+- Write scripts (`update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`) require user approval before auto-execution
+- Removed "External Terminal Only" rule from auto-actions
+- Updated code review, bug investigation, and post-commit sync workflows to auto-execute
+
 ## [1.4.2] - 2026-03-06
 
 - Jira-driven code review now strictly filters to ticket-related changes only — unrelated changes are excluded entirely from review output
