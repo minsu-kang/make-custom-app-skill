@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.7] - 2026-03-06
+
+- Added new reference files to installer file lists (install.sh, install.ps1)
+
 ## [1.4.6] - 2026-03-06
 
 - Updated `version-sync.mdc` with semver auto-bump and CHANGELOG workflow on commit
