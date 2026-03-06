@@ -349,14 +349,24 @@ fi
 # ── Restore User Config ──
 if [ -f "$SKILL_DIR/SKILL.md" ]; then
     if [ -n "$SAVED_MCP_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (mcp-server-path)"
+        MCP_DIR=$(echo "$SAVED_MCP_PATH" | sed 's/^mcp-server-path:[[:space:]]*//')
+        if [ -d "$MCP_DIR" ]; then
+            echo "" >> "$SKILL_DIR/SKILL.md"
+            echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
+            ok "Restored user config (mcp-server-path)"
+        else
+            warn "Skipped mcp-server-path (directory not found: $MCP_DIR)"
+        fi
     fi
     if [ -n "$SAVED_RUNTIME_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (imt-app-runtime-path)"
+        RUNTIME_DIR=$(echo "$SAVED_RUNTIME_PATH" | sed 's/^imt-app-runtime-path:[[:space:]]*//')
+        if [ -d "$RUNTIME_DIR" ]; then
+            echo "" >> "$SKILL_DIR/SKILL.md"
+            echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
+            ok "Restored user config (imt-app-runtime-path)"
+        else
+            warn "Skipped imt-app-runtime-path (directory not found: $RUNTIME_DIR)"
+        fi
     fi
 fi
 

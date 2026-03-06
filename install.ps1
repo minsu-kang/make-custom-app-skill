@@ -411,12 +411,22 @@ OPENAI_API_KEY=$openaiKey
 $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
 if (Test-Path $skillMdPath) {
     if ($SavedMcpPath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
-        Write-Ok "Restored user config (mcp-server-path)"
+        $mcpDir = ($SavedMcpPath -replace "^mcp-server-path:\s*", "").Trim()
+        if (Test-Path $mcpDir) {
+            Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
+            Write-Ok "Restored user config (mcp-server-path)"
+        } else {
+            Write-Warn "Skipped mcp-server-path (directory not found: $mcpDir)"
+        }
     }
     if ($SavedRuntimePath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
-        Write-Ok "Restored user config (imt-app-runtime-path)"
+        $runtimeDir = ($SavedRuntimePath -replace "^imt-app-runtime-path:\s*", "").Trim()
+        if (Test-Path $runtimeDir) {
+            Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
+            Write-Ok "Restored user config (imt-app-runtime-path)"
+        } else {
+            Write-Warn "Skipped imt-app-runtime-path (directory not found: $runtimeDir)"
+        }
     }
 }
 

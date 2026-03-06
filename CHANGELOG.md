@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.11] - 2026-03-06
+
+- Added path existence validation when restoring user config during reinstall
+- Skip and warn if saved `imt-app-runtime-path` or `mcp-server-path` directory no longer exists
+
 ## [1.4.10] - 2026-03-06
 
 - Fixed installer config preservation to avoid duplicates on reinstall
