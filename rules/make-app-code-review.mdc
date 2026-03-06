@@ -37,18 +37,23 @@ If the user attaches a Jira ticket link, verify that the Atlassian MCP server is
 
 When a Jira ticket is provided, follow this process to find and review the relevant code changes:
 
-### Step 1: Fetch Jira ticket details
+### Step 1: Fetch Jira ticket details (MANDATORY — never skip)
 
 - Call `getJiraIssue` to retrieve the ticket's **description**, **Acceptance Criteria (AC)**, **subtasks**, and **comments**.
-- If the ticket is a subtask, also fetch the **parent task** to understand the full scope.
-- If the ticket is a parent task, also fetch **subtasks** to understand granular requirements and QA issues.
+- **If the ticket has subtasks** → fetch **every subtask** via `getJiraIssue` to understand:
+  - Granular requirements broken down from the parent AC
+  - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
+  - Additional constraints or scope changes not in the parent ticket
+- **If the ticket is a subtask** → fetch the **parent task** to understand the full scope and AC.
+- **DO NOT proceed to Step 2 until all related tickets (parent + subtasks) have been fetched and analyzed.** Skipping this step leads to incomplete reviews that miss important context.
 
 ### Step 2: Identify expected changes from the ticket
 
-Extract from the Jira ticket:
+Extract from the Jira ticket **AND all subtasks**:
 - What modules/components should be changed
 - What behavior should be added, modified, or fixed
-- What edge cases the AC explicitly mentions
+- What edge cases the AC or subtasks explicitly mention
+- What QA issues were raised in subtasks (these often reveal additional requirements)
 
 ### Step 3: Fetch actual code changes
 
