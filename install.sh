@@ -62,8 +62,8 @@ SAVED_MCP_PATH=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        SAVED_RUNTIME_PATH=$(grep '^imt-app-runtime-path:' "$SKILL_DIR/SKILL.md" || true)
-        SAVED_MCP_PATH=$(grep '^mcp-server-path:' "$SKILL_DIR/SKILL.md" || true)
+        SAVED_RUNTIME_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^imt-app-runtime-path:' | grep -v '/path/provided' | tail -1 || true)
+        SAVED_MCP_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^mcp-server-path:' | grep -v '{path-to' | tail -1 || true)
     fi
 
     SAVED_ENV=""

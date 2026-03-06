@@ -60,9 +60,9 @@ $SavedMcpPath = ""
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
     if (Test-Path $skillMdPath) {
-        $content = Get-Content $skillMdPath
-        $SavedRuntimePath = ($content | Where-Object { $_ -match "^imt-app-runtime-path:" }) -join ""
-        $SavedMcpPath = ($content | Where-Object { $_ -match "^mcp-server-path:" }) -join ""
+        $lastLines = Get-Content $skillMdPath -Tail 10
+        $SavedRuntimePath = ($lastLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
+        $SavedMcpPath = ($lastLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
     }
 
     $SavedEnv = ""

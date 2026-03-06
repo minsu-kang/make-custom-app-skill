@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.10] - 2026-03-06
+
+- Fixed installer config preservation to avoid duplicates on reinstall
+- Use `tail -10` instead of full-file `grep` to only capture real user config (not in-doc examples)
+- Filter out template values (`/path/provided`, `{path-to`) during preserve step
+
 ## [1.4.9] - 2026-03-06
 
 - Fixed installer to preserve both `imt-app-runtime-path:` and `mcp-server-path:` on reinstall/update
