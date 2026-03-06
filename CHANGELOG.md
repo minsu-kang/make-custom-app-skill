@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.8] - 2026-03-06
+
+- Added all reference files to README.md (tree structure and file table)
+
 ## [1.4.7] - 2026-03-06
 
 - Added new reference files to installer file lists (install.sh, install.ps1)

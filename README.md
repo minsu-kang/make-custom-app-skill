@@ -71,6 +71,11 @@ make-custom-app-skill/
 │   └── references/                     #   Reference documents
 │       ├── builtin-iml-functions.md    #   IML function reference
 │       ├── communication-reference.md  #   Communication (API) spec
+│       ├── parameters-reference.md     #   Parameters, Interface, RPC patterns
+│       ├── component-patterns-reference.md  #  Base, Connection, Error, Webhook, Trigger, Responder
+│       ├── custom-functions-reference.md    #  Custom IML function conventions
+│       ├── developer-notes-templates.md     #  Developer Notes templates
+│       ├── app-ux-best-practices.md    #   App UX best practices
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
 ├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/scripts/
@@ -104,6 +109,11 @@ make-custom-app-skill/
 | `SKILL.md` | Main skill — IMLJSON patterns, app context management, code review workflow |
 | `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
 | `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
+| `references/parameters-reference.md` | Parameters, Interface, RPC Dynamic Options, Conditional RPCs, nested inheritance |
+| `references/component-patterns-reference.md` | Base, Connection, Error Handling, Webhook, Trigger, Responder patterns |
+| `references/custom-functions-reference.md` | Custom IML function code conventions, test.js requirements, size limits |
+| `references/developer-notes-templates.md` | Developer Notes templates for Bug Fix and Feature tickets |
+| `references/app-ux-best-practices.md` | App UX best practices — naming, hints, fields, messages, patterns |
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 
