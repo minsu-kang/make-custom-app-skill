@@ -83,6 +83,45 @@ For each **ticket-related** code change only, evaluate:
 - **Completeness**: Does it handle all edge cases mentioned in the AC?
 - **Breaking Changes**: Could this change break existing scenarios?
 - **Code Quality**: IML syntax, error handling, type safety, consistent patterns
+- **ES6+ Compliance**: All changed/new code must follow ES6+ conventions (see below)
+- **Test Coverage**: Changed functions must have corresponding test.js (see below)
+
+### Test Coverage Enforcement (Mandatory for `functions/*/code.js`)
+
+When a `functions/{name}/code.js` file is changed, **always** check the corresponding `functions/{name}/test.js`:
+
+1. **test.js missing entirely** → verdict **Improvement Needed**. Flag with `[IMPROVEMENT]` and list required test cases.
+2. **test.js exists but has no tests for the changed behavior** → verdict **Improvement Needed**. Flag the specific missing cases.
+3. **test.js exists and covers the changed behavior** → no action needed.
+
+**What to check:**
+- Does the test file cover the new/changed logic paths? (e.g., new filter condition for `false` → must have a test for `false`)
+- Are edge cases tested? (`null`, `undefined`, `false`, `0`, empty string, empty array/object)
+- If the function had existing tests, do they still align with the new behavior? (no stale assertions)
+
+Any test gap for changed behavior results in verdict **Improvement Needed**. Include specific test cases the developer should add in the review output AND the To Developer message.
+
+### ES6+ Enforcement (Mandatory for `functions/*/code.js`)
+
+**Scope**: All **newly written or modified lines** in the diff. Unchanged existing code is out of scope.
+
+Any violation in changed/new code results in verdict **Improvement Needed**. Do NOT overlook these.
+
+| Pattern | Required (ES6+) | Violation (flag it) |
+|---|---|---|
+| Variables | `const` / `let` | `var` |
+| Callbacks | Arrow functions `(x) => x.id` | `function(x) { return x.id; }` |
+| Strings | Template literals `` `${name}` `` | `'Hello ' + name` |
+| Iteration | `.map()`, `.filter()`, `for...of` | `for (var i = 0; ...)` |
+| Null checks | `value != null`, `value?.prop` | `value !== undefined && value !== null` |
+| Destructuring | `const { a, b } = obj` | `const a = obj.a; const b = obj.b;` |
+| Default params | `function fn(opts = {})` | `opts = opts \|\| {}` |
+
+**Review checklist for each changed function file:**
+
+1. Scan every new/modified line in the diff for `var`, `function(`, string concatenation, verbose null checks
+2. If found → flag as `[IMPROVEMENT]` with the exact line and the ES6+ replacement
+3. If the function signature itself was touched, ensure it also follows conventions
 
 ## 5. Review Output Format
 
@@ -107,6 +146,8 @@ Include the following in the review output:
 - **Verdict**: LGTM | Breaking Change | Bug | Improvement Needed
 - **Change Summary**: (one-line summary)
 - **Analysis**: (old → new comparison, correctness against AC)
+- **ES6+ Violations**: (table of violations, or "None")
+- **Test Coverage**: (test.js status — missing / exists but gaps / adequate)
 - **Suggestions**: (if any)
 
 ### Overall Verdict
@@ -126,6 +167,7 @@ When the overall verdict is **Changes Requested** (i.e., any change has a verdic
 - Written in **English**
 - Professional but concise — ready to copy-paste into Jira comment, Slack, or Teams
 - Structured per issue found, with clear action items
+- **Must include ALL issue categories found**: logic bugs, breaking changes, ES6+ violations, missing/incomplete tests. Never omit a category from the message even if it was covered in the review output.
 
 Format:
 
@@ -148,6 +190,47 @@ Severity levels: `BREAKING` for breaking changes, `BUG` for bugs, `IMPROVEMENT` 
 
 If the verdict is **LGTM**, skip this section entirely.
 
-## 7. Review Without Jira Ticket
+## 7. Post-Review Auto-Actions (Mandatory — never skip)
+
+After the review output and To Developer message (if applicable) are delivered, **always ask the user**:
+
+> Did you return the ticket to the developer, or commit the changes?
+
+Wait for the user's response. Once the user confirms either:
+- The ticket was returned to the developer (Changes Requested), OR
+- The changes were committed (LGTM)
+
+**Immediately** execute these steps — do NOT wait for the user to ask:
+
+1. **Context file**: Create or update `~/.cursor/make-app-contexts/{slug}-v{version}.md` with review results (verdict, changed files, issues found, caveats discovered)
+2. **Pinecone sync**:
+   - `upsert_app_context` — sync the updated context file
+   - `upsert_jira_ticket` — for each Jira ticket reviewed, store the review result
+
+**These must be included in the TODO list** when planning the review task. Never omit them.
+
+## 8. Re-Review Process
+
+When the developer submits fixes and the user requests a re-review:
+
+1. **Fresh fetch**: Always re-run `download-app.js` and `review-changes.js` — never reuse previous `latest.json`.
+2. **Previous issues checklist**: Load the previous review's issues (from context file or prior conversation) and verify each one:
+   - **Fixed** → mark as resolved
+   - **Not fixed** → flag again with reference to the previous review
+   - **Partially fixed** → note what remains
+3. **New changes**: Check if new changes were introduced beyond the previous review's scope. Review them with the same criteria (correctness, ES6+, tests, etc.).
+4. **Output format**: Use the same review format (section 5) but add a "Previous Issues" section:
+
+```
+### Previous Issues Resolution
+| # | Issue | Status |
+|---|---|---|
+| 1 | {issue description} | Fixed / Not Fixed / Partial |
+| ... | ... | ... |
+```
+
+5. **Post-review**: Follow section 7 (ask user, update context, sync Pinecone) as with any review.
+
+## 9. Review Without Jira Ticket
 
 If no Jira ticket is provided, perform a standard code quality review using the criteria in the skill's Code Review Workflow (breaking changes, bugs, IML patterns, error handling). The AC Coverage section can be omitted.

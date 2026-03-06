@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0] - 2026-03-06
+
+- Added ES6+ enforcement rule for code reviews — all changed/new lines in `functions/*/code.js` must follow ES6+ conventions
+- Added test coverage enforcement — changed functions must have corresponding test.js with tests covering the new behavior
+- Added per-change review template fields for ES6+ violations and test coverage status
+- Added To Developer message rule requiring all issue categories (bugs, ES6+, tests) to be included
+- Added post-review auto-actions — prompt user for ticket status, then auto-execute context file update and Pinecone sync
+- Added re-review process guide with previous issues resolution tracking
+
 ## [1.4.11] - 2026-03-06
 
 - Added path existence validation when restoring user config during reinstall
