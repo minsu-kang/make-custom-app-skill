@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.5] - 2026-03-06
+
+- Extracted 4 large reference sections (~500 lines) from SKILL.md into dedicated files (1323→835 lines)
+  - `parameters-reference.md` — Parameters, Interface, RPC Dynamic Options
+  - `component-patterns-reference.md` — Base, Connection, Error Handling, Webhook, Trigger, Responder
+  - `developer-notes-templates.md` — Bug Fix, Feature templates
+  - `custom-functions-reference.md` — code conventions, test.js, size limits
+- Enriched `component-patterns-reference.md` with detailed explanations, field tables, and additional examples
+
+## [1.4.4] - 2026-03-06
+
+- Added Developer Notes auto-prompt after Jira ticket work completion
+- Added IML function 5000 character size limit warning (`IM005`)
+- Added ADF table format requirement for Developer Notes
+
 ## [1.4.3] - 2026-03-06
 
 - Read-only scripts (`download-app.js`, `review-changes.js`) now auto-execute via Shell tool — no more manual external terminal
