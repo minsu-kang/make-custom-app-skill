@@ -1,10 +1,25 @@
 ---
-description: Sync versions across version.json, SKILL.md, and CHANGELOG.md on commits
-globs: version.json, skill/SKILL.md, CHANGELOG.md
-alwaysApply: false
+description: Auto-bump semver, sync versions, and update CHANGELOG on every commit
+globs: 
+alwaysApply: true
 ---
 
 # Version & Changelog Sync Rule
+
+## Commit & Push Workflow
+
+When the user asks to commit and push, **always** perform these steps in order:
+
+1. **Determine version bump** based on semver and the nature of changes:
+   - **Major** (X.0.0): Breaking changes, incompatible API/workflow changes
+   - **Minor** (x.Y.0): New features, new files, significant additions
+   - **Patch** (x.y.Z): Bug fixes, refactoring, documentation updates, small improvements
+2. **Bump version** in both `version.json` and `skill/SKILL.md` frontmatter
+3. **Update `CHANGELOG.md`** — add a new version section at the top
+4. **Commit** all changes with a descriptive message
+5. **Push** to remote
+
+Never skip version bump or CHANGELOG update when committing.
 
 ## Version Sync
 
@@ -13,20 +28,11 @@ When `version.json`'s `version` field is changed:
 2. Search `skill/SKILL.md` body for any hardcoded version strings (e.g. `` `1.x.x` ``) and update them
 3. **Never hardcode version numbers in body text** — if a reference to "current version" exists, it should say "Read the `version` field from the frontmatter" without repeating the actual number
 
-## Auto-Update CHANGELOG on Commit
-
-When creating a commit, add the changes to `CHANGELOG.md`.
-
-- If the version was bumped: add a new version section (`## [x.y.z] - YYYY-MM-DD`)
-- If the version is unchanged: append entries to the current top-level version section
+## CHANGELOG Format
 
 ```markdown
-# Example CHANGELOG.md
+## [x.y.z] - YYYY-MM-DD
 
-## [1.1.0] - 2026-03-05
-- Added new feature X
-- Fixed bug in module Y
-
-## [1.0.1] - 2026-03-02
-- Version check system test
+- Change description 1
+- Change description 2
 ```

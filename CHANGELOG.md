@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.6] - 2026-03-06
+
+- Updated `version-sync.mdc` with semver auto-bump and CHANGELOG workflow on commit
+
 ## [1.4.5] - 2026-03-06
 
 - Extracted 4 large reference sections (~500 lines) from SKILL.md into dedicated files (1323→835 lines)
