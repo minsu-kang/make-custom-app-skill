@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.2] - 2026-03-06
+
+- Jira-driven code review now strictly filters to ticket-related changes only — unrelated changes are excluded entirely from review output
+- Added mandatory subtask and comment fetching enforcement in code review Step 1
+
+## [1.4.1] - 2026-03-06
+
+- Added `app-ux-best-practices.md` to installer file list (macOS/Linux + Windows)
+- Added expect.imljson limitations note (no IML expressions, no condition, editable deprecated)
+
 ## [1.4.0] - 2026-03-04
 
 - Added IML function `test.js` mandatory rule with `assert.deepStrictEqual` / `assert.strictEqual` examples

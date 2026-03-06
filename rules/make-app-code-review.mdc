@@ -64,16 +64,21 @@ Extract from the Jira ticket **AND all subtasks**:
 
 Guide the user to run `download-app.js` and `review-changes.js` (per auto-actions rule #9), then read `latest.json` to get the actual uncommitted changes.
 
-### Step 4: Cross-reference Jira AC with code changes
+### Step 4: Filter changes — ONLY review ticket-related changes
 
-For each change in `latest.json`, determine:
-- **Which AC item does this change fulfill?** — Map each code change to a specific AC item or ticket requirement.
+**This is a mandatory filtering step. Never skip it.**
+
+For each change in `latest.json`, determine whether it is related to the Jira ticket's AC:
+- **Related** → Include in review (proceed to Step 5)
+- **Unrelated** → **Exclude entirely from the review. Do NOT review, analyze, or comment on unrelated changes.** They belong to a different ticket or scope and are not your concern.
+
+After filtering:
 - **Are there AC items with no corresponding code change?** — Flag any unimplemented requirements.
-- **Are there code changes unrelated to the ticket?** — Flag unexpected changes that may be out of scope.
+- If ALL changes are unrelated to the ticket → Report "No changes found for this ticket's AC."
 
-### Step 5: Review each change
+### Step 5: Review each related change
 
-For each code change, evaluate:
+For each **ticket-related** code change only, evaluate:
 - **Correctness**: Does the change correctly implement the AC requirement?
 - **Completeness**: Does it handle all edge cases mentioned in the AC?
 - **Breaking Changes**: Could this change break existing scenarios?
@@ -94,8 +99,11 @@ Include the following in the review output:
 | ... | ... | ... |
 
 ### Per-Change Review
+
+**Only include changes related to the Jira ticket's AC. Exclude all unrelated changes entirely — do not list or mention them.**
+
 #### [{#}] {group}/{item}/{code}
-- **Mapped AC**: {which AC item this implements, or "N/A — out of scope"}
+- **Mapped AC**: {which AC item this implements}
 - **Verdict**: LGTM | Breaking Change | Bug | Improvement Needed
 - **Change Summary**: (one-line summary)
 - **Analysis**: (old → new comparison, correctness against AC)
