@@ -45,7 +45,12 @@ When a Jira ticket is provided, follow this process to find and review the relev
   - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
   - Additional constraints or scope changes not in the parent ticket
 - **If the ticket is a subtask** → fetch the **parent task** to understand the full scope and AC.
-- **DO NOT proceed to Step 2 until all related tickets (parent + subtasks) have been fetched and analyzed.** Skipping this step leads to incomplete reviews that miss important context.
+- **Fetch comments on the parent task AND all subtasks** — comments often contain:
+  - Clarifications or amendments to the original AC
+  - QA findings with reproduction steps or screenshots
+  - Reviewer feedback from previous review rounds
+  - Scope changes or additional requirements added after ticket creation
+- **DO NOT proceed to Step 2 until all related tickets (parent + subtasks) and their comments have been fetched and analyzed.** Skipping this step leads to incomplete reviews that miss important context.
 
 ### Step 2: Identify expected changes from the ticket
 
