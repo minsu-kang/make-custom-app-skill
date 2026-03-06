@@ -58,13 +58,12 @@ echo ""
 
 # ── Preserve User Config ──
 SAVED_RUNTIME_PATH=""
+SAVED_MCP_PATH=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        LAST_LINE=$(tail -1 "$SKILL_DIR/SKILL.md")
-        if [[ "$LAST_LINE" == imt-app-runtime-path:* ]]; then
-            SAVED_RUNTIME_PATH="$LAST_LINE"
-        fi
+        SAVED_RUNTIME_PATH=$(grep '^imt-app-runtime-path:' "$SKILL_DIR/SKILL.md" || true)
+        SAVED_MCP_PATH=$(grep '^mcp-server-path:' "$SKILL_DIR/SKILL.md" || true)
     fi
 
     SAVED_ENV=""
@@ -348,13 +347,17 @@ ENVEOF
 fi
 
 # ── Restore User Config ──
-if [ -n "$SAVED_RUNTIME_PATH" ] && [ -f "$SKILL_DIR/SKILL.md" ]; then
-    CURRENT_LAST=$(tail -1 "$SKILL_DIR/SKILL.md")
-    if [[ "$CURRENT_LAST" != imt-app-runtime-path:* ]]; then
+if [ -f "$SKILL_DIR/SKILL.md" ]; then
+    if [ -n "$SAVED_MCP_PATH" ]; then
+        echo "" >> "$SKILL_DIR/SKILL.md"
+        echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (mcp-server-path)"
+    fi
+    if [ -n "$SAVED_RUNTIME_PATH" ]; then
         echo "" >> "$SKILL_DIR/SKILL.md"
         echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (imt-app-runtime-path)"
     fi
-    ok "Restored user config (imt-app-runtime-path)"
 fi
 
 # ── Verify Installation ──

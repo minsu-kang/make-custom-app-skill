@@ -55,14 +55,14 @@ Write-Host ""
 
 # ── Preserve User Config ──
 $SavedRuntimePath = ""
+$SavedMcpPath = ""
 
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
     if (Test-Path $skillMdPath) {
-        $lastLine = (Get-Content $skillMdPath -Tail 1).Trim()
-        if ($lastLine -match "^imt-app-runtime-path:") {
-            $SavedRuntimePath = $lastLine
-        }
+        $content = Get-Content $skillMdPath
+        $SavedRuntimePath = ($content | Where-Object { $_ -match "^imt-app-runtime-path:" }) -join ""
+        $SavedMcpPath = ($content | Where-Object { $_ -match "^mcp-server-path:" }) -join ""
     }
 
     $SavedEnv = ""
@@ -409,12 +409,15 @@ OPENAI_API_KEY=$openaiKey
 
 # ── Restore User Config ──
 $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
-if ($SavedRuntimePath -and (Test-Path $skillMdPath)) {
-    $currentLast = (Get-Content $skillMdPath -Tail 1).Trim()
-    if ($currentLast -notmatch "^imt-app-runtime-path:") {
-        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
+if (Test-Path $skillMdPath) {
+    if ($SavedMcpPath) {
+        Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
+        Write-Ok "Restored user config (mcp-server-path)"
     }
-    Write-Ok "Restored user config (imt-app-runtime-path)"
+    if ($SavedRuntimePath) {
+        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
+        Write-Ok "Restored user config (imt-app-runtime-path)"
+    }
 }
 
 # ── Verify Installation ──

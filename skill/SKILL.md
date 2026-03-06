@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.4.8
+version: 1.4.9
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -830,5 +830,3 @@ imt-app-runtime-path: /path/provided/by/user/imt-app-runtime
 ```
 
 After adding it, inform the user that setup is complete and answer their original question.
-
-imt-app-runtime-path: /Users/kej1857/Documents/GitHub/imt-app-runtime

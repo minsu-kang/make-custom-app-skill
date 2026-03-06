@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.9] - 2026-03-06
+
+- Fixed installer to preserve both `imt-app-runtime-path:` and `mcp-server-path:` on reinstall/update
+- Removed hardcoded `imt-app-runtime-path` from source SKILL.md (user-local only)
+- Changed config detection from `tail -1` to `grep` for reliable multi-config preservation
+
 ## [1.4.8] - 2026-03-06
 
 - Added all reference files to README.md (tree structure and file table)
