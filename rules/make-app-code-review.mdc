@@ -101,6 +101,18 @@ When a `functions/{name}/code.js` file is changed, **always** check the correspo
 
 Any test gap for changed behavior results in verdict **Improvement Needed**. Include specific test cases the developer should add in the review output AND the To Developer message.
 
+### `help` Text Evaluation (for expect/parameters changes)
+
+When `help` properties are added, removed, or modified, evaluate their **actual UX value** — not just their presence:
+
+- **Redundant `help`** (restates the label): Removing these is **cleanup, not UX regression**. Do NOT flag as Improvement Needed.
+  - Example: label `"Name"` → help `"Enter the name."` — adds zero value
+  - Example: label `"Value"` → help `"Enter the value."` — adds zero value
+- **Meaningful `help`** (provides guidance beyond the label): Removing these IS a UX regression. Flag as Improvement Needed.
+  - Example: help `"Use ISO 8601 format (e.g., 2024-01-15T10:30:00Z)"` — actual format guidance
+  - Example: help `"Comma-separated list of IDs (max 100)"` — constraints and format
+- **Missing `help` on complex fields**: When a field requires non-obvious input (format, constraints, examples), suggest adding meaningful `help` as an improvement — but do NOT flag the absence of trivial `help` as an issue.
+
 ### ES6+ Enforcement (Mandatory for `functions/*/code.js`)
 
 **Scope**: All **newly written or modified lines** in the diff. Unchanged existing code is out of scope.

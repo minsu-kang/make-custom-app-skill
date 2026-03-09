@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.1] - 2026-03-09
+
+- Added `help` text evaluation guideline to code review rules — distinguish redundant help (label restatement) from meaningful help (format guidance, constraints)
+
 ## [1.5.0] - 2026-03-06
 
 - Added ES6+ enforcement rule for code reviews — all changed/new lines in `functions/*/code.js` must follow ES6+ conventions
