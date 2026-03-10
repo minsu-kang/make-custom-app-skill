@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.2] - 2026-03-10
+
+- Added UX Guideline Compliance section to code review rules — verify label naming, hint formatting, and terminology accuracy against UX best practices
+- Added new rule `make-app-ux-guideline.mdc` — enforces reading UX guidelines before any UX-related changes
+- Added Title Case exception to UX best practices — follow app's existing convention if consistently Title Case
+
 ## [1.5.1] - 2026-03-09
 
 - Added `help` text evaluation guideline to code review rules — distinguish redundant help (label restatement) from meaningful help (format guidance, constraints)

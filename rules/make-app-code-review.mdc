@@ -101,6 +101,18 @@ When a `functions/{name}/code.js` file is changed, **always** check the correspo
 
 Any test gap for changed behavior results in verdict **Improvement Needed**. Include specific test cases the developer should add in the review output AND the To Developer message.
 
+### UX Guideline Compliance (Mandatory for expect/parameters changes)
+
+When expect or parameters files are changed, **read `~/.cursor/skills/make-custom-app/references/app-ux-best-practices.md` first** and verify:
+
+- **Label capitalization**: Sentence-style by default, but follow the app's existing convention if consistently Title Case
+- **Label naming**: 1–3 words, descriptive not instructional, no articles
+- **Hint formatting**: Examples in backticks, default values in backticks, links with app name + page name
+- **Hint template**: Limit fields must use the standard template from "Templates: Universal Hints"
+- **Terminology accuracy**: Labels and option names must match the actual input format (e.g., don't label "JSON" if the format is GraphQL)
+
+Any violation results in verdict **Improvement Needed**.
+
 ### `help` Text Evaluation (for expect/parameters changes)
 
 When `help` properties are added, removed, or modified, evaluate their **actual UX value** — not just their presence:

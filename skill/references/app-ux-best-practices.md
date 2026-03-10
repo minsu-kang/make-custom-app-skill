@@ -128,6 +128,7 @@ Rules:
 - Match 3rd party UI terminology (not API documentation)
 - Be descriptive, not instructional
 - Sentence-style capitalization
+  - **Exception**: If an app's existing labels are consistently Title Case, follow Title Case for that app to maintain consistency. Always check the app's existing labels before deciding.
 - No punctuation or articles ("the", "an", "a")
 
 #### Capitalization Rules
