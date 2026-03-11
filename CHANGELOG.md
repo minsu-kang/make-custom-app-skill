@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.3] - 2026-03-11
+
+- Document that `limit` middleware works independently from `iterate` in runtime-reference — verified from imt-app-runtime source that `limit` applies `slice(0, limit)` on any array result regardless of `iterate` usage
+
 ## [1.5.2] - 2026-03-10
 
 - Added UX Guideline Compliance section to code review rules — verify label naming, hint formatting, and terminology accuracy against UX best practices

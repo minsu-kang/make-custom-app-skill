@@ -105,6 +105,9 @@ Compatibility mode: when `response.output` exists alongside `iterate`, output is
 
 - Default: `Number.MAX_SAFE_INTEGER` (effectively unlimited)
 - `limit === 0` → throws `InvalidConfigurationError`
+- **Works independently from `iterate`**: The `limit` middleware checks `Array.isArray(result)` and applies `result.slice(0, limit)` regardless of whether `iterate` is used.
+- If `result` is not an array → passes through unchanged (no limit applied)
+- In Search modules, `response.output: "{{body}}"` + `response.limit` without `iterate` works correctly when the API response is an array — limit is applied and each element becomes an individual output bundle
 
 ### error
 
