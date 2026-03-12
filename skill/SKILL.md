@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.5.3
+version: 1.5.4
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -805,7 +805,7 @@ These values can be overridden in `common.imljson`:
 - IMLJSON allows comments (`//`)
 - Sanitize is required to remove sensitive info from logs
 - IML functions run in a sandbox (10-second timeout)
-- `environment` access requires explicit declaration via `flags.environmentAccess` array
+- `{{environment.timezone}}` etc. (scenario environment) is always available — no flags needed. `flags.environmentAccess` is only for server-side `process.env` access via `{{environment.system.VAR}}` (see [runtime-reference.md](references/runtime-reference.md#environment-variables))
 
 ## Custom IML Functions
 

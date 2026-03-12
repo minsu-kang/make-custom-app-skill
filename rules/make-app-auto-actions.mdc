@@ -77,11 +77,22 @@ When modifying a custom IML function (`functions/{name}/code.js`), always create
 
 Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
 
+### 8. Runtime Reference Lookup (for api.imljson work)
+
+When writing, reviewing, or debugging `api.imljson` code that uses runtime variables or middleware features (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`, `wrapper`), always verify behavior through references — **never assume or guess**.
+
+**Lookup order:**
+
+1. **`~/.cursor/skills/make-custom-app/references/runtime-reference.md`** — check documented behavior first
+2. **`imt-app-runtime` source code** (path in SKILL.md `imt-app-runtime-path:`) — if runtime-reference.md doesn't cover it, search the actual source
+
+This applies to **all Make app work**: code reviews, bug fixes, feature requests, and new app creation.
+
 ---
 
 ## After Work (run upon completion of any Make app task)
 
-### 8. Developer Notes Prompt
+### 9. Developer Notes Prompt
 
 After Jira ticket work is complete (Bug, Feature Request, or Task — not App) using at least one write script (`update-app.js`, `create-component.js`, `update-component.js`, or `delete-component.js`), **ask the user**:
 
@@ -90,14 +101,14 @@ After Jira ticket work is complete (Bug, Feature Request, or Task — not App) u
 - If approved → write to `customfield_10483` using `editJiraIssue` with ADF format and **tables** (Root Cause, Fix, Affected Components, Changed Files)
 - If declined → skip, do not ask again
 
-### 9. Context File Update
+### 10. Context File Update
 
 Immediately create/update `~/.cursor/make-app-contexts/{slug}-v{version}.md` upon completion.
 
 - If the file doesn't exist, create it (include app structure, key patterns, caveats)
 - If the file exists, update relevant sections (Work History, Caveats, etc.)
 
-### 10. Pinecone Auto-Sync
+### 11. Pinecone Auto-Sync
 
 Execute MCP calls immediately after saving the context file:
 

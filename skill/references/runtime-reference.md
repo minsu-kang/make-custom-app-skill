@@ -294,6 +294,84 @@ All available error types:
 | Max redirects | 21 | — |
 | Default trigger limit | 1 | `parameters.limit` |
 
+## Environment Variables
+
+Two separate `environment`-related features exist in the runtime. Do NOT confuse them.
+
+### Scenario Environment (`environment`)
+
+The user's Make scenario runtime environment. Passed directly to the IML context — **always available without any flags**.
+
+Source: `buildContext()` in `runtime.js`:
+```js
+environment: instance.environment || {},
+```
+
+Available in IML as `{{environment.xxx}}`:
+
+| Property | Description |
+|----------|-------------|
+| `environment.timezone` | Scenario timezone (from org settings). Also injected into IML function sandbox for `formatDate()`/`parseDate()` |
+| `environment.debug` | Debug mode flag |
+| `environment.audit` | Audit logging flag |
+| `environment.verifier` | Verifier mode flag |
+
+Usage example in `api.imljson`:
+```json
+{
+    "temp": {
+        "tz": "{{environment.timezone}}"
+    }
+}
+```
+
+`environment.timezone` is also passed to the custom IML function sandbox context, so built-in IML functions (`formatDate`, `parseDate`, etc.) automatically use the scenario's timezone:
+```js
+const imlFunctionContext = {
+    timezone: (functionSandbox.environment || {}).timezone,
+    passthrough: manifestVersion >= 2
+};
+```
+
+### Server Environment Access (`flags.environmentAccess`)
+
+A **separate, unrelated** feature for accessing **server-side `process.env` variables** via a frozen proxy object at `environment.system`.
+
+Source: `runtime()` in `runtime.js`:
+```js
+if (module.flags && module.flags.environmentAccess) {
+    // Must be an array — accessing the whole environment at once is a security risk
+    if (!Array.isArray(module.flags.environmentAccess))
+        throw new Error('Variables for the Environment Access should always be enumerated as an array of strings.');
+
+    const envProxyProperties = module.flags.environmentAccess;
+    const envProxyBase = {};
+    Object.defineProperties(envProxyBase, envProxyProperties.reduce((acc, property) => {
+        acc[property] = {
+            configurable: false, enumerable: false,
+            get: () => process.env[property],
+            set: undefined
+        };
+        return acc;
+    }, {}));
+    Object.freeze(envProxyBase);
+    module.environment.system = envProxyBase;
+}
+```
+
+- Requires `flags.environmentAccess` (array of strings) in `common.imljson`
+- Exposes enumerated `process.env` properties as `{{environment.system.VAR_NAME}}`
+- Frozen, non-enumerable, read-only — high security design
+- **NOT related to `{{environment.timezone}}`** — that comes from the scenario environment
+
+### Quick Reference
+
+| What you need | IML expression | Flags required? |
+|---|---|---|
+| Scenario timezone | `{{environment.timezone}}` | No |
+| Scenario debug mode | `{{environment.debug}}` | No |
+| Server env var `FOO` | `{{environment.system.FOO}}` | Yes — `flags.environmentAccess: ["FOO"]` in common |
+
 ## Security
 
 ### Local Access

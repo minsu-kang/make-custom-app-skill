@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.4] - 2026-03-12
+
+- Add Environment Variables section to runtime-reference.md — document scenario environment (`{{environment.timezone}}` etc., always available) vs server environment access (`flags.environmentAccess` for `process.env` via `{{environment.system.VAR}}`)
+- Fix misleading note in SKILL.md that implied `environment` access requires `flags.environmentAccess`
+- Add Runtime Reference Lookup rule to auto-actions — consult runtime-reference.md (then imt-app-runtime source) for all api.imljson work (code reviews, bug fixes, features, new apps)
+- Add Runtime Behavior Verification section to code review rules
+
 ## [1.5.3] - 2026-03-11
 
 - Document that `limit` middleware works independently from `iterate` in runtime-reference — verified from imt-app-runtime source that `limit` applies `slice(0, limit)` on any array result regardless of `iterate` usage
