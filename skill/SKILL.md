@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.5.4
+version: 1.5.5
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -75,6 +75,23 @@ If **either of the two conditions below** is met, execute the workflow **automat
 
 - Condition 1: From the app name/version mentioned by the user
 - Condition 2: Extract `sdk/apps/{app-slug}/{app-version}` from the open file path
+- **If version is not provided**: Auto-detect via IPME (see "App Version Auto-Detection" below)
+
+### App Version Auto-Detection (IPME)
+
+When the user provides an app name/slug but **does not specify a version**, auto-detect the latest major version using the IPME API:
+
+1. **Fetch app list** from IPME:
+
+```bash
+curl -s "https://ipme.integromat.com/v3/search/apps" -H "x-imt-ipm-version: 3.20.0"
+```
+
+2. **Find the app** by matching the `name` field to the app slug
+3. **Extract the major version** from the `version` field (e.g., `2.52.56` → `2`)
+4. Use that major version for all subsequent operations (download, review, etc.)
+
+If the IPME call fails (network error, timeout), ask the user for the version manually.
 
 **2. Code Download/Sync Guide (Top Priority — Must Follow)**: Once an app is detected, **check the code storage status and provide guidance before answering the question.**
 
@@ -392,6 +409,7 @@ Execute this workflow if any of the following conditions are met:
 
 - If the user explicitly mentions it: use that app
 - Extract from open file path: `sdk/apps/{slug}/{version}/` pattern
+- If only app name is given without version: auto-detect via IPME (see "App Version Auto-Detection" above)
 - If unclear: ask the user
 
 **2. Check App Code & Run Scripts**: Both `download-app.js` and `review-changes.js` must be run **every time** a review is requested — including re-reviews. The local code in `make-app-contexts` may be stale even if the folder exists, and the changes data must always be freshly fetched from the API.
@@ -534,6 +552,7 @@ Execute this workflow if any of the following conditions are met:
 **2. App Detection & Code Download**: Identify the app and ensure code is available.
 
 - Determine app slug and version from the ticket/description (e.g., "MONDAY.COM v2" → `monday`, `2`)
+- If only app name is mentioned without version: auto-detect via IPME (see "App Version Auto-Detection" above)
 - Check if `~/.cursor/make-app-contexts/{slug}-v{version}/` exists
 - If not, guide the user to run the download command (see "App Code Download" section)
 - Load the context file `{slug}-v{version}.md` if it exists

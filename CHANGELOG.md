@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.5] - 2026-03-13
+
+- Add App Version Auto-Detection via IPME API — when user provides app name without version, auto-detect latest major version from `https://ipme.integromat.com/v3/search/apps`
+- Update App Detection steps in all workflows (Context Management, Code Review, Bug Investigation) to reference IPME auto-detection
+
 ## [1.5.4] - 2026-03-12
 
 - Add Environment Variables section to runtime-reference.md — document scenario environment (`{{environment.timezone}}` etc., always available) vs server environment access (`flags.environmentAccess` for `process.env` via `{{environment.system.VAR}}`)
