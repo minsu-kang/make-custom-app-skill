@@ -206,7 +206,7 @@ else
     done
 fi
 
-# ── Install Script Files (scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
+# ── Install Script Files (skill/scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
 echo ""
 info "Installing script files..."
 echo ""
@@ -214,10 +214,10 @@ echo ""
 SCRIPTS_DEST="$SKILL_DIR/scripts"
 mkdir -p "$SCRIPTS_DEST"
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/scripts/download-app.js" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/scripts/download-app.js" ]; then
     for file in "${SCRIPT_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/scripts/$file" ]; then
-            cp "$SCRIPT_DIR/scripts/$file" "$SCRIPTS_DEST/$file"
+        if [ -f "$SCRIPT_DIR/skill/scripts/$file" ]; then
+            cp "$SCRIPT_DIR/skill/scripts/$file" "$SCRIPTS_DEST/$file"
             ok "scripts/$file"
         else
             warn "scripts/$file (not found, skipped)"
@@ -227,7 +227,7 @@ else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
 
     for file in "${SCRIPT_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/$file" "$BASE_URL/scripts/$file" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/$file" "$BASE_URL/skill/scripts/$file" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ]; then
             ok "scripts/$file"
         else

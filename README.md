@@ -85,13 +85,13 @@ make-custom-app-skill/
 │       ├── app-ux-best-practices.md    #   App UX best practices
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
-├── scripts/                            # → installed to ~/.cursor/skills/make-custom-app/scripts/
-│   ├── download-app.js                 #   App source code downloader
-│   ├── update-app.js                   #   Push code changes to Make via SDK API
-│   ├── review-changes.js               #   Code review change fetcher
-│   ├── create-component.js             #   Create new components (module, rpc, function, connection, webhook)
-│   ├── update-component.js             #   Update component metadata (label, description, connection)
-│   └── delete-component.js             #   Delete components (with public/private app check)
+│   └── scripts/                        #   Automation scripts
+│       ├── download-app.js             #   App source code downloader
+│       ├── update-app.js               #   Push code changes to Make via SDK API
+│       ├── review-changes.js           #   Code review change fetcher
+│       ├── create-component.js         #   Create new components (module, rpc, function, connection, webhook)
+│       ├── update-component.js         #   Update component metadata (label, description, connection)
+│       └── delete-component.js         #   Delete components (with public/private app check)
 └── rules/                              # → installed to ~/.cursor/rules/
     ├── make-app-code-review.mdc        #   Code review input requirements
     ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
@@ -132,7 +132,7 @@ make-custom-app-skill/
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 
-### Script Files (`scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
+### Script Files (`skill/scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
 
 | File | Description |
 |------|-------------|

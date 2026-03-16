@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.1] - 2026-03-16
+
+- Move `scripts/` into `skill/scripts/` for consistent domain container structure
+- Update install.sh and install.ps1 source paths from `scripts/` to `skill/scripts/`
+
 ## [1.6.0] - 2026-03-16
 
 - Extract workflows from SKILL.md into `workflows/` folder (882→~300 lines in SKILL.md)

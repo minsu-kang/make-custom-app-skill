@@ -235,7 +235,7 @@ else {
     }
 }
 
-# ── Install Script Files ──
+# ── Install Script Files (skill/scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
 Write-Host ""
 Write-Info "Installing script files..."
 Write-Host ""
@@ -243,11 +243,11 @@ Write-Host ""
 $SCRIPTS_DEST = Join-Path $SKILL_DIR "scripts"
 New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
 
-$localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "scripts\download-app.js" } else { "" }
+$localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "skill\scripts\download-app.js" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localDownloadJs)) {
     foreach ($file in $SCRIPT_FILES) {
-        $src = Join-Path $ScriptDir "scripts\$file"
+        $src = Join-Path $ScriptDir "skill\scripts\$file"
         if (Test-Path $src) {
             Copy-Item -Force $src (Join-Path $SCRIPTS_DEST $file)
             Write-Ok "scripts/$file"
@@ -261,7 +261,7 @@ else {
     $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
     foreach ($file in $SCRIPT_FILES) {
         $outPath = Join-Path $SCRIPTS_DEST $file
-        if (Download-File "$baseUrl/scripts/$file" $outPath) {
+        if (Download-File "$baseUrl/skill/scripts/$file" $outPath) {
             Write-Ok "scripts/$file"
         }
         else {
