@@ -67,8 +67,15 @@ make-custom-app-skill/
 ├── install.sh                         # Installer (macOS/Linux)
 ├── install.ps1                        # Installer (Windows)
 ├── skill/                              # → installed to ~/.cursor/skills/make-custom-app/
-│   ├── SKILL.md                        #   Main skill instructions
-│   └── references/                     #   Reference documents
+│   ├── SKILL.md                        #   Core domain knowledge + workflow routing
+│   ├── workflows/                      #   Workflow instructions (trigger-based)
+│   │   ├── app-context.md              #   App detection, code download/sync, context management
+│   │   ├── code-review.md             #   Fetch changes, review, generate report
+│   │   ├── bug-investigation.md       #   Root cause analysis, fix, verify
+│   │   ├── feature-request.md         #   Design, create, implement new components
+│   │   ├── app-task.md                #   UX fixes, refactoring, metadata changes
+│   │   └── pinecone-sync.md           #   Auto-sync context to shared Pinecone DB
+│   └── references/                     #   Reference documents (on-demand)
 │       ├── builtin-iml-functions.md    #   IML function reference
 │       ├── communication-reference.md  #   Communication (API) spec
 │       ├── parameters-reference.md     #   Parameters, Interface, RPC patterns
@@ -97,8 +104,8 @@ make-custom-app-skill/
 |---|---|---|
 | **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/` |
 | **When loaded** | On-demand (when Make app work is detected) | Always active |
-| **Purpose** | Detailed workflows, domain knowledge, scripts | Short behavioral rules |
-| **Size** | Large (SKILL.md + reference docs + scripts) | Small (< 50 lines per rule) |
+| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Short behavioral rules |
+| **Size** | Large (SKILL.md + workflows + references + scripts) | Small (< 50 lines per rule) |
 
 ## What Gets Installed
 
@@ -106,7 +113,15 @@ make-custom-app-skill/
 
 | File | Description |
 |------|-------------|
-| `SKILL.md` | Main skill — IMLJSON patterns, app context management, code review workflow |
+| `SKILL.md` | Core domain knowledge (IMLJSON, module types, IML expressions) + workflow routing table |
+| **Workflows** | |
+| `workflows/app-context.md` | App detection, code download/sync, context file management |
+| `workflows/code-review.md` | Fetch uncommitted changes, review against criteria, generate report |
+| `workflows/bug-investigation.md` | Root cause analysis, reproduce, fix, verify, developer notes |
+| `workflows/feature-request.md` | Design, create new components, implement, test, push |
+| `workflows/app-task.md` | UX updates, refactoring, metadata changes, deprecation, cleanup |
+| `workflows/pinecone-sync.md` | Auto-sync context to shared Pinecone vector DB |
+| **References** | |
 | `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
 | `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
 | `references/parameters-reference.md` | Parameters, Interface, RPC Dynamic Options, Conditional RPCs, nested inheritance |

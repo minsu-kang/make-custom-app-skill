@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0] - 2026-03-16
+
+- Extract workflows from SKILL.md into `workflows/` folder (882→~300 lines in SKILL.md)
+  - `app-context.md` — App detection, code download/sync, context management
+  - `code-review.md` — Fetch changes, perform review, generate report
+  - `bug-investigation.md` — Root cause analysis, fix, verify, developer notes
+  - `feature-request.md` — Design, create, implement new app components
+  - `app-task.md` — Metadata changes, UX fixes, refactoring, deprecation
+  - `pinecone-sync.md` — Auto-sync context to shared Pinecone vector DB
+- Add workflow routing table to SKILL.md for trigger-based workflow dispatch
+- Update install.sh and install.ps1 to install workflow files from `skill/workflows/`
+
 ## [1.5.5] - 2026-03-13
 
 - Add App Version Auto-Detection via IPME API — when user provides app name without version, auto-detect latest major version from `https://ipme.integromat.com/v3/search/apps`

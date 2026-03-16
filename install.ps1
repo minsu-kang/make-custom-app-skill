@@ -32,6 +32,7 @@ $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md")
+$WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js")
 $RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "version-sync.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
@@ -195,6 +196,41 @@ else {
         }
         else {
             Write-Warn "references/$file (download failed)"
+        }
+    }
+}
+
+# ── Install Workflow Files (skill/workflows/ → ~/.cursor/skills/make-custom-app/workflows/) ──
+Write-Host ""
+Write-Info "Installing workflow files..."
+Write-Host ""
+
+$WORKFLOWS_DIR = Join-Path $SKILL_DIR "workflows"
+New-Item -ItemType Directory -Force -Path $WORKFLOWS_DIR | Out-Null
+
+$localWorkflowsDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\workflows" } else { "" }
+
+if ($ScriptDir -and (Test-Path $localWorkflowsDir)) {
+    foreach ($file in $WORKFLOW_FILES) {
+        $src = Join-Path $localWorkflowsDir $file
+        if (Test-Path $src) {
+            Copy-Item -Force $src (Join-Path $WORKFLOWS_DIR $file)
+            Write-Ok "workflows/$file"
+        }
+        else {
+            Write-Warn "workflows/$file (not found, skipped)"
+        }
+    }
+}
+else {
+    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
+    foreach ($file in $WORKFLOW_FILES) {
+        $outPath = Join-Path $WORKFLOWS_DIR $file
+        if (Download-File "$baseUrl/skill/workflows/$file" $outPath) {
+            Write-Ok "workflows/$file"
+        }
+        else {
+            Write-Warn "workflows/$file (download failed)"
         }
     }
 }

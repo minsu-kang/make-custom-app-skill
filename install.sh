@@ -25,6 +25,7 @@ VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md")
+WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
 SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js")
 RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "version-sync.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
@@ -171,6 +172,36 @@ else
         else
             rm -f "$SKILL_DIR/references/$file"
             warn "references/$file (download failed: HTTP $HTTP_CODE)"
+        fi
+    done
+fi
+
+# ── Install Workflow Files (skill/workflows/ → ~/.cursor/skills/make-custom-app/workflows/) ──
+echo ""
+info "Installing workflow files..."
+echo ""
+
+mkdir -p "$SKILL_DIR/workflows"
+
+if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/workflows" ]; then
+    for file in "${WORKFLOW_FILES[@]}"; do
+        if [ -f "$SCRIPT_DIR/skill/workflows/$file" ]; then
+            cp "$SCRIPT_DIR/skill/workflows/$file" "$SKILL_DIR/workflows/$file"
+            ok "workflows/$file"
+        else
+            warn "workflows/$file (not found, skipped)"
+        fi
+    done
+else
+    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+
+    for file in "${WORKFLOW_FILES[@]}"; do
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/workflows/$file" "$BASE_URL/skill/workflows/$file" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            ok "workflows/$file"
+        else
+            rm -f "$SKILL_DIR/workflows/$file"
+            warn "workflows/$file (download failed: HTTP $HTTP_CODE)"
         fi
     done
 fi
