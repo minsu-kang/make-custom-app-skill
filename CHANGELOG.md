@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.6.2] - 2026-03-18
+
+- Add `public` field support to `update-component.js` for toggling module visibility (`public=true` / `public=false`)
+
 ## [1.6.1] - 2026-03-16
 
 - Move `scripts/` into `skill/scripts/` for consistent domain container structure

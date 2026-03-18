@@ -9,15 +9,20 @@
  *   node update-component.js <app-slug> <app-version> <type> <name> <key=value> [key=value...]
  *
  * Types and supported fields:
- *   module     label, description, connection, altConnection, webhook, typeId, crud
+ *   module     label, description, connection, altConnection, webhook, typeId, crud, public
  *   rpc        label, connection, altConnection
  *   connection label
  *   webhook    label, connection, altConnection
  *   function   (not supported — functions have no patchable metadata)
  *
+ * The "public" field for modules uses a separate API endpoint (POST .../public or .../private)
+ * and can be combined with other fields in a single command.
+ *
  * Examples:
  *   node update-component.js monday 2 module aggregateTableV2 label="Aggregate Table"
  *   node update-component.js monday 2 module aggregateTableV2 label="New Label" description="New desc" connection=monday
+ *   node update-component.js monday 2 module newModule public=true
+ *   node update-component.js monday 2 module oldModule public=false
  *   node update-component.js monday 2 rpc RpcAggregateColumns label="Aggregate columns"
  *   node update-component.js monday 2 connection monday label="Monday v2 Updated"
  *   node update-component.js monday 2 webhook monday label="Monday Webhook Updated"
@@ -143,6 +148,43 @@ async function apiPatch(url, auth, body, retries = 0) {
 	}
 }
 
+async function apiPost(url, auth, retries = 0) {
+	try {
+		const resp = await fetch(url, {
+			method: 'POST',
+			headers: {
+				Authorization: auth,
+				'Content-Type': 'application/json',
+				'x-imt-apps-sdk-version': '2.4.0',
+			},
+			body: JSON.stringify({}),
+		});
+		if (resp.status === 429) {
+			if (retries >= MAX_RETRIES) {
+				return { ok: false, status: 429, message: 'Rate limit exceeded' };
+			}
+			const retryAfter = resp.headers.get('retry-after');
+			const delay = retryAfter
+				? parseInt(retryAfter, 10) * 1000
+				: BASE_DELAY_MS * Math.pow(2, retries);
+			console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms`);
+			await sleep(delay);
+			return apiPost(url, auth, retries + 1);
+		}
+		const respBody = await resp.text();
+		if (!resp.ok) {
+			return { ok: false, status: resp.status, message: respBody.slice(0, 500) };
+		}
+		return { ok: true, status: resp.status, message: respBody };
+	} catch (err) {
+		if (retries < MAX_RETRIES) {
+			await sleep(BASE_DELAY_MS * Math.pow(2, retries));
+			return apiPost(url, auth, retries + 1);
+		}
+		return { ok: false, status: 0, message: err.message };
+	}
+}
+
 async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
 	const url = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`;
 	const resp = await apiGetJson(url, auth);
@@ -162,13 +204,14 @@ async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
 }
 
 const ALLOWED_FIELDS = {
-	module: ['label', 'description', 'connection', 'altConnection', 'webhook', 'typeId', 'crud'],
+	module: ['label', 'description', 'connection', 'altConnection', 'webhook', 'typeId', 'crud', 'public'],
 	rpc: ['label', 'connection', 'altConnection'],
 	connection: ['label'],
 	webhook: ['label', 'connection', 'altConnection'],
 };
 
 const INTEGER_FIELDS = new Set(['typeId']);
+const BOOLEAN_FIELDS = new Set(['public']);
 
 function parseKeyValues(args) {
 	const result = {};
@@ -182,6 +225,8 @@ function parseKeyValues(args) {
 		let value = arg.slice(eqIdx + 1);
 		if (INTEGER_FIELDS.has(key)) {
 			value = parseInt(value, 10);
+		} else if (BOOLEAN_FIELDS.has(key)) {
+			value = value === 'true';
 		}
 		result[key] = value;
 	}
@@ -239,20 +284,45 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
 
 	const url = buildUrl(baseUrl, appSlug, appVersion, type, name);
+	let hasError = false;
 
-	console.log(`  Updating: ${type} "${name}"`);
-	console.log(`  PATCH ${url}`);
-	console.log(`  Fields: ${JSON.stringify(body, null, 2)}\n`);
+	if ('public' in body && type === 'module') {
+		const makePublic = body.public;
+		delete body.public;
 
-	const result = await apiPatch(url, auth, body);
+		const visibilityUrl = `${url}/${makePublic ? 'public' : 'private'}`;
 
-	if (result.ok) {
-		console.log(`  ✓ Updated successfully (HTTP ${result.status})`);
-	} else {
-		console.error(`  ✗ Update failed (HTTP ${result.status})`);
-		console.error(`    ${result.message}`);
-		process.exit(1);
+		console.log(`  ${makePublic ? 'Publishing' : 'Unpublishing'}: ${type} "${name}"`);
+		console.log(`  POST ${visibilityUrl}\n`);
+
+		const result = await apiPost(visibilityUrl, auth);
+
+		if (result.ok) {
+			console.log(`  ✓ ${makePublic ? 'Published' : 'Unpublished'} successfully (HTTP ${result.status})`);
+		} else {
+			console.error(`  ✗ ${makePublic ? 'Publish' : 'Unpublish'} failed (HTTP ${result.status})`);
+			console.error(`    ${result.message}`);
+			hasError = true;
+		}
 	}
+
+	if (Object.keys(body).length > 0) {
+		console.log(`  Updating: ${type} "${name}"`);
+		console.log(`  PATCH ${url}`);
+		console.log(`  Fields: ${JSON.stringify(body, null, 2)}\n`);
+
+		const result = await apiPatch(url, auth, body);
+
+		if (result.ok) {
+			console.log(`  ✓ Updated successfully (HTTP ${result.status})`);
+		} else {
+			console.error(`  ✗ Update failed (HTTP ${result.status})`);
+			console.error(`    ${result.message}`);
+			hasError = true;
+		}
+	}
+
+	if (hasError) process.exit(1);
 }
 
 const [appSlug, appVersion, type, name, ...kvArgs] = process.argv.slice(2);
@@ -263,7 +333,7 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	console.log('Updates component metadata (NOT file contents — use update-app.js for that).');
 	console.log('');
 	console.log('Types and supported fields:');
-	console.log('  module     label, description, connection, altConnection, webhook, typeId, crud');
+	console.log('  module     label, description, connection, altConnection, webhook, typeId, crud, public');
 	console.log('  rpc        label, connection, altConnection');
 	console.log('  connection label');
 	console.log('  webhook    label, connection, altConnection');
@@ -271,6 +341,8 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	console.log('');
 	console.log('Examples:');
 	console.log('  node update-component.js monday 2 module aggregateTableV2 label="Aggregate Table"');
+	console.log('  node update-component.js monday 2 module newModule public=true');
+	console.log('  node update-component.js monday 2 module oldModule public=false');
 	console.log('  node update-component.js monday 2 rpc RpcBoards label="List Boards" connection=monday');
 	console.log('  node update-component.js monday 2 connection monday label="Monday v2 Updated"');
 	process.exit(1);
