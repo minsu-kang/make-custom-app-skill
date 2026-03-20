@@ -18,7 +18,18 @@ Execute this workflow if any of the following conditions are met:
 - If only app name is given without version: auto-detect via IPME (see [App Version Auto-Detection](app-context.md#app-version-auto-detection-ipme))
 - If unclear: ask the user
 
-**2. Check App Code & Run Scripts**: Both `download-app.js` and `review-changes.js` must be run **every time** a review is requested — including re-reviews. The local code in `make-app-contexts` may be stale even if the folder exists, and the changes data must always be freshly fetched from the API.
+**2. Load Context (Mandatory — before review)**: Before fetching code or analyzing changes, load existing knowledge about this app to inform the review.
+
+1. **Local context file**: Read `~/.cursor/make-app-contexts/{slug}-v{version}.md` if it exists. This contains app structure, key patterns, caveats, and **work history** (previous reviews, bugs found, known issues).
+2. **Pinecone search**: Call `search_app_knowledge` with the app slug and relevant keywords (ticket key, module names, feature area) to find prior context, related fixes, and known caveats from the team.
+3. **Evaluate relevance**: Check if any previous work history entries relate to the current review (e.g., same ticket re-review, same modules changed before, known bugs in affected areas). Use this context to:
+   - Detect re-reviews and load previous issues for verification
+   - Identify known caveats that may affect the current changes
+   - Avoid repeating analysis already captured in prior reviews
+
+**Do NOT skip this step.** Missing context leads to incomplete reviews (e.g., not catching that a previous review flagged a bug that is still unfixed).
+
+**3. Check App Code & Run Scripts**: Both `download-app.js` and `review-changes.js` must be run **every time** a review is requested — including re-reviews. The local code in `make-app-contexts` may be stale even if the folder exists, and the changes data must always be freshly fetched from the API.
 
 **Auto-execute** both scripts in order using the Shell tool:
 
@@ -34,17 +45,17 @@ required_permissions: ["all"]
 block_until_ms: 60000
 ```
 
-**3. Read Review Data**: After scripts complete, read the review data.
+**4. Read Review Data**: After scripts complete, read the review data.
 
 ```
 ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
 ```
 
-**4. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change to perform the review.
+**5. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change to perform the review. Use context loaded in Step 2 to cross-reference previous issues, known caveats, and related work history.
 
-**5. Context Loading (Optional)**: If full context of the changed component is needed, read related files from `~/.cursor/make-app-contexts/{slug}-v{version}/` for reference.
+**6. Component Context (Optional)**: If full context of the changed component is needed, read related files from `~/.cursor/make-app-contexts/{slug}-v{version}/` for reference.
 
-**6. Auto-Sync to Pinecone**: After the review is complete, execute [Pinecone Auto-Sync](pinecone-sync.md) — call `upsert_jira_ticket` with `ticket_type: "review"` and the review result.
+**7. Auto-Sync to Pinecone**: After the review is complete, execute [Pinecone Auto-Sync](pinecone-sync.md) — call `upsert_jira_ticket` with `ticket_type: "review"` and the review result.
 
 ## Review Output Format
 

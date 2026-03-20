@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.6.3] - 2026-03-20
+
+- Add mandatory context loading step (Step 2) to code review workflow — load local context file and search Pinecone before analyzing changes to detect re-reviews, known caveats, and prior issues
+
 ## [1.6.2] - 2026-03-18
 
 - Add `public` field support to `update-component.js` for toggling module visibility (`public=true` / `public=false`)
