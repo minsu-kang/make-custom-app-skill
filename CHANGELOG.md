@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.6.4] - 2026-03-20
+
+- Use IPME auto-detection for app version in code review rule when only app-slug is provided, aligning with workflow behavior
+
 ## [1.6.3] - 2026-03-20
 
 - Add mandatory context loading step (Step 2) to code review workflow — load local context file and search Pinecone before analyzing changes to detect re-reviews, known caveats, and prior issues

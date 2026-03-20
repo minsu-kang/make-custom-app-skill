@@ -9,10 +9,10 @@ Follow these rules when a user requests a Make app code review.
 
 ## 1. Required: app-slug and version
 
-If the user does not provide `app-slug` and `version`, do not proceed with the review. Ask first:
-
-> Please provide the **app slug** and **version** for the code review.
-> Example: `slug: slack`, `version: 4`
+- If neither `app-slug` nor `version` is provided, ask:
+  > Please provide the **app slug** and **version** for the code review.
+  > Example: `slug: slack`, `version: 4`
+- If `app-slug` is provided but `version` is missing, **auto-detect via IPME** (see [App Version Auto-Detection](../skill/workflows/app-context.md#app-version-auto-detection-ipme)). Only ask the user if the IPME call fails.
 
 ## 2. Recommended: Jira ticket link
 
