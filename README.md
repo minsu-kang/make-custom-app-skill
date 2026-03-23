@@ -83,6 +83,7 @@ make-custom-app-skill/
 │       ├── custom-functions-reference.md    #  Custom IML function conventions
 │       ├── developer-notes-templates.md     #  Developer Notes templates
 │       ├── app-ux-best-practices.md    #   App UX best practices
+│       ├── polling-trigger-guide.md   #   Polling trigger implementation guide
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
 │   └── scripts/                        #   Automation scripts
@@ -91,10 +92,12 @@ make-custom-app-skill/
 │       ├── review-changes.js           #   Code review change fetcher
 │       ├── create-component.js         #   Create new components (module, rpc, function, connection, webhook)
 │       ├── update-component.js         #   Update component metadata (label, description, connection)
-│       └── delete-component.js         #   Delete components (with public/private app check)
+│       ├── delete-component.js         #   Delete components (with public/private app check)
+│       └── test-function.js           #   IML function test runner
 └── rules/                              # → installed to ~/.cursor/rules/
     ├── make-app-code-review.mdc        #   Code review input requirements
     ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
+    ├── make-app-ux-guideline.mdc       #   UX guideline priority rule
     └── version-sync.mdc               #   Version & changelog sync rule
 ```
 
@@ -129,6 +132,7 @@ make-custom-app-skill/
 | `references/custom-functions-reference.md` | Custom IML function code conventions, test.js requirements, size limits |
 | `references/developer-notes-templates.md` | Developer Notes templates for Bug Fix and Feature tickets |
 | `references/app-ux-best-practices.md` | App UX best practices — naming, hints, fields, messages, patterns |
+| `references/polling-trigger-guide.md` | Polling trigger implementation — order selection, date filtering, epoch, examples |
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 
@@ -142,6 +146,7 @@ make-custom-app-skill/
 | `create-component.js` | Creates new components (module, rpc, function, connection, webhook) via POST |
 | `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
+| `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 
 ### Rule Files (`~/.cursor/rules/`)
 
@@ -149,6 +154,7 @@ make-custom-app-skill/
 |------|-------------|
 | `make-app-code-review.mdc` | Enforces required inputs (app-slug, version) and recommends Jira ticket attachment for code reviews. Guides Atlassian MCP setup if needed. |
 | `make-app-auto-actions.mdc` | Enforces mandatory actions: context file update, Pinecone sync, related ticket lookup, test code, version check, code download/sync first, external terminal, fresh fetch before review. |
+| `make-app-ux-guideline.mdc` | Ensures UX best practices reference is read before any UX-related app changes. |
 | `version-sync.mdc` | Ensures `version.json` and `skill/SKILL.md` frontmatter versions stay in sync before commits. |
 
 ## First Use

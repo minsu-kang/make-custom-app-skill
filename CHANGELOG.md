@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0] - 2026-03-20
+
+- Add `test-function.js` — local IML function test runner matching Make Apps SDK extension behavior (code+test merged execution, `environment.timezone`, `this.timezone` binding for custom functions, UTC default timezone, `--tz=` option)
+- Add `polling-trigger-guide.md` — dedicated reference for polling trigger implementation (order selection, date filtering, epoch configuration, examples)
+- Add auto-run test rule to code review workflow — automatically run `test-function.js` when `functions/*/code.js` changes are detected
+- Update `app-ux-best-practices.md` — clarify runtime default error handling for 429/5xx, consolidate polling trigger section with link to dedicated guide
+- Update `component-patterns-reference.md` — add runtime default error handling notes, update trigger pattern to recommend `asc` + date filter
+- Update `examples.md` — add runtime default error handling note to base.imljson 429 example
+- Update `custom-functions-reference.md` — add local test runner usage with `--tz` option
+- Update `make-app-auto-actions.mdc` — add `test-function.js` to read-only scripts, add rule 7-1 for auto-run tests during code review
+- Update `make-app-code-review.mdc` — add auto-run tests section, refine polling trigger checklist with link to dedicated guide
+
 ## [1.6.5] - 2026-03-20
 
 - Remove `required: true` from Search module limit parameter spec in SKILL.md — limit is not mandatory for Search modules

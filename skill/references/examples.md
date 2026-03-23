@@ -77,7 +77,7 @@ instagram/
 ```
 
 Key points:
-- 429 status code mapped to `RateLimitError` type
+- 429 status code mapped to `RateLimitError` type — this is only needed here because the app uses a **custom error message** (`body.error.message`). The runtime already handles 429 → `RateLimitError` and 5xx → `ConnectionError` by default, so explicit directives are only necessary when you need custom message formatting.
 - `parseError()` is a custom IML function (functions/parseError/code.js)
 - Timeout overridable via `common.timeout`
 

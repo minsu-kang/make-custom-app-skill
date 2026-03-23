@@ -101,6 +101,21 @@ When a `functions/{name}/code.js` file is changed, **always** check the correspo
 
 Any test gap for changed behavior results in verdict **Improvement Needed**. Include specific test cases the developer should add in the review output AND the To Developer message.
 
+### Auto-Run Tests for Changed Functions (Mandatory)
+
+When **any** `functions/*/code.js` file is changed in the review, **automatically run `test-function.js`** after downloading the app code:
+
+```
+node test-function.js <app-slug> <app-version>
+```
+
+- Run once with **no function filter** to test all functions (catches regressions across the app)
+- Include the test results in each function's review section under **Test Coverage**
+- If tests **fail** → flag in the review with the failure details. Distinguish between:
+  - **Pre-existing failures** (test was already broken before this change) — note but do not count as a new issue
+  - **New failures** (test broke due to this change) — verdict **Bug** or **Breaking Change**
+- If tests **pass** → note "All tests pass" in the Test Coverage field
+
 ### UX Guideline Compliance (Mandatory for expect/parameters changes)
 
 When expect or parameters files are changed, **read `~/.cursor/skills/make-custom-app/references/app-ux-best-practices.md` first** and verify:
@@ -170,16 +185,26 @@ The `imt-app-runtime` automatically handles common HTTP error codes **without an
 - The app needs a **custom error message** for 429/5xx (e.g., including `headers.retry-after` in the message)
 - The app should override the default type (e.g., treating a specific 5xx as `RuntimeError` instead of `ConnectionError`)
 
-### Polling Trigger: Date Filtering as Alternative to Sorting
+### Polling Trigger: Order and Date Filtering
 
-When reviewing a polling trigger with `order: "unordered"`, check whether the API supports **date filtering** (e.g., `createdAt[$gte]`, `since`, `after`) even if it doesn't support sorting by the trigger date field.
+For detailed patterns and examples, see **`~/.cursor/skills/make-custom-app/references/polling-trigger-guide.md`**.
 
-If date filtering is available:
-- Flag as **Improvement Needed** — the trigger should use `"createdAt[$gte]": "{{data.lastDate}}"` (or equivalent) in `qs` to reduce the result set and avoid the 3200 past records limit
-- This is the exception noted in the UX best practices: "If the API accepts filtering to get results only after a certain ID or date, polling trigger can be considered"
+When reviewing a polling trigger, verify these in order:
 
-If neither sorting nor date filtering is available:
-- `order: "unordered"` is acceptable — note the 3200 limit caveat but do not flag as an issue
+**Step 1: Verify `trigger.order` matches actual API response order**
+- Check the API documentation for how the endpoint orders results by default
+- If a sort parameter is used in `qs`, verify it matches `trigger.order`
+- **Mismatch between `trigger.order` and actual response order is a bug**
+
+**Step 2: Check date filtering support (for `order: "unordered"` or `"asc"`)**
+- If the API supports date filtering but it's not used → **Improvement Needed**
+- If neither sorting nor date filtering is available → acceptable, note the 3200 limit caveat
+
+**Quick checklist:**
+- [ ] `trigger.order` matches actual response ordering
+- [ ] Date filter uses `{{data.lastDate || undefined}}` (not `{{data.lastDate}}`)
+- [ ] Epoch uses `desc` ordering (even when api uses `asc`)
+- [ ] If API supports sorting + filtering → `order: "asc"` is preferred over `"desc"`
 
 ## 5. Review Output Format
 

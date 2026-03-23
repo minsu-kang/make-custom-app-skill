@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.6.5
+version: 1.7.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -258,6 +258,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Real-world examples (Instagram app): [examples.md](references/examples.md)
 - Runtime internals (middleware, limits, edge cases): [runtime-reference.md](references/runtime-reference.md)
 - Apps UX best practices (naming, hints, fields, messages, patterns): [app-ux-best-practices.md](references/app-ux-best-practices.md)
+- Polling trigger implementation (order, date filtering, epoch, examples): [polling-trigger-guide.md](references/polling-trigger-guide.md)
 
 ## imt-app-runtime Source Setup
 

@@ -201,6 +201,8 @@ Without custom error config, the runtime applies these defaults:
 
 ### Per-Status-Code Error Handling
 
+> **Note**: The 429 entry below is only necessary because it includes a **custom message** with `headers.retry-after`. Without it, the runtime would still handle 429 as `RateLimitError` automatically — but with a generic message.
+
 ```json
 "response": {
 	"error": {
@@ -385,7 +387,7 @@ Polling triggers periodically check for new items. They use **epoch tracking** t
 | `trigger.id` | Yes | Unique identifier for each item. Used for deduplication. |
 | `trigger.date` | If `type: "date"` | Timestamp field. Items with dates after the last known date are considered new. |
 | `trigger.type` | Yes | `"id"` — tracks by ID only. `"date"` — tracks by date + ID (more reliable). |
-| `trigger.order` | Yes | `"desc"` — newest first (recommended). `"asc"` — oldest first. `"unordered"` — no guaranteed order. |
+| `trigger.order` | Yes | Must match actual API response order. `"desc"` — newest first. `"asc"` — oldest first (recommended with date filtering). `"unordered"` — no guaranteed order. See [Polling Trigger Guide](polling-trigger-guide.md). |
 
 ### Trigger Type: `id` vs `date`
 
@@ -394,12 +396,12 @@ Polling triggers periodically check for new items. They use **epoch tracking** t
 | Tracks | Last seen ID | Last seen date + same-date IDs |
 | Best for | Auto-increment IDs, sequential | Timestamps, created_at/updated_at |
 | Deduplication | By ID comparison | By date + ID comparison |
-| Recommended order | `desc` | `desc` |
+| Recommended order | `desc` | `asc` + date filter (see [Polling Trigger Guide](polling-trigger-guide.md)) |
 
 ### Important Rules
 
 - **Triggers use Static Parameters only** — they are always the first module in a scenario, so no mapping from previous modules is possible. Use `parameters.imljson` (not `expect.imljson`).
-- **`desc` order recommended** — with `maxPastRecords` of 3200, `asc` order may miss items if there are more than 3200 new items.
+- **`trigger.order` must match the actual API response order.** If the API supports sorting + filtering, use `asc` + date filter (recommended). If sorting only, use `desc`. See [Polling Trigger Guide](polling-trigger-guide.md) for details.
 - **Always include `limit`** in response and in parameters (`"type": "uinteger"`, `"default": 10`).
 - **Default trigger limit is 1** — if no `limit` parameter is configured, the trigger returns only 1 item per execution.
 

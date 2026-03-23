@@ -20,6 +20,16 @@ Functions are written as plain JavaScript functions in `function functionName(ar
 
 Every IML function **must** have a `test.js` file. Tests use `it()` blocks with `assert`. The function is available globally (no import needed). Prefer `assert.deepStrictEqual` for objects/arrays, `assert.strictEqual` for primitives.
 
+### Running Tests Locally
+
+```bash
+node test-function.js <app-slug> <app-version> [function-name] [--tz=TIMEZONE]
+```
+
+- Uses `@integromat/iml` from `imt-app-runtime` for full built-in IML function support (`parseDate`, `formatDate`, etc.)
+- Default timezone: **UTC** (matches Make Apps SDK extension default)
+- Override with `--tz=Europe/Prague` if needed
+
 ```js
 it('should return expected result for valid input', () => {
 	assert.deepStrictEqual(myFunction({ key: 'value' }), { expected: 'output' });

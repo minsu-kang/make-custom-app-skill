@@ -612,7 +612,9 @@ Define error handler for specific HTTP error types when:
 1. Error message is not user friendly
 2. No error message at all
 3. API docs list expected errors
-4. API supports special error types (e.g., 429)
+4. API returns custom error details you want to surface (e.g., `retry-after` header for 429)
+
+> **Note**: 429 (`RateLimitError`) and 5xx (`ConnectionError`) are handled automatically by the runtime. Only define explicit handlers for these when you need a custom message format.
 
 ### Common HTTP Error Types
 
@@ -640,7 +642,11 @@ Define error handler for specific HTTP error types when:
 - **429**: `RateLimitError`
 - **501/502/503**: `ConnectionError`
 
+> **Note**: The `imt-app-runtime` automatically maps `429` → `RateLimitError` and `500-599` → `ConnectionError` by default, even without explicit error directives. You only need to define these explicitly when you want a **custom error message** (e.g., including `headers.retry-after` or API-specific error details). If the generic default message is sufficient, omit the status-code-specific directives entirely.
+
 ### Example (Monday)
+
+This example defines custom error messages for 429/502/503 — useful because Monday's API returns specific `error_message` fields. If the API's error response is already readable, the runtime defaults are sufficient and these overrides can be omitted.
 
 ```json
 {
@@ -976,10 +982,9 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1311932438
 
 Implement polling trigger ONLY if:
 1. Results have a **numeric ID** or **date** as identifier
-2. Results can be sorted or default to **descending order**
+2. At least one of these is true:
+   - API supports sorting by the identifier in **descending order**
+   - API supports **date/ID filtering** (e.g., `createdAt[$gte]`, `since`, `after`, `$filter`)
+   - API returns results in a consistent ascending order by default
 
-**Avoid** using `unordered` or `asc` — 3200 pagination limit means the trigger stops working when new items can't be reached.
-
-### Exception
-
-If the API accepts filtering to get results only after a certain ID or date (reducing total items), polling trigger can be considered.
+For detailed implementation guidance (order selection, date filtering, epoch configuration, code examples), see **[Polling Trigger Implementation Guide](polling-trigger-guide.md)**.

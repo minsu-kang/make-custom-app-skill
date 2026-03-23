@@ -32,6 +32,7 @@ All scripts must be run **automatically by the agent** using the Shell tool with
 **Read-only scripts** (auto-execute without asking):
 - `download-app.js` — fetch app code
 - `review-changes.js` — fetch uncommitted changes
+- `test-function.js` — run custom IML function tests
 
 **Write scripts** (require user approval before execution):
 - `update-app.js` — push code changes to Make
@@ -75,7 +76,24 @@ When modifying a custom IML function (`functions/{name}/code.js`), always create
 - Edge cases (null, undefined, empty string, empty array)
 - Existing functionality (no regressions)
 
+After writing or updating tests, **always run `test-function.js`** to verify they pass:
+```
+node test-function.js <app-slug> <app-version> <function-name>
+```
+
 Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
+
+### 7-1. Auto-Run Tests During Code Review
+
+When reviewing an app where `functions/*/code.js` files are changed, **automatically run `test-function.js`** after `download-app.js` completes:
+
+```
+node test-function.js <app-slug> <app-version>
+```
+
+- Run with **no function filter** to test all functions (catches cross-function regressions)
+- Include the results in each function's **Test Coverage** field in the review output
+- Distinguish **pre-existing failures** (not caused by this change) from **new failures** (caused by this change)
 
 ### 8. Runtime Reference Lookup (for api.imljson work)
 
