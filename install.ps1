@@ -31,10 +31,10 @@ $RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules"
 $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
-$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md")
+$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js")
-$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "version-sync.mdc")
+$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js")
+$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "make-app-ux-guideline.mdc", "version-sync.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
