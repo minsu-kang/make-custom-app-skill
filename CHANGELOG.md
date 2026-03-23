@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.5] - 2026-03-20
+
+- Remove `required: true` from Search module limit parameter spec in SKILL.md — limit is not mandatory for Search modules
+- Add "Runtime Default Error Handling" section to code review rules — clarify that 429→RateLimitError and 5xx→ConnectionError are handled automatically by imt-app-runtime, so missing explicit error type definitions should not be flagged
+- Add "Polling Trigger: Date Filtering as Alternative to Sorting" section to code review rules — guide reviewers to check for date filtering (e.g., `createdAt[$gte]`) as an alternative when API doesn't support sorting by trigger date field
+
 ## [1.6.4] - 2026-03-20
 
 - Use IPME auto-detection for app version in code review rule when only app-slug is provided, aligning with workflow behavior

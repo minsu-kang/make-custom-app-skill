@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.6.4
+version: 1.6.5
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -94,7 +94,7 @@ Search modules **must** include in their response:
 - `"limit"` — `"{{parameters.limit}}"` to control max bundles
 
 And in their expect:
-- `limit` parameter with `"type": "uinteger"`, `"default": 10`, `"required": true`
+- `limit` parameter with `"type": "uinteger"`, `"default": 10`
 
 ## IML Expressions
 

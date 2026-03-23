@@ -159,6 +159,28 @@ When reviewing `api.imljson` changes that use runtime variables, IML context fea
 - Assuming middleware behavior without checking the actual execution chain
 - Misunderstanding pagination stop conditions or trigger epoch mechanics
 
+### Runtime Default Error Handling (Do NOT flag as missing)
+
+The `imt-app-runtime` automatically handles common HTTP error codes **without any explicit error directive** in the app's `base.imljson` or module `api.imljson`:
+
+- `429` → `RateLimitError` (auto-retry with backoff)
+- `500-599` → `ConnectionError` (auto-retry with backoff)
+
+**Do NOT flag missing 429/5xx error type definitions as an issue.** The runtime already handles these by default. Only flag if:
+- The app needs a **custom error message** for 429/5xx (e.g., including `headers.retry-after` in the message)
+- The app should override the default type (e.g., treating a specific 5xx as `RuntimeError` instead of `ConnectionError`)
+
+### Polling Trigger: Date Filtering as Alternative to Sorting
+
+When reviewing a polling trigger with `order: "unordered"`, check whether the API supports **date filtering** (e.g., `createdAt[$gte]`, `since`, `after`) even if it doesn't support sorting by the trigger date field.
+
+If date filtering is available:
+- Flag as **Improvement Needed** — the trigger should use `"createdAt[$gte]": "{{data.lastDate}}"` (or equivalent) in `qs` to reduce the result set and avoid the 3200 past records limit
+- This is the exception noted in the UX best practices: "If the API accepts filtering to get results only after a certain ID or date, polling trigger can be considered"
+
+If neither sorting nor date filtering is available:
+- `order: "unordered"` is acceptable — note the 3200 limit caveat but do not flag as an issue
+
 ## 5. Review Output Format
 
 Include the following in the review output:
