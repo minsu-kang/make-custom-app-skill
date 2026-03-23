@@ -205,6 +205,7 @@ When reviewing a polling trigger, verify these in order:
 - [ ] Date filter uses `{{data.lastDate || undefined}}` (not `{{data.lastDate}}`)
 - [ ] Epoch uses `desc` ordering (even when api uses `asc`)
 - [ ] If API supports sorting + filtering → `order: "asc"` is preferred over `"desc"`
+- [ ] API request `qs`/`body` page size is **hardcoded** (not `{{parameters.limit}}`) — `parameters.limit` belongs only in `response.limit`
 
 ## 5. Review Output Format
 

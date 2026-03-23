@@ -64,6 +64,7 @@ When the API supports both sorting and filtering, use `order: "asc"` with a date
 
 1. Always use `{{data.lastDate || undefined}}` (not `{{data.lastDate}}`) in the filter — so the filter is omitted entirely on the first run when no `lastDate` exists yet
 2. **Epoch must always use `desc` ordering** — epoch determines the starting point by fetching the latest items, so it must sort descending regardless of the api's ascending order
+3. **API request `limit`/`pageSize` must be hardcoded** — never use `{{parameters.limit}}` in `qs` or `body` for the API page size. The trigger must fetch as many items as possible from the API so the runtime can accurately track `data.lastDate` and deduplicate. Use the API's maximum page size (e.g., `100`, `500`, `1000`). The user's `parameters.limit` should only be applied in `response.limit`, where the runtime controls how many bundles to output.
 
 ### Example: microsoft-email v2 — watchMessages
 
@@ -163,3 +164,4 @@ Default `limit` for triggers: **1** (returns one item per execution).
 | Using `order: "desc"` when API supports sorting + filtering | Less efficient — fetches all new items from top | Use `asc` + date filter for smaller result sets |
 | Missing date filter when API supports it | Hits 3200 pagination limit on high-volume APIs | Check API docs for filter parameters (`$filter`, `since`, `after`, `created_at[gte]`) |
 | Using `order: "asc"` but API response is actually unordered | Runtime assumes ascending boundary logic but items arrive randomly | Verify actual response order; use `unordered` if no sorting available |
+| Using `{{parameters.limit}}` in API request `qs`/`body` | Fetches too few items → runtime misses new data, inaccurate `lastDate` tracking | Hardcode API page size (e.g., `100`, `500`). Use `parameters.limit` only in `response.limit` |
