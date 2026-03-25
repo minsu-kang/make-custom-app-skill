@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.7.1] - 2026-03-25
+
+- Add minimal change principle to bug investigation workflow — bug fixes must not modify existing business logic, and breaking change check is required before pushing
+- Add temp + pagination caveat to runtime reference — document `ifempty` pattern to prevent pagination cycles from overwriting temp values
+
 ## [1.7.0] - 2026-03-20
 
 - Add `test-function.js` — local IML function test runner matching Make Apps SDK extension behavior (code+test merged execution, `environment.timezone`, `this.timezone` binding for custom functions, UTC default timezone, `--tz=` option)

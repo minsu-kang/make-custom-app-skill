@@ -72,8 +72,10 @@ Execute this workflow if any of the following conditions are met:
 
 **8. Fix & Verify**: Apply the fix, verify it passes, and push to Make.
 
+- **Minimal change principle**: A bug fix must ONLY fix the bug. Do NOT modify existing business logic, refactor surrounding code, or "improve" unrelated patterns. Preserve the original code structure and behavior — change only what is necessary to resolve the specific bug. If a broader refactor is needed, that is a separate task.
 - Write the fixed code to `~/.cursor/make-app-contexts/{slug}-v{version}/` (the local code store)
 - **Verify**: Confirm the failing test from Step 5 now passes with the fix applied. If it still fails, the fix is incomplete — iterate.
+- **Breaking change check**: Before pushing, compare the fix against the original code and verify zero breaking changes. If ANY existing scenario could produce different results after the fix (other than the bug scenario), the fix scope is too broad — narrow it down.
 - Push the fix using `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make)) — **always ask user for approval before executing**.
 
 - Changes are pushed as **uncommitted** to Make — the user must still commit and deploy via SDK

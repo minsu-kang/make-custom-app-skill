@@ -77,6 +77,16 @@ Merges values into `context.iml.context.temp`. Two phases:
 1. `api.temp` — before request
 2. `api.response.temp` — after response
 
+**Pagination caveat**: During pagination cycles, `response.temp` is re-evaluated on every page. If a temp variable was set to a meaningful value on the first page (e.g., `true`), a subsequent page may overwrite it (e.g., back to `false`). Use `ifempty` to protect values that should persist once set:
+
+```json
+"temp": {
+    "hasResults": "{{ifempty(temp.hasResults, body.total > 0)}}"
+}
+```
+
+Without `ifempty`, page 1 might set `hasResults = true`, but page 2 (with 0 results) would overwrite it to `false`.
+
 ### iterate
 
 - `container`: array to iterate over
