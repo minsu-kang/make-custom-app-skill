@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.7.2] - 2026-03-25
+
+- Add `_.merge` array behavior documentation to runtime reference — document index-by-index deep merge, ghost properties, cascading reference contamination, and safe vs dangerous patterns for temp array keys (IEN-14758)
+
 ## [1.7.1] - 2026-03-25
 
 - Add minimal change principle to bug investigation workflow — bug fixes must not modify existing business logic, and breaking change check is required before pushing

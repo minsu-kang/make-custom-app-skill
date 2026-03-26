@@ -77,6 +77,39 @@ Merges values into `context.iml.context.temp`. Two phases:
 1. `api.temp` — before request
 2. `api.response.temp` — after response
 
+**Critical: `_.merge` array behavior**. The temp middleware uses `_.merge()` (lodash) to apply values. For objects, this deep-merges properties. For **arrays**, `_.merge` does **not replace** — it merges **index by index**:
+
+```
+Old temp.arr = [A, B, C, D, E]   (5 items)
+New value    = [A, B, D, E]       (4 items — C filtered out)
+
+_.merge result:
+  [0] merge(A, A) → OK
+  [1] merge(B, B) → OK
+  [2] merge(C, D) → BUG: index shift, C gets D's data
+  [3] merge(D, E) → BUG: D gets E's data
+  [4] E           → BUG: stale element retained (_.merge never deletes)
+```
+
+This causes three problems:
+1. **Index-shifted contamination** — when an array shrinks (filter/remove), elements at mismatched indices get deep-merged with the wrong element
+2. **Ghost properties** — `_.merge` never deletes properties from the destination. Old properties persist even after "replacement"
+3. **Cascading reference contamination** — when `sort()` reorders elements, the new array shares object references with the old one. `_.merge` mutates objects in-place at each index, and since the same object exists at different indices in old vs new arrays, mutations cascade through the entire array
+
+**Safe vs dangerous patterns:**
+
+| Pattern | Safety |
+|---|---|
+| Array grows monotonically (concat + distinct) | Safe — same refs at same indices, `_.merge` is no-op |
+| Array shrinks (filter/remove) written to **same key** | **Dangerous** — index shift causes cross-element merge |
+| Array reorders (sort) written to **same key** | **Dangerous** — shared refs cause cascading mutation |
+| Write filtered/sorted result to a **new key** | Safe — no previous value to merge against |
+| Inline filter/sort in consuming expression | Safe — result never passes through `_.merge` |
+
+**Rule: treat temp array keys as append-only.** Never write a shorter or reordered array back to the same temp key. Use a new key or inline the operation.
+
+See IEN-14758 (google-email v4) for a real-world case where this caused 92.5% cross-message body contamination in a 200-email batch.
+
 **Pagination caveat**: During pagination cycles, `response.temp` is re-evaluated on every page. If a temp variable was set to a meaningful value on the first page (e.g., `true`), a subsequent page may overwrite it (e.g., back to `false`). Use `ifempty` to protect values that should persist once set:
 
 ```json
