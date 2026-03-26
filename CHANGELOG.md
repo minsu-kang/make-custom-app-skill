@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.7.3] - 2026-03-25
+
+- Add runtime-provided IML functions to `test-function.js` — load `mime`, `jwt`, `generateJwtWithKeyId`, `cryptoSign`, `errorFactory`, `pop`, `shift`, `isArray`, `parseJSON`, `createJSON`, `createXML`, `parseXML` from `imt-app-runtime` (12 functions total)
+- Fix `composeRawMessageContents/test.js` base64 decode logic — replace `iml.base64()` encoder with `Buffer.from(..., 'base64')` decoder
+
 ## [1.7.2] - 2026-03-25
 
 - Add `_.merge` array behavior documentation to runtime reference — document index-by-index deep merge, ghost properties, cascading reference contamination, and safe vs dangerous patterns for temp array keys (IEN-14758)

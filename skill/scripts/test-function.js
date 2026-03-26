@@ -47,6 +47,57 @@ function loadImlFunctions(runtimePath, tz) {
 		imlFunctions[name] = fn.bind({ timezone: tz });
 	}
 
+	const runtimeImlDir = path.join(runtimePath, 'lib', 'iml');
+	const runtimeFnMap = {
+		mime: 'mime.js',
+		jwt: 'jwt.js',
+		cryptoSign: 'sign.js',
+		errorFactory: 'errorFactory.js',
+	};
+
+	let runtimeFnCount = 0;
+	for (const [fnName, fileName] of Object.entries(runtimeFnMap)) {
+		const filePath = path.join(runtimeImlDir, fileName);
+		if (fs.existsSync(filePath)) {
+			try {
+				imlFunctions[fnName] = require(filePath);
+				runtimeFnCount++;
+			} catch (_) { /* skip if dependency missing */ }
+		}
+	}
+
+	const jwkPath = path.join(runtimeImlDir, 'jwk.js');
+	if (fs.existsSync(jwkPath)) {
+		try {
+			const jwk = require(jwkPath);
+			imlFunctions.generateJwtWithKeyId = jwk.generateJwtWithKeyId;
+			runtimeFnCount++;
+		} catch (_) { /* skip if dependency missing */ }
+	}
+
+	imlFunctions.pop = (arr) => Array.isArray(arr) ? arr.pop() : undefined;
+	imlFunctions.shift = (arr) => Array.isArray(arr) ? arr.shift() : undefined;
+	imlFunctions.isArray = (arr) => Array.isArray(arr);
+	imlFunctions.parseJSON = (string) => JSON.parse(string);
+	imlFunctions.createJSON = (object) => JSON.stringify(object);
+	runtimeFnCount += 5;
+
+	try {
+		const xmlbuilder = require(path.join(runtimePath, 'node_modules', 'xmlbuilder'));
+		imlFunctions.createXML = (object) => xmlbuilder.create(object).end({ pretty: true });
+		runtimeFnCount++;
+	} catch (_) { /* xmlbuilder not available */ }
+
+	try {
+		const xmlbuilder2 = require(path.join(runtimePath, 'node_modules', 'xmlbuilder2'));
+		imlFunctions.parseXML = (string) => xmlbuilder2.convert(string, { format: 'object' });
+		runtimeFnCount++;
+	} catch (_) { /* xmlbuilder2 not available */ }
+
+	if (runtimeFnCount > 0) {
+		console.log(`IML: ${runtimeFnCount} runtime-provided functions loaded (mime, jwt, cryptoSign, etc.)`);
+	}
+
 	return imlFunctions;
 }
 
