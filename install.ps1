@@ -33,7 +33,7 @@ $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js")
+$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js")
 $RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "make-app-ux-guideline.mdc", "version-sync.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
@@ -57,6 +57,7 @@ Write-Host ""
 # ── Preserve User Config ──
 $SavedRuntimePath = ""
 $SavedMcpPath = ""
+$SavedMockupPath = ""
 
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
@@ -64,6 +65,7 @@ if (Test-Path $SKILL_DIR) {
         $lastLines = Get-Content $skillMdPath -Tail 10
         $SavedRuntimePath = ($lastLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
         $SavedMcpPath = ($lastLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
+        $SavedMockupPath = ($lastLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
     }
 
     $SavedEnv = ""
@@ -462,6 +464,15 @@ if (Test-Path $skillMdPath) {
             Write-Ok "Restored user config (imt-app-runtime-path)"
         } else {
             Write-Warn "Skipped imt-app-runtime-path (directory not found: $runtimeDir)"
+        }
+    }
+    if ($SavedMockupPath) {
+        $mockupDir = ($SavedMockupPath -replace "^make-apps-mockup-path:\s*", "").Trim()
+        if (Test-Path $mockupDir) {
+            Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
+            Write-Ok "Restored user config (make-apps-mockup-path)"
+        } else {
+            Write-Warn "Skipped make-apps-mockup-path (directory not found: $mockupDir)"
         }
     }
 }

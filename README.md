@@ -93,7 +93,8 @@ make-custom-app-skill/
 │       ├── create-component.js         #   Create new components (module, rpc, function, connection, webhook)
 │       ├── update-component.js         #   Update component metadata (label, description, connection)
 │       ├── delete-component.js         #   Delete components (with public/private app check)
-│       └── test-function.js           #   IML function test runner
+│       ├── test-function.js           #   IML function test runner
+│       └── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
 └── rules/                              # → installed to ~/.cursor/rules/
     ├── make-app-code-review.mdc        #   Code review input requirements
     ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
@@ -147,6 +148,7 @@ make-custom-app-skill/
 | `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
+| `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 
 ### Rule Files (`~/.cursor/rules/`)
 

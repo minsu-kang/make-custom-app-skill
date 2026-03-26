@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.0] - 2026-03-26
+
+- Add `test-component.js` wrapper script for component integration tests (modules, RPCs, connections, webhooks, instant triggers)
+- Add `imt-app-runtime-path` blocking check — skill will not proceed until runtime path is configured in SKILL.md
+- Add auto-run `test-component.js` during code review when `api.imljson` files are changed
+- Update install scripts to preserve `make-apps-mockup-path` setting during updates
+- Update SKILL.md with component integration test documentation and `make-apps-mockup-path` config
+- Update README with `test-component.js` in repository structure and script files table
+
 ## [1.7.3] - 2026-03-25
 
 - Add runtime-provided IML functions to `test-function.js` — load `mime`, `jwt`, `generateJwtWithKeyId`, `cryptoSign`, `errorFactory`, `pop`, `shift`, `isArray`, `parseJSON`, `createJSON`, `createXML`, `parseXML` from `imt-app-runtime` (12 functions total)

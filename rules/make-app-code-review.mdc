@@ -116,6 +116,26 @@ node test-function.js <app-slug> <app-version>
   - **New failures** (test broke due to this change) — verdict **Bug** or **Breaking Change**
 - If tests **pass** → note "All tests pass" in the Test Coverage field
 
+### Component Integration Tests (Mandatory for api.imljson changes)
+
+When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks), **automatically run `test-component.js`** after `download-app.js` completes:
+
+```
+node test-component.js <app-slug> <app-version> <component-type> [component-names...]
+```
+
+- Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`)
+- Run `test-component.js` for each affected component type
+- If tests exist for the changed component (`test.js` in mockup data) → include results in the review under **Component Test**
+- If tests **fail** → flag in the review. Distinguish between:
+  - **Pre-existing failures** (test was already broken before this change) — note but do not count as a new issue
+  - **New failures** (test broke due to this change) — verdict **Bug** or **Breaking Change**
+- If tests **pass** → note "Component tests pass" in the review
+- If no tests exist for the component → note "No component integration test found" (not a blocking issue)
+
+**Requires**: `make-apps-mockup-path` configured in SKILL.md. If not configured, skip with a note:
+> Component integration tests skipped — `make-apps-mockup-path` not configured in SKILL.md.
+
 ### UX Guideline Compliance (Mandatory for expect/parameters changes)
 
 When expect or parameters files are changed, **read `~/.cursor/skills/make-custom-app/references/app-ux-best-practices.md` first** and verify:

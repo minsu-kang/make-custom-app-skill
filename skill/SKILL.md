@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.7.3
+version: 1.8.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -243,6 +243,30 @@ These values can be overridden in `common.imljson`:
 
 For custom IML function details (code conventions, test.js requirements, size limits), see [custom-functions-reference.md](references/custom-functions-reference.md).
 
+## Component Integration Tests
+
+Run module, RPC, connection, and webhook integration tests using the `test-component.js` wrapper:
+
+```
+node test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
+```
+
+| Option | Description |
+|---|---|
+| `component-type` | `module`, `rpc`, `connection`, `webhook` |
+| `--format=json` | Structured JSON output (for AI agent parsing) |
+| `--debug` | Show HTTP request/response details |
+
+Examples:
+```
+node test-component.js monday 2 module                          # all modules
+node test-component.js monday 2 module CreateItemV2             # one module
+node test-component.js monday 2 rpc idFinderItem getBoards      # multiple RPCs
+node test-component.js monday 2 module --format=json            # JSON for AI
+```
+
+Requires `make-apps-mockup-path` configured in the last lines of this file (see setup below).
+
 ## Developer Notes Templates
 
 For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templates.md](references/developer-notes-templates.md).
@@ -295,3 +319,22 @@ imt-app-runtime-path: /path/provided/by/user/imt-app-runtime
 ```
 
 After adding it, inform the user that setup is complete and answer their original question.
+
+## make-apps-mockup Setup
+
+The component integration test framework lives in the `make-apps-mockup` repository.
+
+### Auto-Detection Workflow
+
+Check whether the last lines of this SKILL.md file contain `make-apps-mockup-path:`.
+
+- **If the line exists** → Use that path for `test-component.js`.
+- **If the line doesn't exist** → Guide the user to clone the repo and provide the path.
+
+### After Installation
+
+Add the path to the last lines of this file:
+
+```
+make-apps-mockup-path: /path/to/make-apps-mockup
+```

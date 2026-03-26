@@ -26,7 +26,7 @@ VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js")
+SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js")
 RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "make-app-ux-guideline.mdc" "version-sync.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
@@ -60,11 +60,13 @@ echo ""
 # ── Preserve User Config ──
 SAVED_RUNTIME_PATH=""
 SAVED_MCP_PATH=""
+SAVED_MOCKUP_PATH=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
         SAVED_RUNTIME_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^imt-app-runtime-path:' | grep -v '/path/provided' | tail -1 || true)
         SAVED_MCP_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^mcp-server-path:' | grep -v '{path-to' | tail -1 || true)
+        SAVED_MOCKUP_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^make-apps-mockup-path:' | grep -v '/path/to' | tail -1 || true)
     fi
 
     SAVED_ENV=""
@@ -397,6 +399,15 @@ if [ -f "$SKILL_DIR/SKILL.md" ]; then
             ok "Restored user config (imt-app-runtime-path)"
         else
             warn "Skipped imt-app-runtime-path (directory not found: $RUNTIME_DIR)"
+        fi
+    fi
+    if [ -n "$SAVED_MOCKUP_PATH" ]; then
+        MOCKUP_DIR=$(echo "$SAVED_MOCKUP_PATH" | sed 's/^make-apps-mockup-path:[[:space:]]*//')
+        if [ -d "$MOCKUP_DIR" ]; then
+            echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
+            ok "Restored user config (make-apps-mockup-path)"
+        else
+            warn "Skipped make-apps-mockup-path (directory not found: $MOCKUP_DIR)"
         fi
     fi
 fi

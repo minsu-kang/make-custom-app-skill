@@ -11,6 +11,21 @@ Execute the following actions **automatically without asking**. Never skip or de
 
 ## Before Work (run at start, before answering any app-related question)
 
+### 0. Runtime Path Check (Blocking — Must Pass Before Any Work)
+
+When the Make Custom App skill is loaded, **immediately** check that `imt-app-runtime-path` is configured in `~/.cursor/skills/make-custom-app/SKILL.md` (the last lines of the file).
+
+- **If `imt-app-runtime-path` is missing or empty** → stop all work and display:
+  > `imt-app-runtime-path` is not configured. Please add it to `~/.cursor/skills/make-custom-app/SKILL.md`:
+  >
+  > ```
+  > imt-app-runtime-path: /path/to/your/imt-app-runtime
+  > ```
+  >
+  > This is required for runtime reference lookup, code reviews, and component integration tests. No work can proceed until this is set.
+- **Do NOT proceed with any other action** (version check, code download, review, bugfix, etc.) until `imt-app-runtime-path` is confirmed present and the path exists on disk.
+- Once the user adds it, re-read the SKILL.md to verify before continuing.
+
 ### 1. Version Check
 
 When the Make Custom App skill is loaded at the start of a conversation, always compare the local `version` field in SKILL.md frontmatter against the remote `version.json`. If outdated, show the upgrade command and stop — do not answer until the user upgrades.
@@ -33,6 +48,7 @@ All scripts must be run **automatically by the agent** using the Shell tool with
 - `download-app.js` — fetch app code
 - `review-changes.js` — fetch uncommitted changes
 - `test-function.js` — run custom IML function tests
+- `test-component.js` — run component integration tests (modules, RPCs, connections, webhooks)
 
 **Write scripts** (require user approval before execution):
 - `update-app.js` — push code changes to Make
@@ -94,6 +110,19 @@ node test-function.js <app-slug> <app-version>
 - Run with **no function filter** to test all functions (catches cross-function regressions)
 - Include the results in each function's **Test Coverage** field in the review output
 - Distinguish **pre-existing failures** (not caused by this change) from **new failures** (caused by this change)
+
+### 7-2. Auto-Run Component Tests During Code Review
+
+When reviewing an app where **any component's `api.imljson`** is changed, **automatically run `test-component.js`** after `download-app.js` completes:
+
+```
+node test-component.js <app-slug> <app-version> <component-type> [component-names...]
+```
+
+- Identify the component type from the changed file path (e.g., `modules/X/api.imljson` → `module X`)
+- Run for each affected component type
+- Include results in the review under **Component Test**
+- Requires `make-apps-mockup-path` in SKILL.md. If not configured, skip with a note
 
 ### 8. Runtime Reference Lookup (for api.imljson work)
 
