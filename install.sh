@@ -64,9 +64,9 @@ SAVED_MOCKUP_PATH=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        SAVED_RUNTIME_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^imt-app-runtime-path:' | grep -v '/path/provided' | tail -1 || true)
-        SAVED_MCP_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^mcp-server-path:' | grep -v '{path-to' | tail -1 || true)
-        SAVED_MOCKUP_PATH=$(tail -10 "$SKILL_DIR/SKILL.md" | grep '^make-apps-mockup-path:' | grep -v '/path/to' | tail -1 || true)
+        SAVED_RUNTIME_PATH=$(grep '^imt-app-runtime-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/provided' | tail -1 || true)
+        SAVED_MCP_PATH=$(grep '^mcp-server-path:' "$SKILL_DIR/SKILL.md" | grep -v '{path-to' | tail -1 || true)
+        SAVED_MOCKUP_PATH=$(grep '^make-apps-mockup-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/to' | tail -1 || true)
     fi
 
     SAVED_ENV=""
@@ -390,33 +390,18 @@ fi
 # ── Restore User Config ──
 if [ -f "$SKILL_DIR/SKILL.md" ]; then
     if [ -n "$SAVED_MCP_PATH" ]; then
-        MCP_DIR=$(echo "$SAVED_MCP_PATH" | sed 's/^mcp-server-path:[[:space:]]*//')
-        if [ -d "$MCP_DIR" ]; then
-            echo "" >> "$SKILL_DIR/SKILL.md"
-            echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
-            ok "Restored user config (mcp-server-path)"
-        else
-            warn "Skipped mcp-server-path (directory not found: $MCP_DIR)"
-        fi
+        echo "" >> "$SKILL_DIR/SKILL.md"
+        echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (mcp-server-path)"
     fi
     if [ -n "$SAVED_RUNTIME_PATH" ]; then
-        RUNTIME_DIR=$(echo "$SAVED_RUNTIME_PATH" | sed 's/^imt-app-runtime-path:[[:space:]]*//')
-        if [ -d "$RUNTIME_DIR" ]; then
-            echo "" >> "$SKILL_DIR/SKILL.md"
-            echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
-            ok "Restored user config (imt-app-runtime-path)"
-        else
-            warn "Skipped imt-app-runtime-path (directory not found: $RUNTIME_DIR)"
-        fi
+        echo "" >> "$SKILL_DIR/SKILL.md"
+        echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (imt-app-runtime-path)"
     fi
     if [ -n "$SAVED_MOCKUP_PATH" ]; then
-        MOCKUP_DIR=$(echo "$SAVED_MOCKUP_PATH" | sed 's/^make-apps-mockup-path:[[:space:]]*//')
-        if [ -d "$MOCKUP_DIR" ]; then
-            echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
-            ok "Restored user config (make-apps-mockup-path)"
-        else
-            warn "Skipped make-apps-mockup-path (directory not found: $MOCKUP_DIR)"
-        fi
+        echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (make-apps-mockup-path)"
     fi
 fi
 

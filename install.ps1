@@ -62,10 +62,10 @@ $SavedMockupPath = ""
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
     if (Test-Path $skillMdPath) {
-        $lastLines = Get-Content $skillMdPath -Tail 10
-        $SavedRuntimePath = ($lastLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
-        $SavedMcpPath = ($lastLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
-        $SavedMockupPath = ($lastLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
+        $allLines = Get-Content $skillMdPath
+        $SavedRuntimePath = ($allLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
+        $SavedMcpPath = ($allLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
+        $SavedMockupPath = ($allLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
     }
 
     $SavedEnv = ""
@@ -458,31 +458,16 @@ OPENAI_API_KEY=$openaiKey
 $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
 if (Test-Path $skillMdPath) {
     if ($SavedMcpPath) {
-        $mcpDir = ($SavedMcpPath -replace "^mcp-server-path:\s*", "").Trim()
-        if (Test-Path $mcpDir) {
-            Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
-            Write-Ok "Restored user config (mcp-server-path)"
-        } else {
-            Write-Warn "Skipped mcp-server-path (directory not found: $mcpDir)"
-        }
+        Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
+        Write-Ok "Restored user config (mcp-server-path)"
     }
     if ($SavedRuntimePath) {
-        $runtimeDir = ($SavedRuntimePath -replace "^imt-app-runtime-path:\s*", "").Trim()
-        if (Test-Path $runtimeDir) {
-            Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
-            Write-Ok "Restored user config (imt-app-runtime-path)"
-        } else {
-            Write-Warn "Skipped imt-app-runtime-path (directory not found: $runtimeDir)"
-        }
+        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
+        Write-Ok "Restored user config (imt-app-runtime-path)"
     }
     if ($SavedMockupPath) {
-        $mockupDir = ($SavedMockupPath -replace "^make-apps-mockup-path:\s*", "").Trim()
-        if (Test-Path $mockupDir) {
-            Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
-            Write-Ok "Restored user config (make-apps-mockup-path)"
-        } else {
-            Write-Warn "Skipped make-apps-mockup-path (directory not found: $mockupDir)"
-        }
+        Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
+        Write-Ok "Restored user config (make-apps-mockup-path)"
     }
 }
 
