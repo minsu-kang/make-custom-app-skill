@@ -306,7 +306,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 
 	// --- Metadata ---
 	const appInfo = await apiGetJson(
-		`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull`,
+		`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull&cols[]=manifestVersion`,
 		auth,
 	);
 	const appObj = appInfo?.app || appInfo || {};
@@ -317,6 +317,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		origin,
 		label: appObj.label || appSlug,
 		description: appObj.description || '',
+		manifestVersion: appObj.manifestVersion ?? 1,
 		downloadedAt: new Date().toISOString(),
 		modules: modules.map((m) => ({ name: m.name, label: m.label, typeId: m.typeId })),
 		connections: connections.map((c) => ({ name: c.name, label: c.label })),

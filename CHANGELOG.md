@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.1] - 2026-03-30
+
+- Fix `download-app.js` to save `manifestVersion` in `metadata.json` — resolves local integration test failures caused by incorrect IML `passthrough` setting (defaulted to manifest v1 instead of v2)
+
 ## [1.8.0] - 2026-03-26
 
 - Add `test-component.js` wrapper script for component integration tests (modules, RPCs, connections, webhooks, instant triggers)
