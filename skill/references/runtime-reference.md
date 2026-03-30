@@ -48,10 +48,39 @@ Same as Action, plus:
 - `ExecuteHookTrigger`: parallel `fetch()` + `read()` via `Promise.all`
 - `ExecuteHookResponse`: transforms response body/headers/status
 
-### RPC Chain
+### RPC Middleware Chain
 
-- Supports epoch data (`response.trigger.id/date/type`)
-- Final output sorted by epoch type
+```
+communication()
+  → rpc init (ctx.rpc = {})
+  → repeat()
+    → temp('temp')
+    → condition()
+    → requester.init()
+      → identifyRequest()
+      → accman.validate()
+      → agency.initialize()
+      → prepareRequestOptions()
+      → request()
+      → prepareResponseBody()
+      → temp('response.temp')
+      → valid()
+      → iterate()
+        → iterate.condition()
+        → iterate.transform()
+        → epoch tracking (if response.trigger defined)
+      → output()
+      → pagination()
+    → wrapper()
+    → filter.rpc()
+    → limit()
+    → epoch sorting (if epoch data)
+    → errorMiddleware()
+```
+
+**URL-less RPCs**: When there is no `url` in `api.imljson`, the `getRequestOptions()` function returns without `requestOptions`. The `request()` middleware then skips the HTTP call and calls `next()`, allowing the rest of the chain — including `temp('response.temp')` and `output()` — to execute normally. This makes it possible to build pure data RPCs that use only `temp` + `response.temp` + `response.output` without any API call.
+
+Supports epoch data (`response.trigger.id/date/type`). Final output sorted by epoch type.
 
 ## Middleware Details
 
@@ -76,6 +105,35 @@ If condition is `false`, returns `default` (or `false` if no default). Entire re
 Merges values into `context.iml.context.temp`. Two phases:
 1. `api.temp` — before request
 2. `api.response.temp` — after response
+
+**Only `temp` and `response.temp` exist.** There is no `temp2`, `temp3`, or any other temp stage. The runtime source (`lib/core/middleware/temp.js`) only accepts a path argument (defaulting to `'temp'`), and the middleware chains only call `temp('temp')` and `temp('response.temp')`.
+
+**Same-block variables cannot reference each other.** The `temp` middleware calls `context.iml.transform(temp, {deep: true})` on the entire temp object first, then `_.merge()` the result into `context.iml.context.temp`. All IML expressions within a single `temp` block are evaluated simultaneously — before any of them are assigned. A temp variable defined in `api.temp` cannot reference another variable in the same `api.temp` block:
+
+```json
+// BROKEN — generateResult evaluates before generateParams is assigned
+{
+    "temp": {
+        "generateParams": { "a": [...], "b": [...] },
+        "generateResult": "{{if(condition, temp.generateParams.a, temp.generateParams.b)}}"
+    }
+}
+
+// CORRECT — use response.temp to reference values from temp
+{
+    "temp": {
+        "generateParams": { "a": [...], "b": [...] }
+    },
+    "response": {
+        "temp": {
+            "generateResult": "{{if(condition, temp.generateParams.a, temp.generateParams.b)}}"
+        },
+        "output": "{{temp.generateResult}}"
+    }
+}
+```
+
+This two-phase pattern works because `temp('temp')` runs first and assigns `generateParams`, then `temp('response.temp')` runs later and can safely reference `temp.generateParams`.
 
 **Critical: `_.merge` array behavior**. The temp middleware uses `_.merge()` (lodash) to apply values. For objects, this deep-merges properties. For **arrays**, `_.merge` does **not replace** — it merges **index by index**:
 

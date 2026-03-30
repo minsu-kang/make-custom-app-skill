@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.2] - 2026-03-30
+
+- Add full RPC middleware chain to `runtime-reference.md` — documents URL-less RPC execution flow where `response.temp` and `response.output` still execute normally
+- Document temp same-block evaluation rule — variables in the same `temp` block are evaluated simultaneously and cannot reference each other; use two-phase `temp` + `response.temp` pattern instead
+- Document that only `temp` and `response.temp` exist — `temp2`, `temp3`, etc. are not valid runtime features
+- Add strict runtime feature verification rule to `make-app-auto-actions.mdc` — never fabricate or assume non-existent IMLJSON directives; verify in runtime-reference.md or imt-app-runtime source first
+- Add temp two-phase pattern reference link to SKILL.md
+- Add auto-action 7-3: auto-run component integration tests when creating/updating `api.imljson` outside of code review — run existing tests, create new tests if none exist, append test cases for new behavior
+
 ## [1.8.1] - 2026-03-30
 
 - Fix `download-app.js` to save `manifestVersion` in `metadata.json` — resolves local integration test failures caused by incorrect IML `passthrough` setting (defaulted to manifest v1 instead of v2)

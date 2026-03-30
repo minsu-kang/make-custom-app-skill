@@ -124,6 +124,22 @@ node test-component.js <app-slug> <app-version> <component-type> [component-name
 - Include results in the review under **Component Test**
 - Requires `make-apps-mockup-path` in SKILL.md. If not configured, skip with a note
 
+### 7-3. Component Integration Test on api.imljson Changes (Non-Review)
+
+When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading:
+
+```
+node test-component.js <app-slug> <app-version> <component-type> <component-name>
+```
+
+- If a test exists (mockup data with `test.js`) → run it and verify the change doesn't break existing behavior
+- If no test exists → create one in the mockup data directory with test cases covering the new/changed behavior
+- If a test exists but doesn't cover the new/changed behavior → append new test cases to cover it
+
+This ensures every `api.imljson` change is validated, not just during code reviews.
+
+Requires `make-apps-mockup-path` in SKILL.md. If not configured, skip with a note.
+
 ### 8. Runtime Reference Lookup (for api.imljson work)
 
 When writing, reviewing, or debugging `api.imljson` code that uses runtime variables or middleware features (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`, `wrapper`), always verify behavior through references — **never assume or guess**.
@@ -134,6 +150,20 @@ When writing, reviewing, or debugging `api.imljson` code that uses runtime varia
 2. **`imt-app-runtime` source code** (path in SKILL.md `imt-app-runtime-path:`) — if runtime-reference.md doesn't cover it, search the actual source
 
 This applies to **all Make app work**: code reviews, bug fixes, feature requests, and new app creation.
+
+### 8-1. Strict Runtime Feature Verification (Mandatory — Never Skip)
+
+**Never invent, fabricate, or assume the existence of any IMLJSON directive, middleware stage, or runtime feature.** If a feature is not found in `runtime-reference.md` AND not found in the `imt-app-runtime` source code, **it does not exist**. Do not use it.
+
+This rule exists because fabricating non-existent features (e.g., `temp2`, `temp3`, undocumented directives) causes silent failures at runtime — the directive is simply ignored, producing incorrect behavior that is extremely hard to debug.
+
+**Verification checklist before using any runtime feature in code:**
+
+1. Is it documented in `runtime-reference.md`? → If yes, proceed
+2. If not documented, does it exist in the `imt-app-runtime` source code? → Search the source, read the relevant middleware
+3. If not found in either → **the feature does not exist. Do NOT use it. Do NOT invent alternatives.**
+
+**If uncertain, tell the user you are uncertain** rather than fabricating a solution. Fabrication is strictly worse than admitting uncertainty.
 
 ---
 
