@@ -12,6 +12,7 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
 
 When this skill is loaded, **immediately read and follow all rule files** in `~/.cursor/rules/make-custom-app/`:
 
+- `work-discipline.mdc` — systematic work habits, impact analysis, no piecemeal fixes
 - `make-app-auto-actions.mdc` — pre/post work auto-actions
 - `make-app-code-review.mdc` — code review process and criteria
 - `make-app-ux-guideline.mdc` — UX best practices reference

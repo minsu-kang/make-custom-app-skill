@@ -1,0 +1,19 @@
+---
+description: Loads Make custom app rules only when the skill is active — keeps token usage minimal for non-Make-app work
+globs: 
+alwaysApply: true
+---
+
+# Make Custom App Rules Loader
+
+When the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) is active in this session, you **MUST** read and follow ALL of these rule files before answering any Make-app-related question:
+
+1. `~/.cursor/rules/make-custom-app/work-discipline.mdc`
+2. `~/.cursor/rules/make-custom-app/make-app-auto-actions.mdc`
+3. `~/.cursor/rules/make-custom-app/make-app-ux-guideline.mdc`
+4. `~/.cursor/rules/make-custom-app/make-app-code-review.mdc`
+5. `~/.cursor/rules/make-custom-app/version-sync.mdc`
+
+**Do NOT skip any.** Read them once at the start, then follow throughout the session.
+
+When the skill is NOT active, ignore this rule entirely.
