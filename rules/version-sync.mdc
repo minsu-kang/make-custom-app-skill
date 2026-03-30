@@ -1,7 +1,7 @@
 ---
-description: Auto-bump semver, sync versions, and update CHANGELOG on every commit
+description: Auto-bump semver, sync versions, and update CHANGELOG on every commit for the Make Custom App skill repo
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Version & Changelog Sync Rule

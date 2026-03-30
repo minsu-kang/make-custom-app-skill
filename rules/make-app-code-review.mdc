@@ -1,6 +1,7 @@
 ---
 description: Required inputs, Jira-driven review process, and review criteria for Make custom app code reviews
-alwaysApply: true
+globs: 
+alwaysApply: false
 ---
 
 # Make App Code Review Requirements

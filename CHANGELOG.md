@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.3] - 2026-03-30
+
+- Isolate rule files into `~/.cursor/rules/make-custom-app/` subdirectory — prevents overwriting user's own rules during skill install/update
+- Add migration logic to installers (bash/PowerShell) — auto-removes old rule files from `~/.cursor/rules/` on upgrade
+- Change 4 skill rules to `alwaysApply: false` — rules are now loaded only when the make-custom-app skill is activated via SKILL.md
+- Add "Mandatory Rules" section to SKILL.md — explicitly loads all rule files on skill activation
+- Add `work-discipline.mdc` — enforces systematic work habits (full impact analysis, no piecemeal fixes, AC scope discipline, context degradation management)
+
 ## [1.8.2] - 2026-03-30
 
 - Add full RPC middleware chain to `runtime-reference.md` — documents URL-less RPC execution flow where `response.temp` and `response.output` still execute normally

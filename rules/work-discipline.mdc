@@ -1,0 +1,85 @@
+---
+description: Enforces systematic work habits to prevent incomplete changes, missed files, and partial fixes.
+globs:
+alwaysApply: true
+---
+
+# Work Discipline
+
+## 1. Full Impact Analysis Before Any Change
+
+Before modifying code, **always** enumerate the complete scope:
+
+- **All affected files**: List every file that needs changes, not just the obvious one
+- **All variants/cases**: If the change involves models, types, or modes, create a full matrix (e.g., 5 models × 2 modules = 10 combinations) and verify each cell is handled
+- **All downstream consumers**: Check what references, tests, or documentation depend on the changed code
+
+**Never start editing until the full scope is written out.** Partial awareness leads to partial fixes.
+
+## 2. No Piecemeal Fixes
+
+When a change requires touching multiple related things (e.g., adding a model to params, switch logic, and tests), **do them all in one pass**. Do not:
+
+- Fix one thing, upload, then discover the next missing piece
+- Wait for the user to point out what was obviously missed
+
+## 3. Changed Files Tracking
+
+When reporting changed files (dev notes, commit messages, PR descriptions):
+
+- **Extract from actual code changes**, not from memory
+- Cross-check every component that was touched: code, expect, api, parameters, test
+- If you changed `foo/api.imljson`, you almost certainly also changed `foo/expect.imljson` — verify and include both
+
+## 4. Root Cause Over Quick Revert
+
+When something doesn't work:
+
+- **Understand why** before reverting or working around it
+- If `switch()` fails with `emptyarray`, ask: "Is `emptyarray` even needed here?" before falling back to `if()`
+- Quick reverts mask the real fix and create inconsistency
+
+## 5. Verify Before Submitting
+
+After making changes, **re-read the final state** of the modified file(s) before uploading or committing:
+
+- Does the logic handle every case in the matrix from step 1?
+- Are there any leftover inconsistencies from partial edits?
+- Does the test cover every case that was added?
+
+## 6. Never Fabricate or Assume
+
+- Do not invent features, directives, APIs, or syntax that you have not verified in documentation or source code
+- If uncertain whether something exists (e.g., `temp2`, `switch()` with `emptyarray`), **look it up first** — never try it and see
+- "I think it works" is not verification. Read the source.
+
+## 7. Learn From the Current Mistake Immediately
+
+When the user points out a missed case (e.g., "editParams has no gptImage15"):
+
+- Before fixing only that one thing, ask: **"Is the same class of error present elsewhere?"**
+- Example: if gptImage15 is missing from editParams, immediately check if gptImageMini is missing from generateParams too
+- Fix ALL instances of the same error class in one pass, not one at a time
+
+## 8. AC Scope Discipline
+
+- **Never silently add changes outside the AC scope.** If you believe something outside the AC is worth adding, **explicitly highlight it to the user** with the reasoning, and let them decide.
+- Format: "**[AC 범위 밖]** {what you want to add} — {why}. 넣을까요?"
+- If the user doesn't approve, don't add it.
+
+## 9. Use Prior State as Reference
+
+When converting code from one pattern to another (e.g., hardcoded options → dynamic RPC):
+
+- **Read the original code first** to extract the complete list of what was there
+- Do not rely on memory or assumptions about what the original covered
+- The original is the source of truth for completeness
+
+## 10. Context Degradation Management
+
+As conversation grows longer, attention and accuracy degrade. Counteract this actively:
+
+- **Never rely on memory for lists** — always re-read files or re-run commands to get current state. What you "remember" from 20 messages ago is unreliable.
+- **Re-read before answering** — when asked about what was changed, what's left, or what files were touched, read the actual files/diff instead of reciting from memory.
+- **When making a checklist or report** (dev notes, changed files, AC coverage), generate it from code/tools, not from conversation recall.
+- **If you catch yourself saying "I already did X"** — verify it. Open the file and confirm. Memory-based confidence is the #1 cause of missed items in long conversations.

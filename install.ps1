@@ -27,14 +27,14 @@ $ErrorActionPreference = "Stop"
 $REPO = "minsu-kang/make-custom-app-skill"
 $BRANCH = "master"
 $SKILL_DIR = Join-Path $env:USERPROFILE ".cursor\skills\make-custom-app"
-$RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules"
+$RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules\make-custom-app"
 $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js")
-$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "make-app-ux-guideline.mdc", "version-sync.mdc")
+$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "make-app-ux-guideline.mdc", "version-sync.mdc", "work-discipline.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
@@ -104,6 +104,15 @@ if (Test-Path $SKILL_DIR) {
 
 New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
 New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
+
+# ── Migrate: remove old rule files from ~/.cursor/rules/ (pre-subdirectory layout) ──
+$OldRulesDir = Join-Path $env:USERPROFILE ".cursor\rules"
+foreach ($file in $RULE_FILES) {
+    $oldPath = Join-Path $OldRulesDir $file
+    if (Test-Path $oldPath) {
+        Remove-Item -Force $oldPath
+    }
+}
 
 # ── Restore preserved .env ──
 if ($SavedEnv) {

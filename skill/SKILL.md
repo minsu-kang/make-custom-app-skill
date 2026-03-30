@@ -1,12 +1,23 @@
 ---
 name: make-custom-app
-version: 1.8.2
+version: 1.8.3
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
 # Make Custom App Development
 
 > **⚠️ Top Priority Rule**: When a Make app/IMLJSON-related question comes in, **this SKILL.md file must be read before any other action.** Before reading or explaining file contents, this skill must be loaded first to follow the workflows and rules below. Skipping this step is not allowed.
+
+## Mandatory Rules (Auto-Load on Skill Activation)
+
+When this skill is loaded, **immediately read and follow all rule files** in `~/.cursor/rules/make-custom-app/`:
+
+- `make-app-auto-actions.mdc` — pre/post work auto-actions
+- `make-app-code-review.mdc` — code review process and criteria
+- `make-app-ux-guideline.mdc` — UX best practices reference
+- `version-sync.mdc` — version bump and changelog sync
+
+These rules are **mandatory** and must be applied for the entire duration of any Make app work session. Do not skip or defer loading them.
 
 ## Version Check (Auto-Execute — Once Per Conversation)
 

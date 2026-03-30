@@ -1,6 +1,7 @@
 ---
 description: Enforce automatic actions before and after Make app work (version check, context update, Pinecone sync, related ticket lookup)
-alwaysApply: true
+globs: 
+alwaysApply: false
 ---
 
 # Make App Auto Actions
