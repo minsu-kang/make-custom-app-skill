@@ -4,6 +4,8 @@ globs:
 alwaysApply: true
 ---
 
+> **Activation**: Apply ONLY when the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) is active. Skip this rule entirely for non-Make-app work.
+
 # Work Discipline
 
 ## 1. Full Impact Analysis Before Any Change

@@ -1,8 +1,10 @@
 ---
 description: Enforce automatic actions before and after Make app work (version check, context update, Pinecone sync, related ticket lookup)
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
+
+> **Activation**: Apply ONLY when the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) is active. Skip this rule entirely for non-Make-app work.
 
 # Make App Auto Actions
 

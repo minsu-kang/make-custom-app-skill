@@ -1,8 +1,10 @@
 ---
 description: Read UX guidelines before any Make app UX work
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
+
+> **Activation**: Apply ONLY when the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) is active. Skip this rule entirely for non-Make-app work.
 
 # Make App UX Guideline Priority
 

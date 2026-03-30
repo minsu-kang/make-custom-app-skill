@@ -1,8 +1,10 @@
 ---
 description: Auto-bump semver, sync versions, and update CHANGELOG on every commit for the Make Custom App skill repo
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
+
+> **Activation**: Apply ONLY when the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) is active. Skip this rule entirely for non-Make-app work.
 
 # Version & Changelog Sync Rule
 
