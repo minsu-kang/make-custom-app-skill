@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.4] - 2026-03-30
+
+- Add "Code Quality & Maintainability" enforcement section to `make-app-code-review.mdc` — reviews changed functions as a senior JS engineer
+- Flag design principle violations: Data over branching, DRY, Open/Closed, Single Responsibility, Declarative over imperative
+- Flag code smells: spaghetti flow, god functions, magic values, in-place mutation, boolean blindness, null/undefined juggling, dead code, inconsistent return types
+- Add 4-point review checklist: Structure, Extensibility, Readability, Testability
+
 ## [1.8.3] - 2026-03-30
 
 - Isolate rule files into `~/.cursor/rules/make-custom-app/` subdirectory — prevents overwriting user's own rules during skill install/update
