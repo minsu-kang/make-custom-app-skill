@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.8.5
+version: 1.8.6
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -264,7 +264,7 @@ For custom IML function details (code conventions, test.js requirements, size li
 Run module, RPC, connection, and webhook integration tests using the `test-component.js` wrapper:
 
 ```
-node test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
 ```
 
 | Option | Description |
@@ -275,10 +275,10 @@ node test-component.js <app-slug> <app-version> <component-type> [component-name
 
 Examples:
 ```
-node test-component.js monday 2 module                          # all modules
-node test-component.js monday 2 module CreateItemV2             # one module
-node test-component.js monday 2 rpc idFinderItem getBoards      # multiple RPCs
-node test-component.js monday 2 module --format=json            # JSON for AI
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module                          # all modules
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module CreateItemV2             # one module
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 rpc idFinderItem getBoards      # multiple RPCs
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module --format=json            # JSON for AI
 ```
 
 Requires `make-apps-mockup-path` configured in the last lines of this file (see setup below).
@@ -338,7 +338,7 @@ After adding it, inform the user that setup is complete and answer their origina
 
 ## make-apps-mockup Setup
 
-The component integration test framework lives in the `make-apps-mockup` repository.
+The `make-apps-mockup` repository contains **test data (mockup fixtures)** used by `~/.cursor/skills/make-custom-app/scripts/test-component.js`.
 
 ### Auto-Detection Workflow
 

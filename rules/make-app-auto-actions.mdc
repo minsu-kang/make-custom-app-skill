@@ -95,7 +95,7 @@ When modifying a custom IML function (`functions/{name}/code.js`), always create
 
 After writing or updating tests, **always run `test-function.js`** to verify they pass:
 ```
-node test-function.js <app-slug> <app-version> <function-name>
+node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-version> <function-name>
 ```
 
 Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
@@ -105,7 +105,7 @@ Upload the test file automatically via `update-app.js` with component path `func
 When reviewing an app where `functions/*/code.js` files are changed, **automatically run `test-function.js`** after `download-app.js` completes:
 
 ```
-node test-function.js <app-slug> <app-version>
+node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-version>
 ```
 
 - Run with **no function filter** to test all functions (catches cross-function regressions)
@@ -117,7 +117,7 @@ node test-function.js <app-slug> <app-version>
 When reviewing an app where **any component's `api.imljson`** is changed, **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
-node test-component.js <app-slug> <app-version> <component-type> [component-names...]
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
 ```
 
 - Identify the component type from the changed file path (e.g., `modules/X/api.imljson` → `module X`)
@@ -130,7 +130,7 @@ node test-component.js <app-slug> <app-version> <component-type> [component-name
 When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading:
 
 ```
-node test-component.js <app-slug> <app-version> <component-type> <component-name>
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> <component-name>
 ```
 
 - If a test exists (mockup data with `test.js`) → run it and verify the change doesn't break existing behavior

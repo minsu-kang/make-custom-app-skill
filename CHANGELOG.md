@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.6] - 2026-03-31
+
+- Use full absolute paths for `test-function.js` and `test-component.js` in all rule/skill docs — prevents script-not-found errors when running from app repo directory
+- Clarify `make-apps-mockup` repo role as test data (mockup fixtures), not the test framework itself
+
 ## [1.8.5] - 2026-03-31
 
 - Fix test-component.js hanging when no component names provided — add `input: '\n'` to execSync so readline prompt auto-completes

@@ -107,7 +107,7 @@ Any test gap for changed behavior results in verdict **Improvement Needed**. Inc
 When **any** `functions/*/code.js` file is changed in the review, **automatically run `test-function.js`** after downloading the app code:
 
 ```
-node test-function.js <app-slug> <app-version>
+node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-version>
 ```
 
 - Run once with **no function filter** to test all functions (catches regressions across the app)
@@ -122,7 +122,7 @@ node test-function.js <app-slug> <app-version>
 When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks), **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
-node test-component.js <app-slug> <app-version> <component-type> [component-names...]
+node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
 ```
 
 - Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`)
