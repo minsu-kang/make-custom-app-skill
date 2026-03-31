@@ -128,6 +128,7 @@ try {
 	const output = execSync(cmd, {
 		cwd: mockupPath,
 		stdio: 'pipe',
+		input: componentNames.length === 0 ? '\n' : undefined,
 		env: { ...process.env },
 		maxBuffer: 50 * 1024 * 1024,
 	});

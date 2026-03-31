@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.5] - 2026-03-31
+
+- Fix test-component.js hanging when no component names provided — add `input: '\n'` to execSync so readline prompt auto-completes
+
 ## [1.8.4] - 2026-03-30
 
 - Add "Code Quality & Maintainability" enforcement section to `make-app-code-review.mdc` — reviews changed functions as a senior JS engineer
