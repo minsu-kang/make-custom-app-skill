@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.8] - 2026-04-01
+
+- Add Agency Module Pattern section to component-patterns-reference — documents on-prem agent architecture, agency directive IMLJSON structure, dual timeout model, runtime internals, pagination, and caveats
+
 ## [1.8.7] - 2026-04-01
 
 - Add "Proactive Rule & Reference Re-Read" section to work-discipline rule — enforce re-reading IML function reference, runtime docs, and rule files in long conversations to prevent hallucination (e.g., fabricating non-existent `set()` function)

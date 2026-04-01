@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.8.7
+version: 1.8.8
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -292,7 +292,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Built-in IML functions: [builtin-iml-functions.md](references/builtin-iml-functions.md)
 - Communication detailed spec: [communication-reference.md](references/communication-reference.md)
 - Parameters & Interface (Expect, RPC, Collection, Array, Dynamic Interface): [parameters-reference.md](references/parameters-reference.md)
-- Component patterns (Base, Connection, Error, Webhook, Trigger, Responder): [component-patterns-reference.md](references/component-patterns-reference.md)
+- Component patterns (Base, Connection, Error, Webhook, Trigger, Responder, Agency Module): [component-patterns-reference.md](references/component-patterns-reference.md)
 - Custom IML functions (code conventions, test.js, size limits): [custom-functions-reference.md](references/custom-functions-reference.md)
 - Developer Notes templates (Bug Fix, Feature): [developer-notes-templates.md](references/developer-notes-templates.md)
 - Real-world examples (Instagram app): [examples.md](references/examples.md)
