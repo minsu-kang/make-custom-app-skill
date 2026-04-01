@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.7] - 2026-04-01
+
+- Add "Proactive Rule & Reference Re-Read" section to work-discipline rule — enforce re-reading IML function reference, runtime docs, and rule files in long conversations to prevent hallucination (e.g., fabricating non-existent `set()` function)
+
 ## [1.8.6] - 2026-03-31
 
 - Use full absolute paths for `test-function.js` and `test-component.js` in all rule/skill docs — prevents script-not-found errors when running from app repo directory
