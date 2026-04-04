@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.8.8
+version: 1.8.9
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 

@@ -158,6 +158,53 @@ This inheritance works through multiple nesting levels (e.g., `boardId` → `sel
 }
 ```
 
+### `required` Validation Behavior: Array vs Collection
+
+The Make platform's form validator (`imt-forman`) enforces `required` differently depending on the parent container type.
+
+**Collection** — child field `required: true` **is enforced**:
+
+```json
+{
+	"name": "collectionParam",
+	"type": "collection",
+	"spec": [
+		{ "name": "childParam", "type": "text", "required": true }
+	]
+}
+// Submitting {"collectionParam": {"childParam": null}} → validation error
+```
+
+**Array (complex)** — child field `required: true` **is NOT enforced**:
+
+```json
+{
+	"name": "arrayParam",
+	"type": "array",
+	"spec": [
+		{ "name": "childParam", "type": "text", "required": true }
+	]
+}
+// Submitting {"arrayParam": [{"childParam": null}]} → passes validation
+```
+
+**Array (simple)** — item-level `required: true` **is enforced**:
+
+```json
+{
+	"name": "emails",
+	"type": "array",
+	"spec": { "type": "email", "required": true }
+}
+// Submitting {"emails": [null]} → validation error
+```
+
+**Why**: Collection is a fixed single object where the user explicitly fills each field — enforcing `required` on child fields is natural. Array is a dynamic, repeatable structure where items are often populated through mapping from previous modules. Validating `required` on every child field of every array item would cause unnecessary failures when mapped values resolve to null at runtime.
+
+**Source**: In `imt-forman`, `array.mjs` passes the spec array directly as the `instructions` parameter when calling the collection validator (`validateNested(value[i], 'collection', instructions.spec, options)`). The collection validator then accesses `instructions.spec` for child field iteration — but since `instructions` already IS the spec array, `.spec` is `undefined` and child-level validation is skipped entirely. This is intentional platform behavior.
+
+**Practical implication**: If you need strict validation on child fields inside an array, do not rely on `required: true` in the spec. Instead, validate in the module's `api.imljson` communication layer (e.g., using `valid` directive or custom error handling).
+
 ## Interface Structure
 
 Defines module output structure. Same syntax as Parameters but uses `spec` for nested structures:

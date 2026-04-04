@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.9] - 2026-04-04
+
+- Add `required` validation behavior documentation to parameters-reference — documents why collection enforces `required` on child fields but array does not, with source-level explanation from `imt-forman` and practical implications
+
 ## [1.8.8] - 2026-04-01
 
 - Add Agency Module Pattern section to component-patterns-reference — documents on-prem agent architecture, agency directive IMLJSON structure, dual timeout model, runtime internals, pagination, and caveats
