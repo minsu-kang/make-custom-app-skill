@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.11] - 2026-04-07
+
+- Add app-level `install`/`installSpec` download support to `download-app.js`
+- Add `install`/`installSpec` component type support to `update-app.js`
+- Fix `update-app.js` to use `application/json` content-type for `common` component (was incorrectly using `application/jsonc`)
+
 ## [1.8.10] - 2026-04-02
 
 - Fix install.sh source detection for `curl | bash` — when BASH_SOURCE[0] is empty, dirname returns "." which resolves to cwd; if cwd is the repo, local (stale) files were copied instead of downloading from GitHub

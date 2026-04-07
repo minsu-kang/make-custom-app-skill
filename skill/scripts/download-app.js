@@ -193,7 +193,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 
 	// --- App-level files ---
 	console.log('=== App-level files ===');
-	const appLevelTasks = ['base', 'common', 'groups', 'readme'].map((fileType) => async () => {
+	const appLevelTasks = ['base', 'common', 'groups', 'readme', 'install', 'installSpec'].map((fileType) => async () => {
 		const ext = fileType === 'readme' ? 'md' : 'imljson';
 		const content = await apiGetText(`${verBase}/${fileType}`, auth);
 		if (saveFile(outputDir, `${fileType}.${ext}`, content)) {

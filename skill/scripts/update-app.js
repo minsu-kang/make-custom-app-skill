@@ -200,9 +200,13 @@ function buildApiUrl(baseUrl, appSlug, appVersion, componentPath) {
 			return `${verBase}/common`;
 		case 'groups':
 			return `${verBase}/groups`;
+		case 'install':
+			return `${verBase}/install`;
+		case 'installSpec':
+			return `${verBase}/installSpec`;
 		default:
 			console.error(`ERROR: Unknown component type "${type}"`);
-			console.error('Supported types: module, connection, rpc, webhook, function, base, common, groups');
+			console.error('Supported types: module, connection, rpc, webhook, function, base, common, groups, install, installSpec');
 			process.exit(1);
 	}
 }
@@ -221,7 +225,7 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 	const apiUrl = buildApiUrl(baseUrl, appSlug, appVersion, componentPath);
 
 	const type = componentPath.split('/')[0];
-	const contentType = type === 'function' ? 'application/javascript' : 'application/jsonc';
+	const contentType = type === 'function' ? 'application/javascript' : type === 'common' ? 'application/json' : 'application/jsonc';
 
 	console.log(`  PUT ${apiUrl}`);
 	console.log(`  Content-Type: ${contentType}`);
