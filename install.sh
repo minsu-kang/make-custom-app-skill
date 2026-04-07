@@ -120,7 +120,15 @@ if [ -n "$SAVED_ENV" ]; then
 fi
 
 # ── Detect Source ──
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null)" && pwd 2>/dev/null || echo "")"
+# When run via `curl | bash`, BASH_SOURCE[0] is empty — dirname "" returns "."
+# which resolves to cwd. If cwd happens to be a repo clone, local files get used
+# instead of downloading from GitHub. Only use local source when BASH_SOURCE[0]
+# points to an actual file (i.e., script was run directly, not piped).
+if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+    SCRIPT_DIR=""
+fi
 
 # ── Install Skill Files (skill/ → ~/.cursor/skills/make-custom-app/) ──
 info "Installing skill files..."

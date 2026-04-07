@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.10] - 2026-04-02
+
+- Fix install.sh source detection for `curl | bash` — when BASH_SOURCE[0] is empty, dirname returns "." which resolves to cwd; if cwd is the repo, local (stale) files were copied instead of downloading from GitHub
+
 ## [1.8.9] - 2026-04-04
 
 - Add `required` validation behavior documentation to parameters-reference — documents why collection enforces `required` on child fields but array does not, with source-level explanation from `imt-forman` and practical implications
