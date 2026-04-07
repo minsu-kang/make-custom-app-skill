@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1] - 2026-04-07
+
+- Expand "Proactive Reference Re-Read" triggers: add test.js, component test, Jira fetch, expect/parameters re-read rules
+- Add mandatory re-read of `custom-functions-reference.md` before writing IML function tests (assert conventions)
+- Add mandatory re-read of `component-test-guide.md` before writing/running component tests
+- Enforce explicit `getJiraIssue` fields list with Developer Notes (`customfield_10483`) and API Docs URL (`customfield_10283`)
+- Include `runtime-reference.md`, `communication-reference.md`, `component-patterns-reference.md`, `examples.md` in api.imljson re-read list
+
 ## [1.9.0] - 2026-04-07
 
 - Set all rules to `alwaysApply: true` for 100% enforcement when skill is active

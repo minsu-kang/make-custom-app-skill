@@ -78,7 +78,13 @@ QA-created subtasks typically mean the parent task's implementation has a bug. B
 
 ### 6. IML Function Test Code
 
-When modifying a custom IML function (`functions/{name}/code.js`), always create or update the corresponding `test.js` file (`functions/{name}/test.js`). Tests must cover:
+When modifying a custom IML function (`functions/{name}/code.js`), always create or update the corresponding `test.js` file (`functions/{name}/test.js`).
+
+**Before writing test.js**, re-read `~/.cursor/skills/make-custom-app/references/custom-functions-reference.md` § "test.js (Required)" to confirm:
+- Assert conventions: `assert.deepStrictEqual` for objects/arrays, `assert.strictEqual` for primitives
+- Required coverage: happy path, edge cases (`null`, `undefined`, empty arrays/objects, missing optional fields), type variations
+
+Tests must cover:
 
 - The bug scenario being fixed (should fail before fix, pass after)
 - Edge cases (null, undefined, empty string, empty array)
@@ -93,7 +99,9 @@ Upload the test file automatically via `update-app.js` with component path `func
 
 ### 6-1. Component Integration Test on api.imljson Changes (Non-Review)
 
-When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading:
+When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading.
+
+**Before writing or modifying component tests**, re-read `~/.cursor/skills/make-custom-app/references/component-test-guide.md` to confirm communications mock structure, `transformOutput()` usage, and `assert.deepStrictEqual` patterns.
 
 ```
 node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> <component-name>

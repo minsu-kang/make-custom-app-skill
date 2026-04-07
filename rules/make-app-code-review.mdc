@@ -40,8 +40,10 @@ When a Jira ticket is provided, follow this process to find and review the relev
 
 ### Step 1: Fetch Jira ticket details (MANDATORY — never skip)
 
-- Call `getJiraIssue` to retrieve the ticket's **description**, **Acceptance Criteria (AC)**, **subtasks**, and **comments**.
-- **If the ticket has subtasks** → fetch **every subtask** via `getJiraIssue` to understand:
+- Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "customfield_10483", "customfield_10283"]`.
+  - `customfield_10483` = **Developer Notes** — the developer's own explanation of what they changed and why. Missing this field leads to misinterpreting intentional decisions as bugs.
+  - `customfield_10283` = **API Docs URL** — link to the app's API documentation. Use this to verify API behavior, endpoint parameters, and response formats during the review. If the field has a value, **read or fetch the linked documentation** to cross-reference against the code changes.
+- **If the ticket has subtasks** → fetch **every subtask** via `getJiraIssue` (with the same fields) to understand:
   - Granular requirements broken down from the parent AC
   - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
   - Additional constraints or scope changes not in the parent ticket
@@ -51,7 +53,13 @@ When a Jira ticket is provided, follow this process to find and review the relev
   - QA findings with reproduction steps or screenshots
   - Reviewer feedback from previous review rounds
   - Scope changes or additional requirements added after ticket creation
-- **DO NOT proceed to Step 2 until all related tickets (parent + subtasks) and their comments have been fetched and analyzed.** Skipping this step leads to incomplete reviews that miss important context.
+  - Developer's status updates (e.g., "Bluesky fixed this on their end" changes the entire review scope)
+- **Read Developer Notes (`customfield_10483`)** — this is the developer's own explanation of their changes. It may reveal:
+  - Why a seemingly obvious fix was intentionally skipped (e.g., "hardcoded value works fine now")
+  - The real motivation behind the changes (e.g., "function was too long to save" → refactoring, not bug fix)
+  - Decisions the developer already investigated and ruled out
+  - **Misreading or ignoring Developer Notes leads to incorrect verdicts** (e.g., flagging an intentional decision as a BUG)
+- **DO NOT proceed to Step 2 until all related tickets (parent + subtasks), their comments, AND Developer Notes have been fetched and analyzed.** Skipping this step leads to incomplete reviews that miss important context.
 
 ### Step 2: Identify expected changes from the ticket
 
@@ -118,6 +126,8 @@ node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-v
 - If tests **pass** → note "All tests pass" in the Test Coverage field
 
 ### Component Integration Tests (Mandatory for api.imljson changes)
+
+**Before running or writing component tests**, re-read `~/.cursor/skills/make-custom-app/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
 
 When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks), **automatically run `test-component.js`** after `download-app.js` completes:
 
