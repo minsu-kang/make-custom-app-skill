@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.12] - 2026-04-07
+
+- Add epoch.imljson temp key dependency section to polling-trigger-guide
+- Add epoch temp key checklist item to code review polling trigger checklist
+
 ## [1.8.11] - 2026-04-07
 
 - Add app-level `install`/`installSpec` download support to `download-app.js`

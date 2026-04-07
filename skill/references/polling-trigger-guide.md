@@ -154,6 +154,23 @@ For date triggers, items with the same date are tracked in `sameDateIds` array t
 
 Default `limit` for triggers: **1** (returns one item per execution).
 
+## epoch.imljson and temp Key Dependency
+
+`epoch.imljson` overrides the last step's `response` in `api.imljson` but shares the same `temp` context built up by all preceding steps. When `api.imljson` uses a multi-step pipeline with temp key isolation (e.g., `temp.bundles` → `temp.cleanBundles` → `temp.sortedBundles`), the `epoch.imljson` must reference the **final processed key**, not an intermediate or raw key.
+
+**Rule**: When changing temp key names or adding pipeline stages in `api.imljson`, always update `epoch.imljson`'s `iterate` to reference the correct final key. Use `ifempty()` for fallback when the final key may not exist (e.g., retry didn't happen):
+
+```json
+{
+    "response": {
+        "iterate": "{{ifempty(temp.cleanBundles, temp.bundles)}}",
+        "output": "{{item}}"
+    }
+}
+```
+
+> **Real-world example**: google-email v4 `triggerWatchNewEmails` — `api.imljson` was updated to isolate 429 retry results into `temp.cleanBundles`, but `epoch.imljson` still referenced `temp.bundles`. This caused rate-limited placeholder entries (`__rate_limited_*`) to appear as `undefined - undefined` in the epoch output.
+
 ## Common Mistakes
 
 | Mistake | Why It's Wrong | Fix |
