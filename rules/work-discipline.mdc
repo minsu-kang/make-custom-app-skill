@@ -1,7 +1,7 @@
 ---
 description: Enforces systematic work habits to prevent incomplete changes, missed files, and partial fixes.
 globs:
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Work Discipline
@@ -84,11 +84,10 @@ As conversation grows longer, attention and accuracy degrade. Counteract this ac
 - **When making a checklist or report** (dev notes, changed files, AC coverage), generate it from code/tools, not from conversation recall.
 - **If you catch yourself saying "I already did X"** — verify it. Open the file and confirm. Memory-based confidence is the #1 cause of missed items in long conversations.
 
-### Proactive Rule & Reference Re-Read
+### Proactive Reference Re-Read
 
-In long conversations (~15+ turns), rules and references read at the start fade from active attention. To prevent hallucination and rule violations:
+In long conversations (~15+ turns), references read at the start fade from active attention. To prevent hallucination:
 
 - **Before writing or modifying `api.imljson`** — re-read `builtin-iml-functions.md` and verify every IML function used actually exists. Never use an IML function from memory alone.
 - **Before using any runtime feature** (`temp`, `condition`, `pagination`, `iterate`, etc.) — re-read `runtime-reference.md` or search the `imt-app-runtime` source to confirm the feature exists and behaves as expected.
-- **Before making a critical decision** (architecture, body construction pattern, error handling strategy) — re-read the relevant rule files (`work-discipline.mdc`, `make-app-auto-actions.mdc`) to refresh the constraints.
 - **Cost of re-reading is always lower than the cost of hallucination** — a Read tool call costs seconds; a fabricated function like `set()` costs a production incident.

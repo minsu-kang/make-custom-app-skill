@@ -1,7 +1,7 @@
 ---
 description: Required inputs, Jira-driven review process, and review criteria for Make custom app code reviews
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Make App Code Review Requirements
@@ -220,6 +220,16 @@ Any violation in changed/new code results in verdict **Improvement Needed**.
 4. **Testability**: Can each behavior path be tested independently? Are side effects isolated?
 5. If any checklist item fails → flag as `[IMPROVEMENT]` with the specific code and the idiomatic alternative
 6. Exception: If each branch has **substantially different logic** (not just value assignment or simple transformation), imperative branching is acceptable
+
+### Removed Code Verification (Mandatory before flagging removals as bugs)
+
+When code is **removed** in a change (headers deleted, parameters dropped, expressions stripped), **never assume the removal is a bug**. Verify first:
+
+1. **Does the removed reference actually exist?** — If `{{parameters.apiKey}}` was removed from an RPC, check the RPC's own `parameters.imljson`. If it's not defined there, it was never a proper parameter — removal is correct cleanup.
+2. **Is the functionality already covered elsewhere?** — Check `base.imljson` headers, connection parameters, and inherited context. If base already provides the same header/value, the component-level copy was redundant.
+3. **Who calls this component?** — Check all callers (`rpc://`, `options`, nested params) to see if they pass the removed value. If no caller provides it, the value was never reliably available.
+
+**Review the removal's INTENT before judging its correctness.** The question is not "was this code here before?" but "was this code actually necessary?"
 
 ### Runtime Behavior Verification (Mandatory for api.imljson changes)
 

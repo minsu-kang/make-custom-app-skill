@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0] - 2026-04-07
+
+- Set all rules to `alwaysApply: true` for 100% enforcement when skill is active
+- Add "Removed Code Verification" rule to code review — verify removed code's necessity before flagging as bug
+- Remove `make-app-rules-loader.mdc` — redundant with skill description auto-detection
+- Move `version-sync.mdc` to workspace-only rule (`.cursor/rules/`) — not installed globally
+- Remove duplicate code-review sections from auto-actions (Fresh Fetch, Review Tests, Review Component Tests)
+- Trim work-discipline "Proactive Re-Read" to references only (rules now auto-applied)
+- Remove "Mandatory Rules" section from SKILL.md (rules auto-injected)
+- Renumber auto-actions sections after dedup
+- Update install.sh and install.ps1 rule file lists
+
 ## [1.8.14] - 2026-04-07
 
 - Add component-test-guide.md reference — make-apps-mockup architecture, test.js structure, capture() args, executor types, test discovery, debugging

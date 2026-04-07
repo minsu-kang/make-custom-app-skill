@@ -1,7 +1,7 @@
 ---
 description: Enforce automatic actions before and after Make app work (version check, context update, Pinecone sync, related ticket lookup)
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Make App Auto Actions
@@ -59,25 +59,16 @@ All scripts must be run **automatically by the agent** using the Shell tool with
 
 For write scripts, always show what will be changed and ask for explicit user confirmation before executing.
 
-### 4. Fresh Fetch Before Code Review
-
-When a code review is requested, always run **both** scripts fresh automatically:
-
-1. `download-app.js` — fetch latest committed code
-2. `review-changes.js` — fetch uncommitted changes
-
-Never rely on previously saved local code or `latest.json`. This applies to re-reviews as well.
-
 ---
 
 ## During Work
 
-### 5. Related Ticket Lookup
+### 4. Related Ticket Lookup
 
 - **Analyzing a subtask**: Always fetch the parent task to understand the goal, AC, and scope of changes.
 - **Analyzing a parent task**: Always fetch subtasks to understand progress, QA issues, and granular work items.
 
-### 6. QA Subtask Investigation
+### 5. QA Subtask Investigation
 
 QA-created subtasks typically mean the parent task's implementation has a bug. Before investigating:
 
@@ -85,7 +76,7 @@ QA-created subtasks typically mean the parent task's implementation has a bug. B
 2. **Load local context** — read `~/.cursor/make-app-contexts/{slug}-v{version}.md` for app patterns and work history.
 3. Then proceed with the bug investigation using all gathered context.
 
-### 7. IML Function Test Code
+### 6. IML Function Test Code
 
 When modifying a custom IML function (`functions/{name}/code.js`), always create or update the corresponding `test.js` file (`functions/{name}/test.js`). Tests must cover:
 
@@ -100,32 +91,7 @@ node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-v
 
 Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
 
-### 7-1. Auto-Run Tests During Code Review
-
-When reviewing an app where `functions/*/code.js` files are changed, **automatically run `test-function.js`** after `download-app.js` completes:
-
-```
-node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-version>
-```
-
-- Run with **no function filter** to test all functions (catches cross-function regressions)
-- Include the results in each function's **Test Coverage** field in the review output
-- Distinguish **pre-existing failures** (not caused by this change) from **new failures** (caused by this change)
-
-### 7-2. Auto-Run Component Tests During Code Review
-
-When reviewing an app where **any component's `api.imljson`** is changed, **automatically run `test-component.js`** after `download-app.js` completes:
-
-```
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
-```
-
-- Identify the component type from the changed file path (e.g., `modules/X/api.imljson` → `module X`)
-- Run for each affected component type
-- Include results in the review under **Component Test**
-- Requires `make-apps-mockup-path` in SKILL.md. If not configured, skip with a note
-
-### 7-3. Component Integration Test on api.imljson Changes (Non-Review)
+### 6-1. Component Integration Test on api.imljson Changes (Non-Review)
 
 When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading:
 
@@ -141,7 +107,7 @@ This ensures every `api.imljson` change is validated, not just during code revie
 
 Requires `make-apps-mockup-path` in SKILL.md. If not configured, skip with a note.
 
-### 8. Runtime Reference Lookup (for api.imljson work)
+### 7. Runtime Reference Lookup (for api.imljson work)
 
 When writing, reviewing, or debugging `api.imljson` code that uses runtime variables or middleware features (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`, `wrapper`), always verify behavior through references — **never assume or guess**.
 
@@ -152,7 +118,7 @@ When writing, reviewing, or debugging `api.imljson` code that uses runtime varia
 
 This applies to **all Make app work**: code reviews, bug fixes, feature requests, and new app creation.
 
-### 8-1. Strict Runtime Feature Verification (Mandatory — Never Skip)
+### 7-1. Strict Runtime Feature Verification (Mandatory — Never Skip)
 
 **Never invent, fabricate, or assume the existence of any IMLJSON directive, middleware stage, or runtime feature.** If a feature is not found in `runtime-reference.md` AND not found in the `imt-app-runtime` source code, **it does not exist**. Do not use it.
 
@@ -170,7 +136,7 @@ This rule exists because fabricating non-existent features (e.g., `temp2`, `temp
 
 ## After Work (run upon completion of any Make app task)
 
-### 9. Developer Notes Prompt
+### 8. Developer Notes Prompt
 
 After Jira ticket work is complete (Bug, Feature Request, or Task — not App) using at least one write script (`update-app.js`, `create-component.js`, `update-component.js`, or `delete-component.js`), **ask the user**:
 
@@ -179,14 +145,14 @@ After Jira ticket work is complete (Bug, Feature Request, or Task — not App) u
 - If approved → write to `customfield_10483` using `editJiraIssue` with ADF format and **tables** (Root Cause, Fix, Affected Components, Changed Files)
 - If declined → skip, do not ask again
 
-### 10. Context File Update
+### 9. Context File Update
 
 Immediately create/update `~/.cursor/make-app-contexts/{slug}-v{version}.md` upon completion.
 
 - If the file doesn't exist, create it (include app structure, key patterns, caveats)
 - If the file exists, update relevant sections (Work History, Caveats, etc.)
 
-### 11. Pinecone Auto-Sync
+### 10. Pinecone Auto-Sync
 
 Execute MCP calls immediately after saving the context file:
 

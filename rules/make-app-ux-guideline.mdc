@@ -1,7 +1,7 @@
 ---
 description: Read UX guidelines before any Make app UX work
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Make App UX Guideline Priority
