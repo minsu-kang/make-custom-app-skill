@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.8.13] - 2026-04-07
+
+- Rewrite rules-loader to auto-detect Make app topics and activate skill immediately, instead of relying on agent to recognize skill relevance
+
 ## [1.8.12] - 2026-04-07
 
 - Add epoch.imljson temp key dependency section to polling-trigger-guide
