@@ -84,6 +84,7 @@ make-custom-app-skill/
 │       ├── developer-notes-templates.md     #  Developer Notes templates
 │       ├── app-ux-best-practices.md    #   App UX best practices
 │       ├── polling-trigger-guide.md   #   Polling trigger implementation guide
+│       ├── component-test-guide.md    #   Component integration test guide (make-apps-mockup)
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
 │   └── scripts/                        #   Automation scripts
@@ -136,6 +137,7 @@ make-custom-app-skill/
 | `references/polling-trigger-guide.md` | Polling trigger implementation — order selection, date filtering, epoch, examples |
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
+| `references/component-test-guide.md` | Component integration tests — `make-apps-mockup` architecture, test.js structure, debugging |
 
 ### Script Files (`skill/scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
 

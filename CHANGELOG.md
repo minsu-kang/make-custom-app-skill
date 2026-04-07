@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.14] - 2026-04-07
+
+- Add component-test-guide.md reference — make-apps-mockup architecture, test.js structure, capture() args, executor types, test discovery, debugging
+- Register component-test-guide.md in install.sh, install.ps1, README.md, and SKILL.md
+
 ## [1.8.13] - 2026-04-07
 
 - Rewrite rules-loader to auto-detect Make app topics and activate skill immediately, instead of relying on agent to recognize skill relevance

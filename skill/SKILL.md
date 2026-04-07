@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.8.13
+version: 1.8.14
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -283,6 +283,8 @@ node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module 
 
 Requires `make-apps-mockup-path` configured in the last lines of this file (see setup below).
 
+For full details on test file structure, `capture()` arguments, communications format, test patterns by component type, test discovery, debugging, and `make-apps-mockup` architecture, see [component-test-guide.md](references/component-test-guide.md).
+
 ## Developer Notes Templates
 
 For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templates.md](references/developer-notes-templates.md).
@@ -299,6 +301,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Runtime internals (middleware, limits, edge cases): [runtime-reference.md](references/runtime-reference.md)
 - Apps UX best practices (naming, hints, fields, messages, patterns): [app-ux-best-practices.md](references/app-ux-best-practices.md)
 - Polling trigger implementation (order, date filtering, epoch, examples): [polling-trigger-guide.md](references/polling-trigger-guide.md)
+- Component integration tests (test.js structure, communications mocks, debugging): [component-test-guide.md](references/component-test-guide.md)
 
 ## imt-app-runtime Source Setup
 
