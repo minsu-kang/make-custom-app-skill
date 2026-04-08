@@ -26,7 +26,7 @@ VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js")
+SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js")
 RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "work-discipline.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
@@ -61,12 +61,18 @@ echo ""
 SAVED_RUNTIME_PATH=""
 SAVED_MCP_PATH=""
 SAVED_MOCKUP_PATH=""
+SAVED_JIRA_EMAIL=""
+SAVED_JIRA_TOKEN=""
+SAVED_JIRA_BASE_URL=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
         SAVED_RUNTIME_PATH=$(grep '^imt-app-runtime-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/provided' | tail -1 || true)
         SAVED_MCP_PATH=$(grep '^mcp-server-path:' "$SKILL_DIR/SKILL.md" | grep -v '{path-to' | tail -1 || true)
         SAVED_MOCKUP_PATH=$(grep '^make-apps-mockup-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/to' | tail -1 || true)
+        SAVED_JIRA_EMAIL=$(grep '^jira-email:' "$SKILL_DIR/SKILL.md" | grep -v 'your-email' | tail -1 || true)
+        SAVED_JIRA_TOKEN=$(grep '^jira-api-token:' "$SKILL_DIR/SKILL.md" | grep -v 'your-api-token' | tail -1 || true)
+        SAVED_JIRA_BASE_URL=$(grep '^jira-base-url:' "$SKILL_DIR/SKILL.md" | grep -v 'your-instance' | tail -1 || true)
     fi
 
     SAVED_ENV=""
@@ -400,6 +406,18 @@ if [ -f "$SKILL_DIR/SKILL.md" ]; then
     if [ -n "$SAVED_MOCKUP_PATH" ]; then
         echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
         ok "Restored user config (make-apps-mockup-path)"
+    fi
+    if [ -n "$SAVED_JIRA_EMAIL" ]; then
+        echo "$SAVED_JIRA_EMAIL" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (jira-email)"
+    fi
+    if [ -n "$SAVED_JIRA_TOKEN" ]; then
+        echo "$SAVED_JIRA_TOKEN" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (jira-api-token)"
+    fi
+    if [ -n "$SAVED_JIRA_BASE_URL" ]; then
+        echo "$SAVED_JIRA_BASE_URL" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (jira-base-url)"
     fi
 fi
 

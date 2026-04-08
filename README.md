@@ -96,7 +96,8 @@ make-custom-app-skill/
 │       ├── update-component.js         #   Update component metadata (label, description, connection)
 │       ├── delete-component.js         #   Delete components (with public/private app check)
 │       ├── test-function.js           #   IML function test runner
-│       └── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
+│       ├── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
+│       └── download-jira-ticket-attachment.js  #   Jira attachment downloader
 └── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
     ├── make-app-code-review.mdc        #   Code review input requirements & output format
     ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets, UX)
@@ -152,6 +153,7 @@ make-custom-app-skill/
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
+| `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in SKILL.md. |
 
 ### Rule Files (`~/.cursor/rules/make-custom-app/`)
 

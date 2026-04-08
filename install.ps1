@@ -33,7 +33,7 @@ $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js")
+$SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js")
 $RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "work-discipline.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
@@ -58,6 +58,9 @@ Write-Host ""
 $SavedRuntimePath = ""
 $SavedMcpPath = ""
 $SavedMockupPath = ""
+$SavedJiraEmail = ""
+$SavedJiraToken = ""
+$SavedJiraBaseUrl = ""
 
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
@@ -66,6 +69,9 @@ if (Test-Path $SKILL_DIR) {
         $SavedRuntimePath = ($allLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
         $SavedMcpPath = ($allLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
         $SavedMockupPath = ($allLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
+        $SavedJiraEmail = ($allLines | Where-Object { $_ -match "^jira-email:" -and $_ -notmatch "your-email" } | Select-Object -Last 1) -join ""
+        $SavedJiraToken = ($allLines | Where-Object { $_ -match "^jira-api-token:" -and $_ -notmatch "your-api-token" } | Select-Object -Last 1) -join ""
+        $SavedJiraBaseUrl = ($allLines | Where-Object { $_ -match "^jira-base-url:" -and $_ -notmatch "your-instance" } | Select-Object -Last 1) -join ""
     }
 
     $SavedEnv = ""
@@ -451,6 +457,18 @@ if (Test-Path $skillMdPath) {
     if ($SavedMockupPath) {
         Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
         Write-Ok "Restored user config (make-apps-mockup-path)"
+    }
+    if ($SavedJiraEmail) {
+        Add-Content -Path $skillMdPath -Value "$SavedJiraEmail"
+        Write-Ok "Restored user config (jira-email)"
+    }
+    if ($SavedJiraToken) {
+        Add-Content -Path $skillMdPath -Value "$SavedJiraToken"
+        Write-Ok "Restored user config (jira-api-token)"
+    }
+    if ($SavedJiraBaseUrl) {
+        Add-Content -Path $skillMdPath -Value "$SavedJiraBaseUrl"
+        Write-Ok "Restored user config (jira-base-url)"
     }
 }
 

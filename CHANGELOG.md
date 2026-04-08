@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.10.2] - 2026-04-08
+
+- Add `download-jira-ticket-attachment.js` script for downloading Jira ticket attachments (images, videos) via REST API
+- Add Jira attachment auto-download and analysis rules to auto-actions (4-1) and code-review (Step 1)
+- Add mockup repo PR must include Jira ticket URLs rule (6-1)
+- Add Jira credential setup section to SKILL.md (`jira-email`, `jira-api-token`, `jira-base-url`)
+- Preserve and restore Jira credentials during skill install/update (`install.sh`, `install.ps1`)
+- Update README with new script in directory tree and script table
+
 ## [1.10.1] - 2026-04-08
 
 - Add "Cross-Module Pattern Verification" rule to code review: when flagging a missing feature in one component, search ALL components for the same pattern and report the complete list

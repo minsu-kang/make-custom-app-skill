@@ -50,6 +50,7 @@ All scripts must be run **automatically by the agent** using the Shell tool with
 - `review-changes.js` — fetch uncommitted changes
 - `test-function.js` — run custom IML function tests
 - `test-component.js` — run component integration tests (modules, RPCs, connections, webhooks)
+- `download-jira-ticket-attachment.js` — download Jira ticket attachments (images, videos) for analysis
 
 **Write scripts** (require user approval before execution):
 - `update-app.js` — push code changes to Make
@@ -67,6 +68,28 @@ For write scripts, always show what will be changed and ask for explicit user co
 
 - **Analyzing a subtask**: Always fetch the parent task to understand the goal, AC, and scope of changes.
 - **Analyzing a parent task**: Always fetch subtasks to understand progress, QA issues, and granular work items.
+
+### 4-1. Jira Attachment Analysis (Mandatory)
+
+When fetching Jira tickets (parent or subtask), **always include `"attachment"` in the `fields` list** of `getJiraIssue`. Attachments often contain critical visual context: screenshots of bugs, expected behavior, UI state, screen recordings, or error traces.
+
+If attachments are present, **auto-download them** using `download-jira-ticket-attachment.js`:
+
+```
+node ~/.cursor/skills/make-custom-app/scripts/download-jira-ticket-attachment.js <issue-key>
+```
+
+This downloads all attachments to `~/.cursor/make-app-contexts/attachments/{issue-key}/`.
+
+After download:
+
+1. **Images** (jpeg, png, gif, webp) — read and analyze them using the Read tool. Describe what the image shows and how it relates to the issue.
+2. **Videos** — note their existence and path. The user can review them locally.
+3. **Use attachment context** to inform the investigation — a screenshot of an error often reveals more than the text description alone.
+
+If `jira-email` / `jira-api-token` are not configured in SKILL.md, follow the Jira Attachment Download Setup guide in SKILL.md.
+
+Never skip attachment analysis. Missing a screenshot that shows the exact error state leads to misdiagnosis.
 
 ### 5. QA Subtask Investigation
 
@@ -101,7 +124,19 @@ node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-v
 
 Upload the test file automatically via `update-app.js` with component path `function/{name}/test`.
 
-### 6-1. Component Integration Test on api.imljson Changes (Non-Review)
+### 6-1. Mockup Repo PR — Jira Ticket URL Required
+
+When creating a PR in the `make-apps-mockup` repository, **always include the related Jira ticket URL(s)** in the PR body under a `## Jira` section. Include both parent and subtask URLs when applicable.
+
+```
+## Jira
+- https://make.atlassian.net/browse/{PARENT-KEY}
+- https://make.atlassian.net/browse/{SUBTASK-KEY}
+```
+
+Never create a mockup PR without a Jira reference. If no Jira ticket exists, ask the user before proceeding.
+
+### 6-2. Component Integration Test on api.imljson Changes (Non-Review)
 
 When **creating or updating** any component's `api.imljson` (outside of code review — i.e., during bug fixes, feature requests, or app tasks), **always** run the component integration test after uploading.
 

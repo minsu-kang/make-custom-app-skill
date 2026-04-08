@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.10.1
+version: 1.10.2
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -345,4 +345,43 @@ Add the path to the last lines of this file:
 
 ```
 make-apps-mockup-path: /path/to/make-apps-mockup
+```
+
+## Jira Attachment Download Setup
+
+The `download-jira-ticket-attachment.js` script downloads Jira ticket attachments (screenshots, videos, etc.) so the agent can directly read and analyze them. This requires Jira API credentials.
+
+### Auto-Detection Workflow
+
+Check whether the last lines of this SKILL.md file contain both `jira-email:` and `jira-api-token:`.
+
+- **If both exist** → `download-jira-ticket-attachment.js` is ready to use.
+- **If missing** → Display the setup guide below when attachment download is needed.
+
+### Setup Guide (Display When Missing)
+
+> **Jira attachment download is not configured.**
+>
+> To enable automatic download and analysis of Jira attachments (screenshots, videos), add your Jira API credentials:
+>
+> 1. Generate an API token at: https://id.atlassian.com/manage-profile/security/api-tokens
+> 2. Add the following to the last lines of `~/.cursor/skills/make-custom-app/SKILL.md`:
+>
+> ```
+> jira-email: your-email@example.com
+> jira-api-token: your-api-token
+> ```
+>
+> Optional (defaults to `https://make.atlassian.net`):
+> ```
+> jira-base-url: https://your-instance.atlassian.net
+> ```
+
+### After Installation
+
+Add the credentials to the last lines of this file:
+
+```
+jira-email: user@example.com
+jira-api-token: ATATT3x...
 ```

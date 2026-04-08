@@ -40,9 +40,10 @@ When a Jira ticket is provided, follow this process to find and review the relev
 
 ### Step 1: Fetch Jira ticket details (MANDATORY — never skip)
 
-- Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "customfield_10483", "customfield_10283"]`.
+- Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "customfield_10483", "customfield_10283"]`.
   - `customfield_10483` = **Developer Notes** — the developer's own explanation of what they changed and why. Missing this field leads to misinterpreting intentional decisions as bugs.
   - `customfield_10283` = **API Docs URL** — link to the app's API documentation. Use this to verify API behavior, endpoint parameters, and response formats during the review. If the field has a value, **read or fetch the linked documentation** to cross-reference against the code changes.
+  - `attachment` = **Attachments** — screenshots, screen recordings, and files attached to the ticket. These often contain critical visual context (error states, UI behavior, reproduction evidence) that text descriptions alone cannot convey. If attachments exist, **auto-download them** via `download-jira-ticket-attachment.js` (see auto-actions rule 4-1) and analyze images using the Read tool. If Jira credentials are not configured, follow the setup guide in SKILL.md.
 - **If the ticket has subtasks** → fetch **every subtask** via `getJiraIssue` (with the same fields) to understand:
   - Granular requirements broken down from the parent AC
   - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
