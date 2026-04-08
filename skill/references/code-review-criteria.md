@@ -193,13 +193,13 @@ Any violation in changed/new code results in verdict **Improvement Needed**.
 
 ## Removed Code Verification (Mandatory before flagging removals as bugs)
 
-When code is **removed** in a change (headers deleted, parameters dropped, expressions stripped), **never assume the removal is a bug**. Verify first:
+When code is **removed** in a change (headers deleted, parameters dropped, expressions stripped), **never assume the removal is a bug — but never assume it's safe cleanup either**. Verify with all three steps before judging:
 
-1. **Does the removed reference actually exist?** — If `{{parameters.apiKey}}` was removed from an RPC, check the RPC's own `parameters.imljson`. If it's not defined there, it was never a proper parameter — removal is correct cleanup.
-2. **Is the functionality already covered elsewhere?** — Check `base.imljson` headers, connection parameters, and inherited context. If base already provides the same header/value, the component-level copy was redundant.
-3. **Who calls this component?** — Check all callers (`rpc://`, `options`, nested params) to see if they pass the removed value. If no caller provides it, the value was never reliably available.
+1. **Does the removed reference exist in the component's own scope?** — Check the component's own `parameters.imljson`, `expect.imljson`, etc. If defined there, removal may break functionality.
+2. **Is the functionality covered elsewhere?** — Check `base.imljson` headers, connection parameters, and inherited context. If base already provides the same header/value, the component-level copy may be redundant.
+3. **Who calls this component and in what context?** — Check all callers (`rpc://`, `options`, nested params). An RPC called from connection parameters (e.g., `rpc://getIndexes` nested under a connection field) receives parent field values as `parameters.*` — even if the RPC's own `parameters.imljson` is empty. Removing such references breaks the connection setup flow.
 
-**Review the removal's INTENT before judging its correctness.** The question is not "was this code here before?" but "was this code actually necessary?"
+**All three steps must pass before concluding a removal is safe.** Step 3 is critical — a value not defined in the component's own parameters can still be essential if passed by a caller.
 
 ---
 

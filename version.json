@@ -1,5 +1,5 @@
 {
-  "version": "1.10.2",
+  "version": "1.10.3",
   "released": "2026-04-08",
   "min_version": "1.0.0",
   "update_command": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update",

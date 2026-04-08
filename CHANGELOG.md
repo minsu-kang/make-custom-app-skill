@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.3] - 2026-04-08
+
+- Fix Removed Code Verification rule: remove misleading `parameters.apiKey` example, rebalance from "assume removal is safe" to bidirectional verification, emphasize caller-context check (step 3) for RPCs called from connection parameters
+
 ## [1.10.2] - 2026-04-08
 
 - Add `download-jira-ticket-attachment.js` script for downloading Jira ticket attachments (images, videos) via REST API
