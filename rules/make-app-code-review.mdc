@@ -98,6 +98,17 @@ For each **ticket-related** code change only, evaluate against the criteria in [
 - **Removed Code**: Verify necessity before flagging removals as bugs (see criteria reference)
 - **Polling Triggers**: Verify order, date filtering, epoch (see criteria reference)
 
+### Cross-Module Pattern Verification (Mandatory)
+
+When flagging a missing feature (e.g., RPC, hint, parameter type, pagination) in one component, **always search ALL components for the same field/pattern** before writing the review. Report the **complete list** of affected components, not just the first occurrence found.
+
+**Checklist:**
+1. Identify the field or pattern being flagged (e.g., `skill_id` needs an RPC)
+2. Search the entire app's changes for every component that uses the same field name or equivalent
+3. List ALL affected components in a single review item — do not split across multiple items or mention only one
+
+Failing to do this leads to incomplete reviews where the developer fixes one module but misses the same issue in 9 others.
+
 ## 5. Review Output Format
 
 Include the following in the review output:

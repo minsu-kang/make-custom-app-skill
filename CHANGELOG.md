@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.1] - 2026-04-08
+
+- Add "Cross-Module Pattern Verification" rule to code review: when flagging a missing feature in one component, search ALL components for the same pattern and report the complete list
+
 ## [1.10.0] - 2026-04-08
 
 - Refactor repo structure: separate Rules (directives), Workflows (process), and References (detailed criteria)
