@@ -51,84 +51,11 @@ block_until_ms: 60000
 ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
 ```
 
-**5. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change to perform the review. Use context loaded in Step 2 to cross-reference previous issues, known caveats, and related work history.
+**5. Analyze & Review**: Compare and analyze `old_value` and `new_value` for each change. Use context loaded in Step 2 to cross-reference previous issues, known caveats, and related work history. Apply review criteria from [code-review-criteria.md](../references/code-review-criteria.md) and follow the output format defined in the [code review rule](../../rules/make-app-code-review.mdc#5-review-output-format).
 
 **6. Component Context (Optional)**: If full context of the changed component is needed, read related files from `~/.cursor/make-app-contexts/{slug}-v{version}/` for reference.
 
 **7. Auto-Sync to Pinecone**: After the review is complete, execute [Pinecone Auto-Sync](pinecone-sync.md) — call `upsert_jira_ticket` with `ticket_type: "review"` and the review result.
-
-## Review Output Format
-
-Provide review results in the following structure:
-
-```
-## Code Review: {App Name} v{Version}
-
-### Summary
-- Total {N} change(s)
-- Overall verdict: LGTM / Changes Requested / Needs Discussion
-
-### Per-Change Review
-
-#### [{#}] {group}/{item}/{code}
-- **Verdict**: LGTM | Breaking Change | Bug | Improvement Needed
-- **Change Summary**: (one-line summary)
-- **Detailed Analysis**: (old → new comparison, estimated reason for change, scope of impact)
-- **Suggestions**: (if any)
-
-### Commit Checklist
-
-At the end of every review, include a commit checklist so the user can easily see what to commit in the SDK:
-
-Commit message: `{JIRA-KEY}: {concise description of changes}`
-
-- [ ] {group}/{item}/{code}
-- [ ] {group}/{item}/{code}
-- ...
-```
-
-## Review Criteria
-
-Evaluate each change against the following criteria:
-
-### Breaking Changes (risk of breaking existing scenarios)
-
-- Interface output fields removed/renamed → existing scenario mappings may break
-- Expect/Parameters fields removed/renamed → existing scenario settings become invalid
-- Connection parameters changed → existing connections may break
-- Module type changed → scenario compatibility broken
-- Trigger configuration changed (id/date field, type, order) → risk of duplicate/missed triggers
-- API URL path changes that alter functionality
-
-### Bugs (potential bugs)
-
-- Incorrect variable references in IML expressions (e.g., `{{parameters.filed}}` typo)
-- Missing required fields (no response.output, no error handling, etc.)
-- JSON structure errors (missing brackets, incorrect nesting)
-- Infinite loop potential in pagination (condition always true)
-- Temp variable mismatch in sequential requests
-- Output not using `{{item}}` when iterate is used
-
-### Improvements (recommended enhancements)
-
-- Missing or generic-only error handling
-- Missing log sanitize (Authorization, API key, or other sensitive data exposed)
-- Missing pagination (risk of data loss with large datasets)
-- Unnecessary API calls (could be skipped with condition)
-- Hardcoded values (baseUrl, API version, etc. → should move to base.imljson)
-- Missing `ifempty()` / null checks
-- Missing `label` in interface fields (UX degradation)
-- Duplicate code patterns (common logic could be extracted to RPC or base)
-
-### Security
-
-- Sensitive data sent without log sanitize
-- API key exposed in URL query string
-- User input not validated
-
-### LGTM (no issues)
-
-- None of the above apply and the code correctly follows Make app patterns
 
 ## Important Rules
 

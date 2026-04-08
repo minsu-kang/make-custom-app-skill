@@ -24,10 +24,10 @@ RULES_DIR="$HOME/.cursor/rules/make-custom-app"
 VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md")
-REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md")
+REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
 SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js")
-RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "make-app-ux-guideline.mdc" "work-discipline.mdc")
+RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "work-discipline.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
 
@@ -105,11 +105,17 @@ fi
 mkdir -p "$SKILL_DIR"
 mkdir -p "$RULES_DIR"
 
-# ── Migrate: remove old rule files from ~/.cursor/rules/ (pre-subdirectory layout) ──
+# ── Migrate: remove old/deprecated rule files ──
 OLD_RULES_DIR="$HOME/.cursor/rules"
-for file in "${RULE_FILES[@]}"; do
+DEPRECATED_RULES=("make-app-ux-guideline.mdc")
+for file in "${RULE_FILES[@]}" "${DEPRECATED_RULES[@]}"; do
     if [ -f "$OLD_RULES_DIR/$file" ]; then
         rm -f "$OLD_RULES_DIR/$file"
+    fi
+done
+for file in "${DEPRECATED_RULES[@]}"; do
+    if [ -f "$RULES_DIR/$file" ]; then
+        rm -f "$RULES_DIR/$file"
     fi
 done
 
@@ -172,13 +178,9 @@ echo ""
 mkdir -p "$SKILL_DIR/references"
 
 if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/references" ]; then
-    for file in "${REFERENCE_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/skill/references/$file" ]; then
-            cp "$SCRIPT_DIR/skill/references/$file" "$SKILL_DIR/references/$file"
-            ok "references/$file"
-        else
-            warn "references/$file (not found, skipped)"
-        fi
+    cp "$SCRIPT_DIR"/skill/references/*.md "$SKILL_DIR/references/" 2>/dev/null
+    for file in "$SKILL_DIR"/references/*.md; do
+        ok "references/$(basename "$file")"
     done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
@@ -202,13 +204,9 @@ echo ""
 mkdir -p "$SKILL_DIR/workflows"
 
 if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/workflows" ]; then
-    for file in "${WORKFLOW_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/skill/workflows/$file" ]; then
-            cp "$SCRIPT_DIR/skill/workflows/$file" "$SKILL_DIR/workflows/$file"
-            ok "workflows/$file"
-        else
-            warn "workflows/$file (not found, skipped)"
-        fi
+    cp "$SCRIPT_DIR"/skill/workflows/*.md "$SKILL_DIR/workflows/" 2>/dev/null
+    for file in "$SKILL_DIR"/workflows/*.md; do
+        ok "workflows/$(basename "$file")"
     done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
@@ -233,13 +231,9 @@ SCRIPTS_DEST="$SKILL_DIR/scripts"
 mkdir -p "$SCRIPTS_DEST"
 
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/scripts/download-app.js" ]; then
-    for file in "${SCRIPT_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/skill/scripts/$file" ]; then
-            cp "$SCRIPT_DIR/skill/scripts/$file" "$SCRIPTS_DEST/$file"
-            ok "scripts/$file"
-        else
-            warn "scripts/$file (not found, skipped)"
-        fi
+    cp "$SCRIPT_DIR"/skill/scripts/*.js "$SCRIPTS_DEST/" 2>/dev/null
+    for file in "$SCRIPTS_DEST"/*.js; do
+        ok "scripts/$(basename "$file")"
     done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
@@ -261,13 +255,9 @@ info "Installing rule files..."
 echo ""
 
 if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/rules" ]; then
-    for file in "${RULE_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/rules/$file" ]; then
-            cp "$SCRIPT_DIR/rules/$file" "$RULES_DIR/$file"
-            ok "$file"
-        else
-            warn "$file (not found, skipped)"
-        fi
+    cp "$SCRIPT_DIR"/rules/*.mdc "$RULES_DIR/" 2>/dev/null
+    for file in "$RULES_DIR"/*.mdc; do
+        ok "$(basename "$file")"
     done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"

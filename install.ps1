@@ -31,10 +31,10 @@ $RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules\make-custom-app"
 $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
-$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md")
+$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js")
-$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "make-app-ux-guideline.mdc", "work-discipline.mdc")
+$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "work-discipline.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
@@ -105,12 +105,19 @@ if (Test-Path $SKILL_DIR) {
 New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
 New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
 
-# ── Migrate: remove old rule files from ~/.cursor/rules/ (pre-subdirectory layout) ──
+# ── Migrate: remove old/deprecated rule files ──
 $OldRulesDir = Join-Path $env:USERPROFILE ".cursor\rules"
-foreach ($file in $RULE_FILES) {
+$DeprecatedRules = @("make-app-ux-guideline.mdc")
+foreach ($file in ($RULE_FILES + $DeprecatedRules)) {
     $oldPath = Join-Path $OldRulesDir $file
     if (Test-Path $oldPath) {
         Remove-Item -Force $oldPath
+    }
+}
+foreach ($file in $DeprecatedRules) {
+    $depPath = Join-Path $RULES_DIR $file
+    if (Test-Path $depPath) {
+        Remove-Item -Force $depPath
     }
 }
 
@@ -187,15 +194,9 @@ New-Item -ItemType Directory -Force -Path $REFERENCES_DIR | Out-Null
 $localReferencesDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\references" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localReferencesDir)) {
-    foreach ($file in $REFERENCE_FILES) {
-        $src = Join-Path $localReferencesDir $file
-        if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $REFERENCES_DIR $file)
-            Write-Ok "references/$file"
-        }
-        else {
-            Write-Warn "references/$file (not found, skipped)"
-        }
+    Copy-Item -Force (Join-Path $localReferencesDir "*.md") $REFERENCES_DIR
+    foreach ($file in (Get-ChildItem -Path $REFERENCES_DIR -Filter "*.md")) {
+        Write-Ok "references/$($file.Name)"
     }
 }
 else {
@@ -222,15 +223,9 @@ New-Item -ItemType Directory -Force -Path $WORKFLOWS_DIR | Out-Null
 $localWorkflowsDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\workflows" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localWorkflowsDir)) {
-    foreach ($file in $WORKFLOW_FILES) {
-        $src = Join-Path $localWorkflowsDir $file
-        if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $WORKFLOWS_DIR $file)
-            Write-Ok "workflows/$file"
-        }
-        else {
-            Write-Warn "workflows/$file (not found, skipped)"
-        }
+    Copy-Item -Force (Join-Path $localWorkflowsDir "*.md") $WORKFLOWS_DIR
+    foreach ($file in (Get-ChildItem -Path $WORKFLOWS_DIR -Filter "*.md")) {
+        Write-Ok "workflows/$($file.Name)"
     }
 }
 else {
@@ -257,15 +252,9 @@ New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
 $localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "skill\scripts\download-app.js" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localDownloadJs)) {
-    foreach ($file in $SCRIPT_FILES) {
-        $src = Join-Path $ScriptDir "skill\scripts\$file"
-        if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $SCRIPTS_DEST $file)
-            Write-Ok "scripts/$file"
-        }
-        else {
-            Write-Warn "scripts/$file (not found, skipped)"
-        }
+    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\*.js") $SCRIPTS_DEST
+    foreach ($file in (Get-ChildItem -Path $SCRIPTS_DEST -Filter "*.js")) {
+        Write-Ok "scripts/$($file.Name)"
     }
 }
 else {
@@ -289,15 +278,9 @@ Write-Host ""
 $localRulesDir = if ($ScriptDir) { Join-Path $ScriptDir "rules" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localRulesDir)) {
-    foreach ($file in $RULE_FILES) {
-        $src = Join-Path $ScriptDir "rules\$file"
-        if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $RULES_DIR $file)
-            Write-Ok $file
-        }
-        else {
-            Write-Warn "$file (not found, skipped)"
-        }
+    Copy-Item -Force (Join-Path $ScriptDir "rules\*.mdc") $RULES_DIR
+    foreach ($file in (Get-ChildItem -Path $RULES_DIR -Filter "*.mdc")) {
+        Write-Ok $file.Name
     }
 }
 else {

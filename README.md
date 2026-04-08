@@ -55,7 +55,7 @@ cd make-custom-app-skill
 
 > **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
-Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/`.
+Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`.
 
 After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
@@ -85,6 +85,7 @@ make-custom-app-skill/
 │       ├── app-ux-best-practices.md    #   App UX best practices
 │       ├── polling-trigger-guide.md   #   Polling trigger implementation guide
 │       ├── component-test-guide.md    #   Component integration test guide (make-apps-mockup)
+│       ├── code-review-criteria.md    #   Detailed review criteria (ES6+, code quality, tests, UX)
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
 │   └── scripts/                        #   Automation scripts
@@ -96,21 +97,20 @@ make-custom-app-skill/
 │       ├── delete-component.js         #   Delete components (with public/private app check)
 │       ├── test-function.js           #   IML function test runner
 │       └── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
-└── rules/                              # → installed to ~/.cursor/rules/
-    ├── make-app-code-review.mdc        #   Code review input requirements
-    ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets)
-    ├── make-app-ux-guideline.mdc       #   UX guideline priority rule
-    └── version-sync.mdc               #   Version & changelog sync rule
+└── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
+    ├── make-app-code-review.mdc        #   Code review input requirements & output format
+    ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets, UX)
+    └── work-discipline.mdc            #   Systematic work habits & anti-hallucination
 ```
 
 ### Skill vs Rules
 
 | | Skill (`skill/`) | Rules (`rules/`) |
 |---|---|---|
-| **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/` |
+| **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/make-custom-app/` |
 | **When loaded** | On-demand (when Make app work is detected) | Always active |
-| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Short behavioral rules |
-| **Size** | Large (SKILL.md + workflows + references + scripts) | Small (< 50 lines per rule) |
+| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Behavioral directives referencing detailed docs |
+| **Size** | Large (SKILL.md + workflows + references + scripts) | Concise (~100-180 lines per rule) |
 
 ## What Gets Installed
 
@@ -138,6 +138,7 @@ make-custom-app-skill/
 | `references/examples.md` | Real-world Instagram for Business app examples |
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 | `references/component-test-guide.md` | Component integration tests — `make-apps-mockup` architecture, test.js structure, debugging |
+| `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification |
 
 ### Script Files (`skill/scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
 
@@ -152,14 +153,13 @@ make-custom-app-skill/
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 
-### Rule Files (`~/.cursor/rules/`)
+### Rule Files (`~/.cursor/rules/make-custom-app/`)
 
 | File | Description |
 |------|-------------|
-| `make-app-code-review.mdc` | Enforces required inputs (app-slug, version) and recommends Jira ticket attachment for code reviews. Guides Atlassian MCP setup if needed. |
-| `make-app-auto-actions.mdc` | Enforces mandatory actions: context file update, Pinecone sync, related ticket lookup, test code, version check, code download/sync first, external terminal, fresh fetch before review. |
-| `make-app-ux-guideline.mdc` | Ensures UX best practices reference is read before any UX-related app changes. |
-| `version-sync.mdc` | Ensures `version.json` and `skill/SKILL.md` frontmatter versions stay in sync before commits. |
+| `make-app-code-review.mdc` | Code review requirements: input validation, Jira-driven process, output format, developer message, post-review actions. References `code-review-criteria.md` for detailed criteria. |
+| `make-app-auto-actions.mdc` | Mandatory auto-actions: version check, code download/sync, test execution, UX reference, runtime verification, context update, Pinecone sync, developer notes. |
+| `work-discipline.mdc` | Systematic work habits: full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
 
 ## First Use
 

@@ -76,6 +76,10 @@ QA-created subtasks typically mean the parent task's implementation has a bug. B
 2. **Load local context** — read `~/.cursor/make-app-contexts/{slug}-v{version}.md` for app patterns and work history.
 3. Then proceed with the bug investigation using all gathered context.
 
+### 5-1. UX Reference Before UX Changes
+
+When working on any UX-related changes for Make apps (labels, help/hint text, field structure, messages, module naming, field ordering, etc.), **always read `~/.cursor/skills/make-custom-app/references/app-ux-best-practices.md` first** before making changes. Never rely on memory or assumptions for UX conventions.
+
 ### 6. IML Function Test Code
 
 When modifying a custom IML function (`functions/{name}/code.js`), always create or update the corresponding `test.js` file (`functions/{name}/test.js`).

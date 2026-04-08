@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0] - 2026-04-08
+
+- Refactor repo structure: separate Rules (directives), Workflows (process), and References (detailed criteria)
+- Extract detailed review criteria from `make-app-code-review.mdc` (401→211 lines) into new `code-review-criteria.md` reference (ES6+, code quality, test coverage, UX, runtime verification, polling triggers)
+- Merge `make-app-ux-guideline.mdc` into `make-app-auto-actions.mdc` as "5-1. UX Reference Before UX Changes" — remove standalone file
+- Deduplicate `code-review.md` workflow (143→69 lines) — remove inline Review Criteria and Output Format, reference rule and criteria docs instead
+- Add root `.gitignore` for `.DS_Store`
+- Remove garbage files from git tracking (`--version/metadata.json`, empty `node` file)
+- Simplify installers: use directory-level copy (`cp *.md`) for local install mode instead of per-file iteration
+- Add deprecated rule cleanup migration to installers (`make-app-ux-guideline.mdc`)
+- Update README: fix rule install path, add `work-discipline.mdc` and `code-review-criteria.md`, remove deprecated entries
+
 ## [1.9.1] - 2026-04-07
 
 - Expand "Proactive Reference Re-Read" triggers: add test.js, component test, Jira fetch, expect/parameters re-read rules
