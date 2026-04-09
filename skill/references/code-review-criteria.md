@@ -219,6 +219,7 @@ When reviewing `api.imljson` changes that use runtime variables, IML context fea
 2. **If not found or still uncertain**: Search the `imt-app-runtime` source code directly (path in SKILL.md's last line `imt-app-runtime-path:`) to verify actual runtime behavior
 
 **Never assume or guess** how runtime features work. Common mistakes to avoid:
+- **Flagging explicit body mapping as "sending empty values"** — When `api.imljson` maps params explicitly (e.g., `"name": "{{parameters.name}}"`), unfilled params evaluate to `undefined`, which `JSON.stringify` omits. The `temp` + `_.merge` pattern also skips `undefined` values. Do NOT flag this as a bug. See `runtime-reference.md` § "Undefined parameter handling in temp" for full details.
 - Confusing `{{environment.timezone}}` (scenario env, always available) with `flags.environmentAccess` (server-side `process.env`, requires flags)
 - Assuming middleware behavior without checking the actual execution chain
 - Misunderstanding pagination stop conditions or trigger epoch mechanics

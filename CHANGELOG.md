@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.7] - 2026-04-09
+
+- Document undefined parameter handling in `runtime-reference.md`: IML evaluates unset `{{parameters.x}}` to `undefined`, `_.merge` skips undefined in temp, `JSON.stringify` omits undefined keys in body — explicit body mapping and temp patterns do NOT send empty values for unfilled fields
+- Add false-positive prevention rule to `code-review-criteria.md`: do not flag explicit body mapping as "sending empty values" bug
+
 ## [1.10.6] - 2026-04-09
 
 - Add "ID Select Fields: `mode: edit` and Nested RPC Usage by Module Type" to UX best practices — document that Get/Update/Delete modules use flat `rpc://` with `mode: "edit"` (no nested RPCs needed)

@@ -168,6 +168,44 @@ This causes three problems:
 
 See IEN-14758 (google-email v4) for a real-world case where this caused 92.5% cross-message body contamination in a 200-email batch.
 
+**Undefined parameter handling in temp**: When `{{parameters.fieldName}}` references a parameter the user did not fill in, IML evaluates the expression to `undefined` (not empty string `""`). Since `_.merge` **skips source properties with `undefined` values**, the key is simply absent from `context.iml.context.temp`. This means explicit body mapping patterns like the following are safe — unfilled fields are automatically excluded:
+
+```json
+{
+    "temp": {
+        "mappedFields": {
+            "name": "{{parameters.name}}",
+            "description": "{{parameters.description}}"
+        }
+    },
+    "body": {
+        "feature": "{{temp.mappedFields}}"
+    }
+}
+```
+
+If the user only fills `name`, `temp.mappedFields` = `{name: "user value"}` — `description` is not present.
+
+**Direct body mapping is also safe**: When body fields reference undefined parameters directly (without temp), `iml.transform` evaluates each value. Undefined results remain as `undefined` in the transformed object. Since the runtime uses `JSON.stringify(body)` for `json` type requests, and `JSON.stringify` omits keys with `undefined` values, unfilled fields are excluded from the HTTP body:
+
+```json
+"body": {
+    "name": "{{parameters.name}}",
+    "assigned_to_user": "{{parameters.assignedToUser}}"
+}
+```
+
+If only `name` is set → HTTP body = `{"name":"user value"}` (no `assigned_to_user` key).
+
+**Important distinction**: `null` vs `undefined`:
+- `undefined` → key omitted by `JSON.stringify` and by `_.merge`
+- `null` → key **included** by `JSON.stringify` as `null`, and included by `_.merge`
+- Empty string `""` → key **included** by both
+
+The `stripNullAndUndefined` utility (`lib/core/utils/index.js`) removes both `null` and `undefined` (`== null` check), but it is only applied to `urlencoded` and `multipart/form-data` body types — **NOT to `json` type** (default). For `json`, the only filtering is `JSON.stringify`'s native `undefined` omission.
+
+Source: `lib/core/middleware/temp.js` (line 20: `_.merge`), `lib/core/chainMiddleware/requester/_request.js` (line 181: `iml.transform` body, line 357: `JSON.stringify`), `lib/core/utils/index.js` (line 175: `stripNullAndUndefined`).
+
 **Pagination caveat**: During pagination cycles, `response.temp` is re-evaluated on every page. If a temp variable was set to a meaningful value on the first page (e.g., `true`), a subsequent page may overwrite it (e.g., back to `false`). Use `ifempty` to protect values that should persist once set:
 
 ```json
