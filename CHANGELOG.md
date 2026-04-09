@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.6] - 2026-04-09
+
+- Add "ID Select Fields: `mode: edit` and Nested RPC Usage by Module Type" to UX best practices — document that Get/Update/Delete modules use flat `rpc://` with `mode: "edit"` (no nested RPCs needed)
+- Add "ID Select Field Pattern (Do NOT flag as Improvement)" to code review criteria — prevent false-positive improvement flags on Get/Update/Delete module ID fields
+
 ## [1.10.5] - 2026-04-09
 
 - Rewrite `builtin-iml-functions.md` from IML source code (`@integromat/iml` package): add return types, operator precedence table, ALT_OPS aliases (`===`→`=` loose equality), `+` operator type detection, Decimal.js precision notes

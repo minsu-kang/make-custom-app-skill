@@ -153,6 +153,22 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1172766721
 - **Map toggle ON by default** → label should contain "ID": `Board ID`
 - **Map toggle OFF by default** → label should NOT contain "ID": `Board`
 
+### ID Select Fields: `mode: "edit"` and Nested RPC Usage by Module Type
+
+ID select fields (`"type": "select"` with an RPC) use `"mode": "edit"` to allow both dropdown selection and manual text mapping. However, the need for **nested RPCs** (e.g., parent → child dropdown cascading) depends on the **module type**:
+
+| Module Type | Typical User Behavior | Nested RPC Needed? |
+|---|---|---|
+| **Create** | User configures from scratch → selects from dropdown | Yes — nested RPCs improve UX |
+| **List / Search** | User sets filters → may select or map | Optional — depends on use case |
+| **Get / Update / Delete** | User **maps** ID from a previous module's output | No — users rarely use the dropdown; `mode: "edit"` with a flat `rpc://` is sufficient |
+
+**Why Get/Update/Delete don't need nested RPCs:**
+- These modules are typically placed **after** a List/Search or another module in the scenario
+- Users map the ID value from the previous module's output (e.g., `{{1.id}}`) rather than selecting from a dropdown
+- Adding nested RPCs (parent → child cascading) adds complexity without UX benefit, since the dropdown is rarely used
+- A simple `"type": "select"` with `"options": "rpc://getItems"` and `"mode": "edit"` is the correct pattern
+
 ### Writing: Hints
 
 Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/826016021/Writing+Hints)

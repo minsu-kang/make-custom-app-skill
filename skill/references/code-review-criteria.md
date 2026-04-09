@@ -113,6 +113,14 @@ When expect or parameters files are changed, **read `~/.cursor/skills/make-custo
 
 Any violation results in verdict **Improvement Needed**.
 
+### ID Select Field Pattern (Do NOT flag as Improvement)
+
+For **Get / Update / Delete** modules, ID select fields with `"mode": "edit"` and a flat `rpc://` (without nested RPCs) are the **correct pattern** — not an improvement opportunity. Users of these modules typically **map** the ID from a previous module's output rather than selecting from a dropdown. Nested RPC cascading (parent → child) adds unnecessary complexity for these module types.
+
+Only flag missing nested RPCs on **Create** modules or modules where the user is expected to configure values from scratch.
+
+See `app-ux-best-practices.md` § "ID Select Fields: `mode: edit` and Nested RPC Usage by Module Type" for details.
+
 ### `help` Text Evaluation (for expect/parameters changes)
 
 When `help` properties are added, removed, or modified, evaluate their **actual UX value** — not just their presence:
