@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.5] - 2026-04-09
+
+- Rewrite `builtin-iml-functions.md` from IML source code (`@integromat/iml` package): add return types, operator precedence table, ALT_OPS aliases (`===`→`=` loose equality), `+` operator type detection, Decimal.js precision notes
+- Add missing functions: `dateDiff`, `toArray`, `first`, `last`
+- Add dedicated Operators, Keywords, and Variables sections with source file references
+- Document `emptystring` behavior (`new String('')` vs primitive `""`)
+- Document `formatDate` always returns string (even for numeric formats like `'X'`)
+
 ## [1.10.4] - 2026-04-09
 
 - Fix Windows CRLF line endings breaking markdown section parsing in MCP chunker (`split('\n')` → `split(/\r?\n/)`)
