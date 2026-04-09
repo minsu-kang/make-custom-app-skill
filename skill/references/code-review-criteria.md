@@ -10,6 +10,7 @@ Evaluate each change against the following categories:
 
 - Interface output fields removed/renamed → existing scenario mappings may break
 - Expect/Parameters fields removed/renamed → existing scenario settings become invalid
+- **Never suggest renaming existing expect parameter names for consistency.** Renaming a parameter (e.g., `createdBy` → `created_by`) destroys all user mappings in production scenarios. If the API expects snake_case but existing params are camelCase, the correct fix is to map in `api.imljson` (via `temp` or explicit body mapping) while keeping the original param names. Cross-module naming inconsistency (e.g., CreateFeature uses snake_case, UpdateFeature uses camelCase) is acceptable when the alternative is breaking existing scenarios.
 - Connection parameters changed → existing connections may break
 - Module type changed → scenario compatibility broken
 - Trigger configuration changed (id/date field, type, order) → risk of duplicate/missed triggers

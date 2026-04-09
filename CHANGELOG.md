@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.8] - 2026-04-09
+
+- Add breaking change rule to `code-review-criteria.md`: never suggest renaming existing expect parameter names for consistency — renaming destroys user mappings in production scenarios; use api.imljson mapping (temp or explicit body) to convert to API-expected format instead
+
 ## [1.10.7] - 2026-04-09
 
 - Document undefined parameter handling in `runtime-reference.md`: IML evaluates unset `{{parameters.x}}` to `undefined`, `_.merge` skips undefined in temp, `JSON.stringify` omits undefined keys in body — explicit body mapping and temp patterns do NOT send empty values for unfilled fields
