@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.4] - 2026-04-09
+
+- Fix Windows CRLF line endings breaking markdown section parsing in MCP chunker (`split('\n')` → `split(/\r?\n/)`)
+- Add append-only upsert for Work History sections: fetch existing Pinecone vector and merge rows (dedupe by Date+Task) before upserting, preventing loss of previous work history entries
+- Add `mergeWorkHistory()` utility and tests
+
 ## [1.10.3] - 2026-04-08
 
 - Fix Removed Code Verification rule: remove misleading `parameters.apiKey` example, rebalance from "assume removal is safe" to bidirectional verification, emphasize caller-context check (step 3) for RPCs called from connection parameters

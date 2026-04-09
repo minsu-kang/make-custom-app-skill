@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitMarkdownSections, summarizeMetadata } from '../chunker.js';
+import { splitMarkdownSections, summarizeMetadata, mergeWorkHistory } from '../chunker.js';
 
 describe('splitMarkdownSections', () => {
 	it('returns empty array for empty string', () => {
@@ -46,6 +46,24 @@ describe('splitMarkdownSections', () => {
 		const md = '## Section\n\n  content  \n\n';
 		const result = splitMarkdownSections(md);
 		expect(result[0].content).toBe('## Section\n\n  content');
+	});
+
+	it('handles Windows CRLF line endings', () => {
+		const md = '# Title\r\n\r\n## First\r\nContent 1\r\n## Second\r\nContent 2';
+		const result = splitMarkdownSections(md);
+		expect(result).toHaveLength(2);
+		expect(result[0].section).toBe('first');
+		expect(result[0].content).toContain('Content 1');
+		expect(result[1].section).toBe('second');
+		expect(result[1].content).toContain('Content 2');
+	});
+
+	it('handles mixed LF and CRLF line endings', () => {
+		const md = '## First\nContent 1\r\n## Second\r\nContent 2\n';
+		const result = splitMarkdownSections(md);
+		expect(result).toHaveLength(2);
+		expect(result[0].section).toBe('first');
+		expect(result[1].section).toBe('second');
 	});
 });
 
@@ -126,5 +144,42 @@ describe('summarizeMetadata', () => {
 			rpcs: [],
 		});
 		expect(result).toBe('App: app (app v1)');
+	});
+});
+
+describe('mergeWorkHistory', () => {
+	const header = '## Work History\n\n| Date | Task | Details |\n|---|---|---|';
+
+	it('returns new text when existing has no rows', () => {
+		const existing = `${header}`;
+		const newText = `${header}\n| 2026-04-09 | Bug fix | Fixed the issue |`;
+		const result = mergeWorkHistory(existing, newText);
+		expect(result).toContain('| 2026-04-09 | Bug fix | Fixed the issue |');
+	});
+
+	it('preserves existing rows and appends new ones', () => {
+		const existing = `${header}\n| 2026-04-01 | Review | Code review |\n| 2026-04-05 | Bug fix | Fixed login |`;
+		const newText = `${header}\n| 2026-04-09 | Feature | Added search |`;
+		const result = mergeWorkHistory(existing, newText);
+		expect(result).toContain('| 2026-04-01 | Review | Code review |');
+		expect(result).toContain('| 2026-04-05 | Bug fix | Fixed login |');
+		expect(result).toContain('| 2026-04-09 | Feature | Added search |');
+	});
+
+	it('replaces row with same Date+Task key using new text', () => {
+		const existing = `${header}\n| 2026-04-09 | Bug fix | Old details |`;
+		const newText = `${header}\n| 2026-04-09 | Bug fix | Updated details |`;
+		const result = mergeWorkHistory(existing, newText);
+		expect(result).toContain('| 2026-04-09 | Bug fix | Updated details |');
+		expect(result).not.toContain('Old details');
+		const rows = result.split('\n').filter((l: string) => l.startsWith('|') && !l.startsWith('| Date') && !l.startsWith('|--'));
+		expect(rows).toHaveLength(1);
+	});
+
+	it('returns existing text when new text has no rows', () => {
+		const existing = `${header}\n| 2026-04-01 | Review | Code review |`;
+		const newText = `${header}`;
+		const result = mergeWorkHistory(existing, newText);
+		expect(result).toContain('| 2026-04-01 | Review | Code review |');
 	});
 });

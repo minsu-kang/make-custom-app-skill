@@ -51,7 +51,7 @@ interface AppMetadata {
  * Split a markdown string into sections by ## headings.
  */
 export function splitMarkdownSections(markdown: string): MarkdownSection[] {
-	const lines = markdown.split('\n');
+	const lines = markdown.split(/\r?\n/);
 	const sections: MarkdownSection[] = [];
 	let currentSection: string | null = null;
 	let currentLines: string[] = [];
@@ -134,6 +134,55 @@ export function summarizeMetadata(metadata: AppMetadata): string {
 	}
 
 	return parts.join('\n');
+}
+
+interface WorkHistoryRow {
+	date: string;
+	task: string;
+	details: string;
+}
+
+function parseWorkHistoryRows(text: string): WorkHistoryRow[] {
+	const rows: WorkHistoryRow[] = [];
+	for (const line of text.split(/\r?\n/)) {
+		const match = line.match(/^\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/);
+		if (!match) continue;
+		const [, date, task, details] = match;
+		if (date === 'Date' || date.startsWith('-')) continue;
+		rows.push({ date: date.trim(), task: task.trim(), details: details.trim() });
+	}
+	return rows;
+}
+
+/**
+ * Merge two Work History markdown sections. Existing rows are preserved;
+ * rows with the same Date+Task key are replaced by the newer (incoming) version.
+ */
+export function mergeWorkHistory(existingText: string, newText: string): string {
+	const existingRows = parseWorkHistoryRows(existingText);
+	const newRows = parseWorkHistoryRows(newText);
+
+	if (existingRows.length === 0) return newText;
+	if (newRows.length === 0) return existingText;
+
+	const merged = new Map<string, WorkHistoryRow>();
+	for (const row of existingRows) {
+		merged.set(`${row.date}::${row.task}`, row);
+	}
+	for (const row of newRows) {
+		merged.set(`${row.date}::${row.task}`, row);
+	}
+
+	const lines = [
+		'## Work History',
+		'',
+		'| Date | Task | Details |',
+		'|---|---|---|',
+	];
+	for (const row of merged.values()) {
+		lines.push(`| ${row.date} | ${row.task} | ${row.details} |`);
+	}
+	return lines.join('\n');
 }
 
 /**

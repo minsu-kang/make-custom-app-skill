@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { chunkApp } from '../lib/chunker.js';
+import { chunkApp, mergeWorkHistory } from '../lib/chunker.js';
 import { embedBatch } from '../lib/embeddings.js';
 import { getIndex } from '../lib/pinecone.js';
+
+const APPEND_SECTIONS = new Set(['work-history']);
 
 export function registerUpsertTool(server: McpServer): void {
 	server.tool(
@@ -26,6 +28,24 @@ export function registerUpsertTool(server: McpServer): void {
 					};
 				}
 
+				const index = getIndex();
+
+				const appendChunkIds = chunks
+					.filter((c) => APPEND_SECTIONS.has(c.metadata.section))
+					.map((c) => c.id);
+
+				if (appendChunkIds.length > 0) {
+					const existing = await index.fetch(appendChunkIds);
+					for (const chunk of chunks) {
+						if (!APPEND_SECTIONS.has(chunk.metadata.section)) continue;
+						const record = existing.records[chunk.id];
+						const existingText = record?.metadata?.text;
+						if (typeof existingText === 'string') {
+							chunk.text = mergeWorkHistory(existingText, chunk.text);
+						}
+					}
+				}
+
 				const texts = chunks.map((c) => c.text);
 				const embeddings = await embedBatch(texts);
 
@@ -39,7 +59,6 @@ export function registerUpsertTool(server: McpServer): void {
 					},
 				}));
 
-				const index = getIndex();
 				const BATCH_SIZE = 100;
 				for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
 					await index.upsert(vectors.slice(i, i + BATCH_SIZE));
