@@ -27,9 +27,9 @@ When the Make Custom App skill is loaded, **immediately** check that `imt-app-ru
 - **Do NOT proceed with any other action** (version check, code download, review, bugfix, etc.) until `imt-app-runtime-path` is confirmed present and the path exists on disk.
 - Once the user adds it, re-read the SKILL.md to verify before continuing.
 
-### 1. Version Check
+### 1. Version Check & Auto-Update
 
-When the Make Custom App skill is loaded at the start of a conversation, always compare the local `version` field in SKILL.md frontmatter against the remote `version.json`. If outdated, show the upgrade command and stop — do not answer until the user upgrades.
+When the Make Custom App skill is loaded at the start of a conversation, always compare the local `version` field in SKILL.md frontmatter against the remote `version.json`. If outdated, **auto-update by running `install.sh --update`** via Shell tool (with `required_permissions: ["all"]`), then re-read the updated SKILL.md and proceed. See SKILL.md "Version Check & Auto-Update" section for full steps. Do NOT stop and wait for the user — update automatically and continue.
 
 ### 2. Code Download/Sync First
 

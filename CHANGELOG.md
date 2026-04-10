@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.9] - 2026-04-10
+
+- Replace manual version check (show warning + stop) with auto-update: agent now runs `install.sh --update` automatically via Shell tool when outdated, re-reads updated SKILL.md, and proceeds without blocking the user
+
 ## [1.10.8] - 2026-04-09
 
 - Add breaking change rule to `code-review-criteria.md`: never suggest renaming existing expect parameter names for consistency — renaming destroys user mappings in production scenarios; use api.imljson mapping (temp or explicit body) to convert to API-expected format instead
