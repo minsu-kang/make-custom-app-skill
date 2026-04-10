@@ -82,6 +82,18 @@ if (!mockupPath || !fs.existsSync(mockupPath)) {
 	process.exit(1);
 }
 
+// Ensure mockup repo is on master and up-to-date
+try {
+	execSync('git checkout master --quiet && git pull origin master --quiet', {
+		cwd: mockupPath,
+		stdio: 'pipe',
+		timeout: 15000,
+	});
+} catch (e) {
+	const msg = (e.stderr || e.stdout || '').toString().trim();
+	if (msg) console.error(`Warning: mockup repo sync failed — ${msg}`);
+}
+
 const envFile = path.join(mockupPath, '.env');
 if (!process.env.MAKE_API_KEY && fs.existsSync(envFile)) {
 	const envContent = fs.readFileSync(envFile, 'utf-8');

@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.10] - 2026-04-10
+
+- Auto-sync mockup repo before component tests: `test-component.js` now runs `git checkout master && git pull origin master` on the mockup repo before executing tests to ensure test data is always up-to-date
+
 ## [1.10.9] - 2026-04-10
 
 - Replace manual version check (show warning + stop) with auto-update: agent now runs `install.sh --update` automatically via Shell tool when outdated, re-reads updated SKILL.md, and proceeds without blocking the user
