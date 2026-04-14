@@ -39,7 +39,19 @@ When something doesn't work:
 - If `switch()` fails with `emptyarray`, ask: "Is `emptyarray` even needed here?" before falling back to `if()`
 - Quick reverts mask the real fix and create inconsistency
 
-## 5. Verify Before Submitting
+## 5. Test Completeness by File Type
+
+When planning TODO items, **cross-reference every changed file against auto-actions rules** to determine all required test types. A function test alone is never sufficient if `api.imljson` was also changed.
+
+| Changed file type | Required tests |
+|---|---|
+| `functions/*/code.js` | Function test (`test-function.js`) |
+| `*/api.imljson` | Component integration test (`test-component.js`) — auto-actions rule 6-2 |
+| `functions/*/code.js` AND `*/api.imljson` | **Both** function test AND component test |
+
+**Include all required test types as explicit TODO items from the start.** Do not discover missing tests after upload.
+
+## 6. Verify Before Submitting
 
 After making changes, **re-read the final state** of the modified file(s) before uploading or committing:
 
@@ -47,7 +59,7 @@ After making changes, **re-read the final state** of the modified file(s) before
 - Are there any leftover inconsistencies from partial edits?
 - Does the test cover every case that was added?
 
-## 6. Never Fabricate or Assume
+## 7. Never Fabricate or Assume
 
 - Do not invent features, directives, APIs, or syntax that you have not verified in documentation or source code
 - If uncertain whether something exists (e.g., `temp2`, `switch()` with `emptyarray`), **look it up first** — never try it and see
@@ -63,7 +75,7 @@ Before setting or omitting any property (`type`, `required`, `default`, `spec`, 
 
 The same applies to any IMLJSON directive, runtime feature, IML function, or API behavior. **If you cannot point to the source where you verified it, you have not verified it.**
 
-## 7. Learn From the Current Mistake Immediately
+## 8. Learn From the Current Mistake Immediately
 
 When the user points out a missed case (e.g., "editParams has no gptImage15"):
 
@@ -71,13 +83,13 @@ When the user points out a missed case (e.g., "editParams has no gptImage15"):
 - Example: if gptImage15 is missing from editParams, immediately check if gptImageMini is missing from generateParams too
 - Fix ALL instances of the same error class in one pass, not one at a time
 
-## 8. AC Scope Discipline
+## 9. AC Scope Discipline
 
 - **Never silently add changes outside the AC scope.** If you believe something outside the AC is worth adding, **explicitly highlight it to the user** with the reasoning, and let them decide.
 - Format: "**[AC 범위 밖]** {what you want to add} — {why}. 넣을까요?"
 - If the user doesn't approve, don't add it.
 
-## 9. Use Prior State as Reference
+## 10. Use Prior State as Reference
 
 When converting code from one pattern to another (e.g., hardcoded options → dynamic RPC):
 
@@ -85,7 +97,7 @@ When converting code from one pattern to another (e.g., hardcoded options → dy
 - Do not rely on memory or assumptions about what the original covered
 - The original is the source of truth for completeness
 
-## 10. Context Degradation Management
+## 11. Context Degradation Management
 
 As conversation grows longer, attention and accuracy degrade. Counteract this actively:
 

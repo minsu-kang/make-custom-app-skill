@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.12] - 2026-04-14
+
+- Add work-discipline rule 5 "Test Completeness by File Type": require cross-referencing changed file types against auto-actions rules to include all required test types (function test, component test) in TODO planning from the start
+
 ## [1.10.11] - 2026-04-14
 
 - Strengthen work-discipline rule 6 "Never Fabricate or Assume": add Self-Check Before Writing Any Spec Property sub-section with 3-step verification questions
