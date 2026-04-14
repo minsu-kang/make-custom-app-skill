@@ -53,6 +53,16 @@ After making changes, **re-read the final state** of the modified file(s) before
 - If uncertain whether something exists (e.g., `temp2`, `switch()` with `emptyarray`), **look it up first** — never try it and see
 - "I think it works" is not verification. Read the source.
 
+### Self-Check Before Writing Any Spec Property
+
+Before setting or omitting any property (`type`, `required`, `default`, `spec`, etc.) in expect, parameters, or interface specs, ask yourself:
+
+1. **"Have I seen this exact usage in a reference or existing code?"** — If no, STOP. Look it up.
+2. **"Am I writing this because I verified it, or because it feels right?"** — If "feels right", STOP. Look it up.
+3. **If not found in references or existing code** — ask the user. Never fill in the gap with a guess.
+
+The same applies to any IMLJSON directive, runtime feature, IML function, or API behavior. **If you cannot point to the source where you verified it, you have not verified it.**
+
 ## 7. Learn From the Current Mistake Immediately
 
 When the user points out a missed case (e.g., "editParams has no gptImage15"):
@@ -97,5 +107,6 @@ References read at the start fade from active attention. To prevent hallucinatio
 - **Before writing or modifying `functions/*/test.js`** — re-read `custom-functions-reference.md` § "test.js (Required)" for assert conventions (`deepStrictEqual`/`strictEqual`) and required coverage (happy path, edge cases, type variations).
 - **Before writing or running component tests** — re-read `component-test-guide.md` for communications mock structure, `transformOutput()`, and assert patterns.
 - **Before calling `getJiraIssue`** — re-read `make-app-code-review.mdc` Step 1 for the mandatory `fields` list (`comment`, `customfield_10483`, `customfield_10283`, etc.).
-- **Before modifying expect/parameters** — re-read `app-ux-best-practices.md` for label, hint, and field conventions.
+- **Before writing or modifying `interface.imljson`, `expect.imljson`, or `parameters.imljson`** — re-read `parameters-reference.md` for valid types and spec field properties. Re-read `app-ux-best-practices.md` for label, hint, and field conventions. Check existing files of the same type in the same app for patterns. If a type or property is not documented and not used in existing code, do NOT use it — ask the user.
+- **Any file, any property, any directive** — if it is not documented in references and not used in existing code, **do NOT use it**. Ask the user instead. This applies universally, not just to the items listed above.
 - **Cost of re-reading is always lower than the cost of hallucination** — a Read tool call costs seconds; a fabricated function like `set()` costs a production incident.

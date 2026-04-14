@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.11] - 2026-04-14
+
+- Strengthen work-discipline rule 6 "Never Fabricate or Assume": add Self-Check Before Writing Any Spec Property sub-section with 3-step verification questions
+- Consolidate Proactive Reference Re-Read for `interface.imljson`, `expect.imljson`, and `parameters.imljson` into a single entry requiring `parameters-reference.md` + `app-ux-best-practices.md` re-read + existing code pattern check
+- Add universal fallback rule: if not documented and not in existing code, do NOT use it — ask the user
+
 ## [1.10.10] - 2026-04-10
 
 - Auto-sync mockup repo before component tests: `test-component.js` now runs `git checkout master && git pull origin master` on the mockup repo before executing tests to ensure test data is always up-to-date
