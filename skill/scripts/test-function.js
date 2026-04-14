@@ -150,8 +150,8 @@ function runTests(functionsDir, targetNames, imlBuiltins, timezone) {
 		try {
 			const codeToWrap = `(${fn.code}).apply({timezone: environment.timezone}, __arguments__)`;
 			iml[name] = (...args) => {
-				const execFn = new Function('environment', '__arguments__', 'iml', `return ${codeToWrap}`);
-				return execFn(environment, args, iml);
+				const execFn = new Function('environment', '__arguments__', 'iml', 'debug', `return ${codeToWrap}`);
+				return execFn(environment, args, iml, () => {});
 			};
 			loadedNames.push(name);
 		} catch (e) {
@@ -199,8 +199,8 @@ function runTests(functionsDir, targetNames, imlBuiltins, timezone) {
 		const codeToRun = `${fn.code}\r\n\r\n/* === TEST CODE === */\r\n\r\n${testCode}`;
 
 		try {
-			const runFn = new Function('assert', 'iml', 'it', 'describe', 'environment', codeToRun);
-			runFn(assert, iml, itFn, describeFn, environment);
+			const runFn = new Function('assert', 'iml', 'it', 'describe', 'environment', 'debug', codeToRun);
+			runFn(assert, iml, itFn, describeFn, environment, () => {});
 		} catch (e) {
 			console.log(`  ✗ Failed to parse test: ${e.message}`);
 			errors.push({ function: name, test: '(parse)', error: e.message });

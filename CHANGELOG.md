@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.13] - 2026-04-14
+
+- Inject `debug` as no-op into test-function.js sandbox so IML functions using `debug()` (e.g., `parseBatchResponseBody`) no longer fail with "debug is not defined"
+
 ## [1.10.12] - 2026-04-14
 
 - Add work-discipline rule 5 "Test Completeness by File Type": require cross-referencing changed file types against auto-actions rules to include all required test types (function test, component test) in TODO planning from the start
