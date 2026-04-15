@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.14] - 2026-04-15
+
+- Skip Breaking Changes evaluation for "App" type Jira tickets (new apps not yet deployed to production)
+- Add `issuetype` to `getJiraIssue` fields for automatic ticket type detection
+- Filter subtasks by status: skip "Done" (QA verified), review "Complete" (awaiting QA)
+
 ## [1.10.13] - 2026-04-14
 
 - Inject `debug` as no-op into test-function.js sandbox so IML functions using `debug()` (e.g., `parseBatchResponseBody`) no longer fail with "debug is not defined"

@@ -63,7 +63,7 @@ block_until_ms: 60000
 - After review, if fixes are needed, apply them using `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make)) instead of manually editing in the SDK.
 - If there are 0 changes: inform the user "No uncommitted changes found."
 - Focus the review on **old_value → new_value comparison**. If only new_value exists (new component), evaluate quality of new_value only.
-- If any breaking change is found, the overall verdict must be **Changes Requested**.
+- If any breaking change is found, the overall verdict must be **Changes Requested**. Exception: Skip breaking change evaluation entirely when the Jira ticket type is "App" (new app, not yet deployed to production — no existing scenarios to break).
 - If any bug is found, the overall verdict must be **Changes Requested**.
 - If only improvements are found, the overall verdict can be **LGTM (with suggestions)**.
 - Do NOT modify local code in `make-app-contexts` after review. Local code sync is the responsibility of download-app.js.

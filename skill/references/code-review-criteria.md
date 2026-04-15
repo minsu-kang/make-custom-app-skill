@@ -8,6 +8,8 @@ Evaluate each change against the following categories:
 
 ### Breaking Changes (risk of breaking existing scenarios)
 
+> **Skip condition**: Jira 티켓 타입이 **App**인 경우 이 카테고리 전체를 건너뛴다. App 타입은 프로덕션에 아직 배포되지 않은 신규 앱이므로 기존 시나리오가 없어 breaking change가 발생할 수 없다.
+
 - Interface output fields removed/renamed → existing scenario mappings may break
 - Expect/Parameters fields removed/renamed → existing scenario settings become invalid
 - **Never suggest renaming existing expect parameter names for consistency.** Renaming a parameter (e.g., `createdBy` → `created_by`) destroys all user mappings in production scenarios. If the API expects snake_case but existing params are camelCase, the correct fix is to map in `api.imljson` (via `temp` or explicit body mapping) while keeping the original param names. Cross-module naming inconsistency (e.g., CreateFeature uses snake_case, UpdateFeature uses camelCase) is acceptable when the alternative is breaking existing scenarios.

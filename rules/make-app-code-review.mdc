@@ -40,14 +40,18 @@ When a Jira ticket is provided, follow this process to find and review the relev
 
 ### Step 1: Fetch Jira ticket details (MANDATORY — never skip)
 
-- Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "customfield_10483", "customfield_10283"]`.
+- Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "issuetype", "customfield_10483", "customfield_10283"]`.
   - `customfield_10483` = **Developer Notes** — the developer's own explanation of what they changed and why. Missing this field leads to misinterpreting intentional decisions as bugs.
   - `customfield_10283` = **API Docs URL** — link to the app's API documentation. Use this to verify API behavior, endpoint parameters, and response formats during the review. If the field has a value, **read or fetch the linked documentation** to cross-reference against the code changes.
   - `attachment` = **Attachments** — screenshots, screen recordings, and files attached to the ticket. These often contain critical visual context (error states, UI behavior, reproduction evidence) that text descriptions alone cannot convey. If attachments exist, **auto-download them** via `download-jira-ticket-attachment.js` (see auto-actions rule 4-1) and analyze images using the Read tool. If Jira credentials are not configured, follow the setup guide in SKILL.md.
-- **If the ticket has subtasks** → fetch **every subtask** via `getJiraIssue` (with the same fields) to understand:
-  - Granular requirements broken down from the parent AC
-  - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
-  - Additional constraints or scope changes not in the parent ticket
+- **If the ticket has subtasks** → fetch subtasks via `getJiraIssue` (with the same fields), but **filter by status**:
+  - **"Done"** → Skip. QA has already verified this subtask — no review needed.
+  - **"Complete"** → Review. The developer has finished but QA has not yet verified — this is the subtask that needs code review attention.
+  - **Other statuses** → Fetch for context (requirements, scope), but prioritize "Complete" subtasks for review.
+  - Use subtask information to understand:
+    - Granular requirements broken down from the parent AC
+    - QA-reported issues (subtasks created by QA indicate bugs in the implementation)
+    - Additional constraints or scope changes not in the parent ticket
 - **If the ticket is a subtask** → fetch the **parent task** to understand the full scope and AC.
 - **Fetch comments on the parent task AND all subtasks** — comments often contain:
   - Clarifications or amendments to the original AC
@@ -88,9 +92,17 @@ After filtering:
 
 ### Step 5: Review each related change
 
+**Ticket type check — before evaluating Breaking Changes:**
+
+If the Jira ticket's `issuetype.name` is **"App"**, this is a new app that has not been deployed to production yet. There are no existing user scenarios, so **skip the Breaking Changes category entirely**. Include the following note in the review output:
+
+> Breaking Changes 검증 생략 — 티켓 타입 "App" (프로덕션 미배포 신규 앱이므로 기존 시나리오 없음)
+
+All other review categories (Bugs, Improvements, Security, ES6+, Code Quality, Tests, UX, Runtime, Polling Triggers) still apply as usual.
+
 For each **ticket-related** code change only, evaluate against the criteria in [code-review-criteria.md](../skill/references/code-review-criteria.md):
 
-- **Review Categories**: Breaking Changes, Bugs, Improvements, Security (see criteria reference)
+- **Review Categories**: Breaking Changes (skip if ticket type is "App"), Bugs, Improvements, Security (see criteria reference)
 - **ES6+ Compliance**: All changed/new code must follow ES6+ conventions (see criteria reference)
 - **Code Quality**: Design principles, code smells, maintainability (see criteria reference)
 - **Test Coverage**: Changed functions must have corresponding test.js (see criteria reference)
