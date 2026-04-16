@@ -205,3 +205,10 @@ Execute MCP calls immediately after saving the context file:
 
 - `upsert_app_context` — sync app context
 - `upsert_jira_ticket` — when working on a Jira ticket (bugfix, feature, review)
+
+### 11. Context Compaction After Task Completion
+
+After all post-work actions (context file update, Pinecone sync) are complete and all TODO items are marked as completed:
+
+- Proactively inform the user: "All tasks complete. Recommending context compaction to maintain accuracy for subsequent tasks."
+- If the user confirms or starts a new task, treat this as a signal to compact.

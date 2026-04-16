@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.15] - 2026-04-16
+
+- Add auto-action rule 11: recommend context compaction after all task TODOs are completed to prevent context degradation in long sessions
+
 ## [1.10.14] - 2026-04-15
 
 - Skip Breaking Changes evaluation for "App" type Jira tickets (new apps not yet deployed to production)
