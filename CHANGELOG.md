@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.17] - 2026-04-17
+
+- Add "Out of Scope" section to `code-review-criteria.md` — explicitly exclude formatting and indentation changes (whitespace, tabs ↔ spaces, whole-file re-indentation) from code review output to reduce noise; reviewers should use `diff -w -u` to extract the real logical change
+
 ## [1.10.16] - 2026-04-17
 
 - Document `mappable` override pattern in `parameters-reference.md` — spec properties (verified: `help`) can be overridden only when the user flips the Map toggle on, useful for RPC-backed select fields that need different guidance for dropdown vs mapping UI

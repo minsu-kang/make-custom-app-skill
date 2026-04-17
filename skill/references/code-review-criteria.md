@@ -50,6 +50,26 @@ Evaluate each change against the following categories:
 
 ---
 
+## Out of Scope (Do NOT flag)
+
+The following categories are **explicitly excluded** from code review output. Do not mention, flag, or suggest changes for these — even as "nit" or "informational":
+
+### Formatting & Indentation
+
+- **Whitespace-only changes** (tabs ↔ spaces conversion, trailing whitespace, blank line additions/removals)
+- **Indentation style drift** (e.g., a file switching between 2-space, 4-space, or tabs)
+- **Whole-file re-indentation** even when the actual logic change is a single line
+- **Diff noise** caused by editor auto-format on save
+- **Line ending changes** (LF vs CRLF)
+
+**Rationale**: Formatting is a tooling concern, not a correctness concern. IMLJSON has no enforced style — both tabs and spaces are valid, indentation is purely cosmetic. Flagging these adds noise to reviews without preventing bugs or runtime issues. If the team later adopts a formatter (Prettier config, `.editorconfig`), formatting consistency is enforced by the tool — not by human review.
+
+**What to do instead**: When diffing changes, use `diff -w -u` (ignores whitespace) to extract the real logical change. Evaluate only the meaningful diff. If the diff is 100% whitespace → the file is effectively unchanged for review purposes.
+
+**Exception — functional impact**: Flag only if whitespace change causes actual behavior change (e.g., breaking a template literal, altering a JSON string value). This is extremely rare in IMLJSON files.
+
+---
+
 ## Test Coverage Enforcement (Mandatory for `functions/*/code.js`)
 
 When a `functions/{name}/code.js` file is changed, **always** check the corresponding `functions/{name}/test.js`:
