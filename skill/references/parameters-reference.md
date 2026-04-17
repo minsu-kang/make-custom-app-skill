@@ -24,6 +24,30 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 ]
 ```
 
+### `mappable` Override (Map Toggle Mode)
+
+Any expect parameter can define a `mappable` object whose properties override the parameter's base spec **only when the user flips the Map toggle ON** (mapping mode). This lets you show different guidance depending on whether the user is picking from a dropdown vs. typing/mapping a raw value.
+
+```json
+{
+	"name": "select",
+	"type": "select",
+	"multiple": true,
+	"label": "Select",
+	"options": "rpc://getFields",
+	"help": "Select one or more fields to return. Leave empty to return all fields.",
+	"mappable": {
+		"help": "List of fields separated by comma, for example, `First_Name, MAX(Age) MaxAge`. Leave empty if you need all fields."
+	}
+}
+```
+
+- Base `help` (and other props) apply when the picker/select UI is shown.
+- `mappable.help` is displayed only after the user toggles Map mode on.
+- Useful for RPC-backed `select` / `multi-select` fields where the dropdown UI and the free-text mapping UI need different instructions (e.g., dropdown lists field names, mapping mode supports aggregate expressions like `MAX(Age) MaxAge`).
+
+Only document properties you have verified. Currently verified override: `help`. Other spec properties may be overridable but have not been documented here — verify against an actual Make app before relying on them.
+
 ### Parameter Types
 
 `text`, `number`, `integer`, `uinteger`, `boolean`, `date`, `select`, `collection`, `array`, `email`, `url`, `json`, `password`, `hidden`, `buffer`, `filename`, `color`, `filter`, `file`, `folder`, `uuid`, `time`, `timestamp`, `timezone`, `port`, `path`, `cert`, `pkey`

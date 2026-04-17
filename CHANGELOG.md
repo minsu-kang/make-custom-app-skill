@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.16] - 2026-04-17
+
+- Document `mappable` override pattern in `parameters-reference.md` — spec properties (verified: `help`) can be overridden only when the user flips the Map toggle on, useful for RPC-backed select fields that need different guidance for dropdown vs mapping UI
+
 ## [1.10.15] - 2026-04-16
 
 - Add auto-action rule 11: recommend context compaction after all task TODOs are completed to prevent context degradation in long sessions
