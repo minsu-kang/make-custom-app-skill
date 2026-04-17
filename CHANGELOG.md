@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.10.18] - 2026-04-17
+
+- Document new `{ errorType, message }` object form for component test error output in `component-test-guide.md` § "Error Output" — supports asserting error class (e.g., `ConnectionError` vs `RuntimeError`) in addition to the error message. Backwards-compatible with the legacy string form. Requires the matching `test-runner.ts` extension in `make-apps-mockup` (shipped together)
+
 ## [1.10.17] - 2026-04-17
 
 - Add "Out of Scope" section to `code-review-criteria.md` — explicitly exclude formatting and indentation changes (whitespace, tabs ↔ spaces, whole-file re-indentation) from code review output to reduce noise; reviewers should use `diff -w -u` to extract the real logical change

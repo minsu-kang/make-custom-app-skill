@@ -250,13 +250,32 @@ Arrays of `{label, value}` for dropdowns, or structured objects.
 
 ### Error Output
 
-To test expected errors (4XX/5XX), set `output` to the expected error message string:
+To test expected errors (4XX/5XX), `output` can be either a **string** (message only) or an **object** (`errorType` + optional `message`).
+
+**Option 1 — message only** (legacy, backwards-compatible):
 
 ```js
 const output = '[404] Resource not found';
 ```
 
-The test runner catches errors with `imtExternalError` flag and compares `err.message` against `output`.
+The runner asserts `err.message === output`.
+
+**Option 2 — assert error class + message** (recommended for error-type-sensitive logic like 4XX vs 5XX handling):
+
+```js
+const output = {
+    errorType: 'ConnectionError',
+    message: '[503] Service Unavailable',
+};
+```
+
+The runner asserts:
+- `err.name === output.errorType` (always, when object form is used)
+- `err.message === output.message` (only when `message` is provided)
+
+Use object form whenever the test verifies a specific error **class** — for example, confirming that 5XX responses throw `ConnectionError` (triggering scenario-engine retry) rather than `RuntimeError`. Both forms go through the `imtExternalError` assertion path.
+
+Valid `errorType` values come from `RUNTIME_ERROR_TYPES` in `test-runner.ts`: `DataError`, `RuntimeError`, `ConnectionError`, `RateLimitError`, `InvalidAccessTokenError`, `InvalidConfigurationError`, `DuplicateDataError`, `IncompleteDataError`, `MaxResultsExceededError`, `MaxFileSizeExceededError`, `ModuleTimeoutError`, `ScenarioTimeoutError`, `OperationsLimitExceededError`, `DataSizeLimitExceededError`, `ExecutionInterruptedError`, `InconsistencyError`, `OutOfSpaceError`, `UnknownError`, `UnexpectedError`, `Warning`.
 
 ## Test Discovery
 
