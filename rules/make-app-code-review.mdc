@@ -205,6 +205,15 @@ Wait for the user's response. Once the user confirms either:
 2. **Pinecone sync**:
    - `upsert_app_context` — sync the updated context file
    - `upsert_jira_ticket` — for each Jira ticket reviewed, store the review result
+3. **Jira assign + transition** (auto-execute via `post-review-transition.js`):
+   - If user said **"committed"** → `node ~/.cursor/skills/make-custom-app/scripts/post-review-transition.js {JIRA-KEY} committed`
+     - Assigns the ticket to the authenticated Jira user (`/myself`) and transitions to "In Testing" (from either "Commit" or "Compilation")
+   - If user said **"returned to developer"** → `node ~/.cursor/skills/make-custom-app/scripts/post-review-transition.js {JIRA-KEY} returned`
+     - Assigns to the authenticated Jira user and transitions:
+       - "Commit" → "In Progress"
+       - "Compilation" → "To Do" (the "Compilation" workflow has no direct "In Progress" transition, so returning to dev falls back to "To Do")
+   - The script aborts with a clear message if the ticket's current status is not in the allowed list ("Commit" or "Compilation" by default). Override with `--force` only if the user explicitly requests it, or use `--from-status=<name1,name2>` to customize
+   - Run this for **every** Jira ticket that was reviewed (parent + any reviewed subtasks)
 
 **These must be included in the TODO list** when planning the review task. Never omit them.
 

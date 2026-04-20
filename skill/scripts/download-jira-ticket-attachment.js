@@ -31,18 +31,33 @@ function loadJiraConfig() {
 	const content = fs.readFileSync(SKILL_MD_PATH, 'utf-8');
 	const lines = content.split('\n');
 
+	// Last-wins: setup-guide example lines appear first, real creds appended at end.
+	// Skip markdown blockquote lines ("> ...") so setup-guide samples are ignored.
+	// Skip obvious placeholder values.
+	const isPlaceholder = (v) =>
+		!v ||
+		v.includes('your-') ||
+		v === 'user@example.com' ||
+		v === 'ATATT3x...' ||
+		v.startsWith('<') ||
+		v.endsWith('>');
+
 	let email = '';
 	let apiToken = '';
 	let baseUrl = 'https://make.atlassian.net';
 
-	for (const line of lines) {
-		const trimmed = line.trim();
+	for (const rawLine of lines) {
+		if (rawLine.trimStart().startsWith('>')) continue;
+		const trimmed = rawLine.trim();
 		if (trimmed.startsWith('jira-email:')) {
-			email = trimmed.replace('jira-email:', '').trim();
+			const v = trimmed.replace('jira-email:', '').trim();
+			if (!isPlaceholder(v)) email = v;
 		} else if (trimmed.startsWith('jira-api-token:')) {
-			apiToken = trimmed.replace('jira-api-token:', '').trim();
+			const v = trimmed.replace('jira-api-token:', '').trim();
+			if (!isPlaceholder(v)) apiToken = v;
 		} else if (trimmed.startsWith('jira-base-url:')) {
-			baseUrl = trimmed.replace('jira-base-url:', '').trim();
+			const v = trimmed.replace('jira-base-url:', '').trim();
+			if (!isPlaceholder(v)) baseUrl = v;
 		}
 	}
 

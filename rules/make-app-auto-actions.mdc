@@ -58,6 +58,14 @@ All scripts must be run **automatically by the agent** using the Shell tool with
 - `update-component.js` — update app component metadata in Make
 - `delete-component.js` — delete app component from Make
 
+**Post-review Jira scripts** (auto-execute on user disposition — no extra approval needed, triggered by the user's "committed" / "returned to developer" reply per `make-app-code-review.mdc` section 7):
+- `post-review-transition.js <issue-key> committed` — assigns ticket to authenticated user (`/myself`) and transitions to "In Testing" (from "Commit" or "Compilation")
+- `post-review-transition.js <issue-key> returned` — assigns ticket to authenticated user (`/myself`) and transitions:
+  - "Commit" → "In Progress"
+  - "Compilation" → "To Do" (fallback, since "Compilation" workflow has no direct "In Progress" transition)
+- Allowed pre-statuses default: `Commit,Compilation`. Override with `--from-status=<name1,name2>`
+- Aborts safely (exit 2) if current status not in allowed list; pass `--force` only when the user explicitly opts in
+
 For write scripts, always show what will be changed and ask for explicit user confirmation before executing.
 
 ---

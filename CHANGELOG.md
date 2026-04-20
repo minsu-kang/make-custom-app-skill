@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0] - 2026-04-20
+
+- Add `post-review-transition.js` script — assigns a Jira ticket to the authenticated user (`/myself`) and transitions the ticket after a code review. `committed` → "In Testing" (from "Commit" or "Compilation"); `returned` → "In Progress" (from "Commit") or "To Do" (from "Compilation", since that workflow has no direct "In Progress" transition). Supports `--force` override and `--from-status=<name1,name2>` customization.
+- Wire the new script into `make-app-code-review.mdc` § 7 (Post-Review Auto-Actions) and `make-app-auto-actions.mdc` § 3 so it runs automatically when the user replies "committed" / "returned to developer" after a review.
+- Fix `install.sh` `set -e` + subshell regression — when `npm install`, `npm run build`, or `node register.js` failed, the installer aborted before reaching the Jira credentials / runtime paths restore block, silently wiping `jira-email`, `jira-api-token`, `imt-app-runtime-path`, etc. The failing subshells are now guarded by `if (...); then` so only the post-check branch reacts to the failure.
+- Harden `SKILL.md` credential parsing in `download-jira-ticket-attachment.js` and `post-review-transition.js` — skip markdown blockquote lines (`> ...`) from the setup guide, filter obvious placeholders (`your-*`, `user@example.com`, `ATATT3x...`), and use last-wins so real credentials appended at the end of the file take precedence over setup-guide examples.
+
 ## [1.10.18] - 2026-04-17
 
 - Document new `{ errorType, message }` object form for component test error output in `component-test-guide.md` § "Error Output" — supports asserting error class (e.g., `ConnectionError` vs `RuntimeError`) in addition to the error message. Backwards-compatible with the legacy string form. Requires the matching `test-runner.ts` extension in `make-apps-mockup` (shipped together)

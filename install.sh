@@ -26,7 +26,7 @@ VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js")
+SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js" "post-review-transition.js")
 RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "work-discipline.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
@@ -319,16 +319,16 @@ if [ -f "$MCP_SERVER_DIR/package.json" ]; then
     echo ""
     info "Installing MCP server dependencies (npm install)..."
     if command -v npm &>/dev/null; then
-        (cd "$MCP_SERVER_DIR" && npm install --silent 2>/dev/null)
-        if [ $? -eq 0 ]; then
+        # Use `if (...); then` form so subshell failure doesn't trip `set -e`
+        # and abort the whole installer before the restore block at the bottom.
+        if (cd "$MCP_SERVER_DIR" && npm install --silent 2>/dev/null); then
             ok "MCP server dependencies installed"
         else
             warn "npm install failed — run manually: cd $MCP_SERVER_DIR && npm install"
         fi
 
         info "Building MCP server (npm run build)..."
-        (cd "$MCP_SERVER_DIR" && npm run build 2>/dev/null)
-        if [ $? -eq 0 ]; then
+        if (cd "$MCP_SERVER_DIR" && npm run build 2>/dev/null); then
             ok "MCP server built successfully"
         else
             warn "Build failed — run manually: cd $MCP_SERVER_DIR && npm run build"
@@ -382,8 +382,7 @@ ENVEOF
 
     if [ "$MCP_CONFIGURED" = true ] && command -v npm &>/dev/null && [ -f "$MCP_SERVER_DIR/register.js" ]; then
         info "Registering MCP server with Cursor..."
-        (cd "$MCP_SERVER_DIR" && node register.js 2>/dev/null)
-        if [ $? -eq 0 ]; then
+        if (cd "$MCP_SERVER_DIR" && node register.js 2>/dev/null); then
             ok "MCP server registered with Cursor"
         else
             warn "Registration failed — run manually: cd $MCP_SERVER_DIR && npm run register"
