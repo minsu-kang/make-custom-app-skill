@@ -320,7 +320,12 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		manifestVersion: appObj.manifestVersion ?? 1,
 		downloadedAt: new Date().toISOString(),
 		modules: modules.map((m) => ({ name: m.name, label: m.label, typeId: m.typeId })),
-		connections: connections.map((c) => ({ name: c.name, label: c.label })),
+		connections: connections.map((c) => ({
+			name: c.name,
+			label: c.label,
+			type: c.type,
+			...(c.aliasTo || c.alias_to ? { aliasTo: c.aliasTo || c.alias_to } : {}),
+		})),
 		webhooks: webhooks.map((w) => ({ name: w.name, label: w.label })),
 		rpcs: rpcs.map((r) => ({ name: r.name, label: r.label })),
 		functions: functions.map((f) => ({ name: f.name })),

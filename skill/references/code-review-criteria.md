@@ -247,6 +247,14 @@ When reviewing `api.imljson` changes that use runtime variables, IML context fea
 - Assuming middleware behavior without checking the actual execution chain
 - Misunderstanding pagination stop conditions or trigger epoch mechanics
 
+### Aliased Connections (Mandatory check for connection changes)
+
+Before reviewing any change to `connections/{name}/*.imljson`, open the app's `metadata.json` and check `connections[].aliasTo`.
+
+- **If `aliasTo` is set** → every file in that connection (`api`, `parameters`, `common`, `scope*`, `install*`) is **excluded at compile time**. The runtime uses the connection referenced by `aliasTo` (which may live in a different app).
+- **Review implication**: Flag the change as a **runtime no-op**, even if the diff looks syntactically correct. The real fix must go into the source app's connection. A harmless commit can still be verdict "LGTM" but must include this caveat in the Analysis so the developer and QA know the change has no runtime effect on its own.
+- **Full behavior documentation**: see `component-patterns-reference.md` § "Aliased Connections (`aliasTo`)".
+
 ### Runtime Default Error Handling (Do NOT flag as missing)
 
 The `imt-app-runtime` automatically handles common HTTP error codes **without any explicit error directive** in the app's `base.imljson` or module `api.imljson`:

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1] - 2026-04-22
+
+- Document aliased connection runtime behavior in `component-patterns-reference.md` — new `### Aliased Connections (aliasTo)` section clarifies that when a connection has `aliasTo` set, all of its own IMLJSON files (`api`, `parameters`, `common`, `scope*`, `install*`) are **excluded at compile time** and the runtime resolves the connection entirely through the source connection referenced by `aliasTo`. Includes detection via admin API `/sdk/apps/{slug}/connections` response and `metadata.json connections[].aliasTo`.
+- Correct the Base Pattern scope in `component-patterns-reference.md` and `SKILL.md` — `base.imljson` is inherited by **modules and RPCs only**, NOT by `connections/*/api.imljson` or `webhooks/*/api.imljson`. **Every** field in base (not just `baseUrl` / `headers` / `response.error` / `log.sanitize`, but any key at all) is ignored for connection and webhook contexts; those components are standalone and must re-declare everything they need. Previous docs incorrectly claimed base applied to webhooks too.
+- Add `### Aliased Connections` mandatory check to `code-review-criteria.md` — reviewers must consult `metadata.json connections[].aliasTo` before evaluating any `connections/{name}/*.imljson` change; edits on aliased connections are runtime no-ops and must be flagged with that caveat even when the verdict is LGTM.
+- Fix `download-app.js` dropping connection metadata — the `connections.map` now captures `type` and `aliasTo` (with `alias_to` snake_case fallback) into `metadata.json`, matching what the admin API already returns. Previously only `name` and `label` were persisted, which hid alias relationships from the agent.
+
 ## [1.11.0] - 2026-04-20
 
 - Add `post-review-transition.js` script — assigns a Jira ticket to the authenticated user (`/myself`) and transitions the ticket after a code review. `committed` → "In Testing" (from "Commit" or "Compilation"); `returned` → "In Progress" (from "Commit") or "To Do" (from "Compilation", since that workflow has no direct "In Progress" transition). Supports `--force` override and `--from-status=<name1,name2>` customization.

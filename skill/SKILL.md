@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.11.0
+version: 1.11.1
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -71,7 +71,7 @@ A Make app consists of the following components:
 
 | Component      | IMLJSON Files                                                                                 | Description                                                                            |
 | -------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **Base**       | `base.imljson`                                                                                | Common settings inherited by all modules/RPCs (baseUrl, auth, error handling, logging) |
+| **Base**       | `base.imljson`                                                                                | Common settings inherited by modules/RPCs only — **every** field is ignored for connections and webhooks (baseUrl, auth, error handling, logging, etc.) |
 | **Common**     | `common.imljson`                                                                              | Encrypted common data (API secrets, etc.). Locked after app approval                   |
 | **Connection** | `api.imljson`, `parameters.imljson`                                                           | Auth configuration (OAuth2, OAuth1, JWT, API Key, Basic)                               |
 | **Module**     | `api.imljson`, `parameters.imljson`, `expect.imljson`, `interface.imljson`, `samples.imljson` | Functional execution unit                                                              |
