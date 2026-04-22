@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.11.2] - 2026-04-22
+
+- Document URL normalization in `runtime-reference.md` — new `### URL Normalization` subsection under `## Requester / HTTP Details` explains the behavior of `lib/core/utils/normalizeUrl.js` and `joinBaseUrlAndUrl.ts`: consecutive slashes in `pathname` are collapsed (`\/{2,} → /`), but trailing slash on non-root paths is preserved (stripped only when `pathname === '/'`). Includes the IEN-15136 Adalo case as an example — apps must emit optional trailing path segments conditionally (`{{if(parameters.url, '/' + parameters.url, '')}}`) because the runtime will not strip an app-level trailing `/`. Also documents `baseUrl + url` join rules, path/QS encoding differences between `legacy` and `uniform` modes, default-port stripping, and hostname handling.
+
 ## [1.11.1] - 2026-04-22
 
 - Document aliased connection runtime behavior in `component-patterns-reference.md` — new `### Aliased Connections (aliasTo)` section clarifies that when a connection has `aliasTo` set, all of its own IMLJSON files (`api`, `parameters`, `common`, `scope*`, `install*`) are **excluded at compile time** and the runtime resolves the connection entirely through the source connection referenced by `aliasTo`. Includes detection via admin API `/sdk/apps/{slug}/connections` response and `metadata.json connections[].aliasTo`.

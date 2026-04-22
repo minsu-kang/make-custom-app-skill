@@ -370,6 +370,22 @@ On `EPROTO SSL alert number 40`, retries **once** automatically.
 - Max redirects: 21
 - Each redirect URL is validated against local IP / URL permissions
 
+### URL Normalization
+
+Every outbound request URL is normalized **after** IML evaluation and **before** the HTTP call, via `lib/core/utils/normalizeUrl.js` (composed with `lib/core/utils/joinBaseUrlAndUrl.ts`). Key behaviors the app author should rely on — or work around — are:
+
+| Behavior | Detail |
+|---|---|
+| **Consecutive slashes in `pathname` are collapsed** | `/foo//bar///baz` → `/foo/bar/baz` via `pathname.replace(/\/{2,}/g, '/')`. Users can safely supply a leading `/` in a mapped path param even if the URL template already adds one — the runtime will de-dup it. |
+| **Trailing slash on non-root paths is PRESERVED** | `replace(/\/$/, '')` runs only when `pathname === '/'` (root). `/v0/apps/{id}/collections/{id}/` stays as-is. → **The app must prevent app-level trailing slashes** on APIs that treat `.../x` and `.../x/` as different resources (e.g., Adalo returns 400 on the `/` variant — see IEN-15136). Use `{{if(parameters.url, '/' + parameters.url, '')}}` instead of hardcoding `/` before an optional path segment. |
+| **baseUrl + url join** | `joinBaseUrlAndUrl(baseUrl, url)` joins with a literal `/` when `url` is relative (`!/^https?:\/\//.test(url)`). Absolute `url` bypasses `baseUrl` entirely. |
+| **Path encoding** | If `encodeUrl: true` (default in most apps), the pre-query portion is run through `encodeURI()`. |
+| **Query string** | `legacy` mode: `encodeUrl: false` decodes the QS (except reserved `%20 %23 %26 %3F %3A`); the second `?` is rewritten to `&`; `?` with empty QS is dropped. `uniform` mode: QS is encoded iff `encodeUrl: true`, no `?→&` rewrite. |
+| **Default ports stripped** | 80/443/21 are stripped under `legacy` mode only. |
+| **Hostname** | Trailing dot removed; IDN→Unicode conversion currently disabled (2025-07-03 flag). |
+
+**Quick rule for path templates**: the runtime fixes internal double-slashes but will NOT fix a trailing slash. Any optional trailing path segment must be emitted conditionally from the app.
+
 ### Response Parsing
 
 Determined by `response.type`:
