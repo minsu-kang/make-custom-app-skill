@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.11.4] - 2026-04-23
+
+- Add `hooks/make-app-auto-actions-check.js` — Cursor stop hook that enforces the full `make-app-auto-actions.mdc` post-work checklist at session end. Blocks the stop event (with an actionable reminder) when any of the following are missing: §6 (IML function `test.js` update + `test-function.js` run after `code.js` change), §6-2 (`test-component.js` run after `api.imljson` change outside code review), §8 (Developer Notes offered/written after a write script + Jira ticket), §9 (`~/.cursor/make-app-contexts/{slug}-v{version}.md` update), §10 (`upsert_app_context` + `upsert_jira_ticket` per detected ticket), and post-review transition (`post-review-transition.js`) when the user replies "committed" / "returned". Fail-open on any internal error so it never breaks a session; `loop_limit: 1` prevents infinite loops.
+- Ticket-key extraction is strict — scans only user messages and Jira MCP tool inputs (`getJiraIssue`, `editJiraIssue`, `upsert_jira_ticket`, …). Assistant prose, code blocks, shell command strings, and edit-tool arguments are ignored, eliminating false positives from example snippets or placeholder IDs.
+- Hook also strips its own previously-emitted reason blocks from user-role messages before extracting keys, so a re-injected block from a prior `decision: block` cycle does not cause the hook to re-detect its own example tickets.
+- Make-app-work detection relies on concrete tool_use signals only (`.imljson` edits, `make-app-contexts/` writes, SDK script invocations, `make-app` MCP calls) — no text-regex fallbacks, so skill-repo edits that merely mention IMLJSON terms do not trigger the checklist.
+- `install.sh` / `install.ps1` now install `hooks/*.js` to `~/.cursor/hooks/` and merge-register the stop hook into `~/.cursor/hooks.json` (idempotent, never overwrites existing user hooks). Both installers also remove the legacy `check-make-app-ticket-sync.js` filename and its `hooks.json` entry from prior releases.
+- `README.md` repository-structure tree, install blurb, and a new **Hook Scripts** section document the stop hook and its enforcement scope.
+
 ## [1.11.3] - 2026-04-23
 
 - Add `skill/references/security-reference.md` — authoritative security checklist for Make app code review. Eight categories (credentials & secret handling, OAuth/connection flow, webhook signature & replay, SSRF, injection/prototype pollution/ReDoS, sensitive data exposure, environment & sandbox, output format) with severity (`C`/`H`/`M`), detection patterns, and fix guidance. Each finding gets a numeric ID (e.g. `1.2`, `3.1`) so reviews cite `[SECURITY][1.2]` for traceability.

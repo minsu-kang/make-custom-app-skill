@@ -55,7 +55,7 @@ cd make-custom-app-skill
 
 > **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
-Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`.
+Both methods install skill files to `~/.cursor/skills/make-custom-app/`, rule files to `~/.cursor/rules/make-custom-app/`, and hook scripts to `~/.cursor/hooks/` (registered as a `stop` hook in `~/.cursor/hooks.json`).
 
 After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
@@ -100,10 +100,12 @@ make-custom-app-skill/
 │       ├── test-function.js           #   IML function test runner
 │       ├── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
 │       └── download-jira-ticket-attachment.js  #   Jira attachment downloader
-└── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
-    ├── make-app-code-review.mdc        #   Code review input requirements & output format
-    ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets, UX)
-    └── work-discipline.mdc            #   Systematic work habits & anti-hallucination
+├── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
+│   ├── make-app-code-review.mdc        #   Code review input requirements & output format
+│   ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets, UX)
+│   └── work-discipline.mdc            #   Systematic work habits & anti-hallucination
+└── hooks/                              # → installed to ~/.cursor/hooks/ (registered in ~/.cursor/hooks.json)
+    └── make-app-auto-actions-check.js  #   Stop hook: verifies make-app-auto-actions.mdc checklist (context update, Pinecone sync, function/component tests, dev notes, post-review transition)
 ```
 
 ### Skill vs Rules
@@ -166,6 +168,12 @@ make-custom-app-skill/
 | `make-app-code-review.mdc` | Code review requirements: input validation, Jira-driven process, output format, developer message, post-review actions. References `code-review-criteria.md` for detailed criteria. |
 | `make-app-auto-actions.mdc` | Mandatory auto-actions: version check, code download/sync, test execution, UX reference, runtime verification, context update, Pinecone sync, developer notes. |
 | `work-discipline.mdc` | Systematic work habits: full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
+
+### Hook Scripts (`~/.cursor/hooks/`)
+
+| File | Description |
+|------|-------------|
+| `make-app-auto-actions-check.js` | **Stop hook** — scans the session transcript and blocks the stop event when any mandatory action from `make-app-auto-actions.mdc` was skipped. Enforces: §6 (IML function `test.js` + `test-function.js` run on `code.js` change), §6-2 (`test-component.js` run on `api.imljson` change outside code review), §8 (Developer Notes offered/written after write scripts), §9 (context file updated), §10 (`upsert_app_context` + `upsert_jira_ticket` called), and post-review transition when the user replies "committed" / "returned". Installed globally and registered in `~/.cursor/hooks.json` (`loop_limit: 1`, fail-open on errors). |
 
 ## First Use
 

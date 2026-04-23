@@ -35,6 +35,9 @@ $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js")
 $RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "work-discipline.mdc")
+$HOOKS_DIR = Join-Path $env:USERPROFILE ".cursor\hooks"
+$HOOKS_JSON = Join-Path $env:USERPROFILE ".cursor\hooks.json"
+$HOOK_FILES = @("make-app-auto-actions-check.js")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
@@ -300,6 +303,103 @@ else {
             Write-Warn "$file (download failed)"
         }
     }
+}
+
+# ── Install Hook Scripts ──
+Write-Host ""
+Write-Info "Installing hook scripts..."
+Write-Host ""
+
+New-Item -ItemType Directory -Force -Path $HOOKS_DIR | Out-Null
+
+# Remove legacy hook filename from earlier releases
+$legacyHook = Join-Path $HOOKS_DIR "check-make-app-ticket-sync.js"
+if (Test-Path $legacyHook) { Remove-Item -Force $legacyHook }
+
+$localHooksDir = if ($ScriptDir) { Join-Path $ScriptDir "hooks" } else { "" }
+
+if ($ScriptDir -and (Test-Path $localHooksDir)) {
+    Copy-Item -Force (Join-Path $ScriptDir "hooks\*.js") $HOOKS_DIR
+    foreach ($file in (Get-ChildItem -Path $HOOKS_DIR -Filter "*.js")) {
+        Write-Ok "hooks/$($file.Name)"
+    }
+}
+else {
+    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
+    foreach ($file in $HOOK_FILES) {
+        $outPath = Join-Path $HOOKS_DIR $file
+        if (Download-File "$baseUrl/hooks/$file" $outPath) {
+            Write-Ok "hooks/$file"
+        }
+        else {
+            Write-Warn "hooks/$file (download failed)"
+        }
+    }
+}
+
+# ── Register stop hook in ~/.cursor/hooks.json (merge, don't overwrite) ──
+try {
+    $cfg = $null
+    if (Test-Path $HOOKS_JSON) {
+        try { $cfg = Get-Content $HOOKS_JSON -Raw | ConvertFrom-Json } catch { $cfg = $null }
+    }
+    if (-not $cfg) {
+        $cfg = [pscustomobject]@{ version = 1; hooks = [pscustomobject]@{} }
+    }
+    if (-not ($cfg.PSObject.Properties.Name -contains 'version')) {
+        $cfg | Add-Member -NotePropertyName version -NotePropertyValue 1
+    }
+    if (-not ($cfg.PSObject.Properties.Name -contains 'hooks') -or -not $cfg.hooks) {
+        $cfg | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+
+    $stopList = @()
+    if ($cfg.hooks.PSObject.Properties.Name -contains 'stop' -and $cfg.hooks.stop) {
+        $stopList = @($cfg.hooks.stop)
+    }
+
+    $cmd = "node ./hooks/make-app-auto-actions-check.js"
+    $legacyCmd = "node ./hooks/check-make-app-ticket-sync.js"
+
+    # Drop legacy registration from earlier releases
+    $filtered = @()
+    $removedLegacy = $false
+    foreach ($h in $stopList) {
+        if ($h -and ($h.PSObject.Properties.Name -contains 'command') -and $h.command -eq $legacyCmd) {
+            $removedLegacy = $true
+            continue
+        }
+        $filtered += $h
+    }
+    $stopList = $filtered
+
+    $exists = $false
+    foreach ($h in $stopList) {
+        if ($h -and ($h.PSObject.Properties.Name -contains 'command') -and $h.command -eq $cmd) {
+            $exists = $true; break
+        }
+    }
+
+    $changed = $false
+    if (-not $exists) {
+        $stopList += [pscustomobject]@{ command = $cmd; timeout = 15; loop_limit = 1 }
+        $changed = $true
+    }
+    if ($changed -or $removedLegacy) {
+        if ($cfg.hooks.PSObject.Properties.Name -contains 'stop') {
+            $cfg.hooks.stop = $stopList
+        } else {
+            $cfg.hooks | Add-Member -NotePropertyName stop -NotePropertyValue $stopList -Force
+        }
+        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $HOOKS_JSON -Encoding UTF8
+        Write-Ok "hooks.json (stop hook registered)"
+    }
+    else {
+        Write-Ok "hooks.json (stop hook already registered)"
+    }
+}
+catch {
+    Write-Warn "hooks.json (could not register — add manually): $($_.Exception.Message)"
 }
 
 # ── Install MCP Server ──
