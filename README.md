@@ -86,6 +86,8 @@ make-custom-app-skill/
 │       ├── polling-trigger-guide.md   #   Polling trigger implementation guide
 │       ├── component-test-guide.md    #   Component integration test guide (make-apps-mockup)
 │       ├── code-review-criteria.md    #   Detailed review criteria (ES6+, code quality, tests, UX)
+│       ├── security-reference.md      #   Security checklist (credentials, OAuth, webhook, SSRF, injection)
+│       ├── code-smells-reference.md   #   Quality thresholds + IMLJSON-specific code smells
 │       ├── examples.md                 #   Instagram app examples
 │       └── runtime-reference.md        #   imt-app-runtime internals
 │   └── scripts/                        #   Automation scripts
@@ -140,6 +142,8 @@ make-custom-app-skill/
 | `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
 | `references/component-test-guide.md` | Component integration tests — `make-apps-mockup` architecture, test.js structure, debugging |
 | `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification |
+| `references/security-reference.md` | Security checklist — credentials, OAuth flow, webhook signature, SSRF, injection, data exposure (cited as `[SECURITY][1.2]`) |
+| `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
 
 ### Script Files (`skill/scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
 

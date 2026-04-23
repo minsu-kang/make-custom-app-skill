@@ -92,17 +92,24 @@ After filtering:
 
 ### Step 5: Review each related change
 
-**Ticket type check — before evaluating Breaking Changes:**
+**Skip conditions for Breaking Changes — evaluate BEFORE the review:**
 
-If the Jira ticket's `issuetype.name` is **"App"**, this is a new app that has not been deployed to production yet. There are no existing user scenarios, so **skip the Breaking Changes category entirely**. Include the following note in the review output:
+Breaking Changes only evaluates "risk of breaking existing scenarios". Skip this category in the two cases where no existing scenario can exist:
 
-> Breaking Changes 검증 생략 — 티켓 타입 "App" (프로덕션 미배포 신규 앱이므로 기존 시나리오 없음)
+1. **App-level skip** — If the Jira ticket's `issuetype.name` is **"App"**, skip Breaking Changes for the entire app. A new app has never been deployed to production, so no user scenarios exist.
+2. **Per-change skip (new components in existing apps)** — If the change reported by `review-changes.js` is a **pure new-component creation** (a module, RPC, webhook, connection, function, or group whose files have `new_value` only, with no `old_value`), skip Breaking Changes for that component. The component has never been placed in any scenario.
+
+In both cases, the review output's Analysis must state the skip reason:
+
+> Breaking Changes check skipped — new {app | component: `{group}/{item}`} (no existing scenarios).
+
+**Note**: Modifications to existing components (changes with `old_value`) are still subject to Breaking Changes evaluation. Unless the entire app is skipped (App-type ticket), judge per change. Example: "existing module A modified + new module B added" means A is evaluated, only B is skipped.
 
 All other review categories (Bugs, Improvements, Security, ES6+, Code Quality, Tests, UX, Runtime, Polling Triggers) still apply as usual.
 
 For each **ticket-related** code change only, evaluate against the criteria in [code-review-criteria.md](../skill/references/code-review-criteria.md):
 
-- **Review Categories**: Breaking Changes (skip if ticket type is "App"), Bugs, Improvements, Security (see criteria reference)
+- **Review Categories**: Breaking Changes (skip per rules above), Bugs, Improvements, Security (see criteria reference)
 - **ES6+ Compliance**: All changed/new code must follow ES6+ conventions (see criteria reference)
 - **Code Quality**: Design principles, code smells, maintainability (see criteria reference)
 - **Test Coverage**: Changed functions must have corresponding test.js (see criteria reference)

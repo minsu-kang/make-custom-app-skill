@@ -1,6 +1,6 @@
 {
-  "version": "1.11.2",
-  "released": "2026-04-22",
+  "version": "1.11.3",
+  "released": "2026-04-23",
   "min_version": "1.0.0",
   "update_command": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update",
   "update_command_windows": "irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.ps1 | iex"

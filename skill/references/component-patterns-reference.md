@@ -26,12 +26,12 @@
 
 ### Key Fields
 
-| Field | Purpose |
-|---|---|
-| `baseUrl` | Module/RPC URLs become relative to this. Avoids repeating the full URL everywhere. |
-| `headers` | Default HTTP headers for module/RPC requests. Auth headers go here. |
-| `response.error` | Default error handling for module/RPC responses. Can be overridden per-module. |
-| `log.sanitize` | Paths to redact from debug logs for module/RPC requests. **Required** for any header/body containing secrets. |
+| Field            | Purpose                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`        | Module/RPC URLs become relative to this. Avoids repeating the full URL everywhere.                            |
+| `headers`        | Default HTTP headers for module/RPC requests. Auth headers go here.                                           |
+| `response.error` | Default error handling for module/RPC responses. Can be overridden per-module.                                |
+| `log.sanitize`   | Paths to redact from debug logs for module/RPC requests. **Required** for any header/body containing secrets. |
 
 > **Inheritance scope reminder**: Every field above (and any other field in `base.imljson`) applies to module/RPC requests only. Connection and webhook `api.imljson` are standalone and must re-declare everything they need.
 
@@ -76,7 +76,10 @@ When the API version or subdomain varies per connection:
 			"401": { "message": "Invalid or expired token", "type": "InvalidAccessTokenError" },
 			"403": { "message": "Insufficient permissions: {{body.error.message}}", "type": "InvalidAccessTokenError" },
 			"404": { "message": "{{body.error.message}}", "type": "DataError" },
-			"429": { "message": "Rate limit exceeded. Retry after {{headers.retry-after}} seconds.", "type": "RateLimitError" },
+			"429": {
+				"message": "Rate limit exceeded. Retry after {{headers.retry-after}} seconds.",
+				"type": "RateLimitError"
+			},
 			"message": "[{{statusCode}}] {{ifempty(body.error.message, body.message, 'Unknown error')}}"
 		}
 	},
@@ -186,19 +189,59 @@ A connection in one app can be an **alias** of a connection in another app. The 
 }
 ```
 
+### OAuth2 Connection with Common Fallback (`install` + `installSpec` required)
+
+When an OAuth2 connection's `api.imljson` falls back to `common.*` for the platform-issued client credentials (typical pattern for Google/Microsoft/etc. apps that ship with Make's own GCP app but also let power users supply their own), **`installSpec.imljson` and `install.imljson` are not optional — they are required**.
+
+**Why**: The runtime populates `common.*` only via the app's install flow. Without `installSpec` (form definition) and `install` (mapping to `common`), an admin has no UI path to set `common.clientId` / `common.clientSecret`, so the `ifempty(parameters.clientId, common.clientId)` fallback resolves to an empty string and Google returns `invalid_client`. Users who don't enter their own credentials can't connect at all.
+
+**Minimum viable pair** (connection-level files, not app-level):
+
+```json
+// connections/{name}/installSpec.imljson
+[
+	{ "name": "clientId", "label": "Client ID", "type": "text", "required": true },
+	{ "name": "clientSecret", "label": "Client Secret", "type": "password", "required": true }
+]
+```
+
+```json
+// connections/{name}/install.imljson
+{
+	"common": {
+		"clientId": "{{parameters.clientId}}",
+		"clientSecret": "{{parameters.clientSecret}}"
+	}
+}
+```
+
+And in the connection's `api.imljson`, continue to reference the fallback:
+
+```json
+"client_id": "{{ifempty(parameters.clientId, common.clientId)}}",
+"client_secret": "{{ifempty(parameters.clientSecret, common.clientSecret)}}"
+```
+
+**Rule of thumb**: if `grep "common\." connections/{name}/api.imljson` returns any hit, `installSpec.imljson` and `install.imljson` must be non-empty and populate those exact `common.*` keys. Empty `[]` / `{}` is a bug, not a stub.
+
+**Not required**: If the OAuth connection stores credentials only under `parameters.*` (no `common.*` references anywhere in the connection's `api.imljson`) — install/installSpec can stay empty.
+
+**Related**: aliased connections (see above) don't need their own install/installSpec — the source connection owns them.
+
 ### Key Fields
 
-| Field | Purpose |
-|---|---|
-| `response.data` | Saved as `connection.*`. Accessible in base, modules, RPCs via `{{connection.fieldName}}`. |
-| `response.metadata.value` | Displayed as the connection label in the Make UI (e.g., user email or account name). |
-| `editable: true` | Allows the user to edit the field after the connection is saved. **Only valid in connection `parameters.imljson`** (deprecated in module expect). |
+| Field                     | Purpose                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response.data`           | Saved as `connection.*`. Accessible in base, modules, RPCs via `{{connection.fieldName}}`.                                                        |
+| `response.metadata.value` | Displayed as the connection label in the Make UI (e.g., user email or account name).                                                              |
+| `editable: true`          | Allows the user to edit the field after the connection is saved. **Only valid in connection `parameters.imljson`** (deprecated in module expect). |
 
 ### Important Rules
 
 - **Reserved parameter names**: Do not use `teamID` or `accountName` — these are reserved by the Make platform.
 - **Always use `editable: true`** on connection parameters so users can update credentials without recreating the connection.
 - **Always sanitize** auth headers/body in `log.sanitize`.
+- **Connection with `common.*` fallback requires install + installSpec** — see "Connection with Common Fallback" above.
 - For OAuth2 connections, see the [official OAuth2 docs](https://developers.make.com/custom-apps-documentation/app-components/connections/oauth2).
 
 ## Error Handling
@@ -207,21 +250,22 @@ Errors can be defined at the base level (default for all components) or overridd
 
 ### Error Types and When to Use Them
 
-| Error Type | When to Use | User-Visible Behavior |
-|---|---|---|
-| `RuntimeError` | General API errors, unexpected failures | Shows error, stops execution |
-| `DataError` | Invalid input data, validation errors | Shows error, stops execution |
-| `RateLimitError` | API rate limit hit (429) | **Auto-retries** with backoff |
-| `ConnectionError` | Service unavailable (5xx) | **Auto-retries** with backoff |
-| `InvalidAccessTokenError` | Auth failure (401/403) | Marks connection as broken, prompts re-auth |
-| `InvalidConfigurationError` | Wrong module settings | Shows error, stops execution |
-| `OutOfSpaceError` | Storage quota exceeded | Shows error, stops execution |
-| `IncompleteDataError` | Required data missing from response | Shows error, stops execution |
-| `DuplicateDataError` | Conflict/duplicate creation (409) | Shows error, stops execution |
+| Error Type                  | When to Use                             | User-Visible Behavior                       |
+| --------------------------- | --------------------------------------- | ------------------------------------------- |
+| `RuntimeError`              | General API errors, unexpected failures | Shows error, stops execution                |
+| `DataError`                 | Invalid input data, validation errors   | Shows error, stops execution                |
+| `RateLimitError`            | API rate limit hit (429)                | **Auto-retries** with backoff               |
+| `ConnectionError`           | Service unavailable (5xx)               | **Auto-retries** with backoff               |
+| `InvalidAccessTokenError`   | Auth failure (401/403)                  | Marks connection as broken, prompts re-auth |
+| `InvalidConfigurationError` | Wrong module settings                   | Shows error, stops execution                |
+| `OutOfSpaceError`           | Storage quota exceeded                  | Shows error, stops execution                |
+| `IncompleteDataError`       | Required data missing from response     | Shows error, stops execution                |
+| `DuplicateDataError`        | Conflict/duplicate creation (409)       | Shows error, stops execution                |
 
 ### Default Runtime Behavior (No Custom Error)
 
 Without custom error config, the runtime applies these defaults:
+
 - `429` → `RateLimitError` (auto-retry)
 - `500-599` → `ConnectionError` (auto-retry)
 - Other 4xx → `RuntimeError`
@@ -310,12 +354,12 @@ Webhooks enable **Instant Trigger** modules to receive real-time events. The web
 
 ### Key Fields
 
-| Field | Purpose |
-|---|---|
-| `output` | Data to output from the webhook. Use `{{item}}` when iterating, `{{body}}` for single event. |
-| `iterate` | Array of events in the payload to iterate over. Produces one bundle per item. |
-| `condition` | Only process the payload if this evaluates to true. Use to filter ping/heartbeat events. |
-| `respond` | HTTP response sent back to the webhook sender. Most APIs require 200 OK acknowledgment. |
+| Field       | Purpose                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------- |
+| `output`    | Data to output from the webhook. Use `{{item}}` when iterating, `{{body}}` for single event. |
+| `iterate`   | Array of events in the payload to iterate over. Produces one bundle per item.                |
+| `condition` | Only process the payload if this evaluates to true. Use to filter ping/heartbeat events.     |
+| `respond`   | HTTP response sent back to the webhook sender. Most APIs require 200 OK acknowledgment.      |
 
 ### Verification / Challenge Pattern
 
@@ -372,9 +416,9 @@ When the external API requires explicit webhook registration/unregistration:
 }
 ```
 
-| Variable | Description |
-|---|---|
-| `{{webhook.url}}` | The unique Make-generated URL for this webhook instance. |
+| Variable                | Description                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `{{webhook.url}}`       | The unique Make-generated URL for this webhook instance.                            |
 | `{{webhook.webhookId}}` | Value saved in `attach`'s `response.data`. Available in `detach` and `api.imljson`. |
 
 ### Shared Webhooks
@@ -411,21 +455,21 @@ Polling triggers periodically check for new items. They use **epoch tracking** t
 
 ### Trigger Configuration Fields
 
-| Field | Required | Description |
-|---|---|---|
-| `trigger.id` | Yes | Unique identifier for each item. Used for deduplication. |
-| `trigger.date` | If `type: "date"` | Timestamp field. Items with dates after the last known date are considered new. |
-| `trigger.type` | Yes | `"id"` — tracks by ID only. `"date"` — tracks by date + ID (more reliable). |
-| `trigger.order` | Yes | Must match actual API response order. `"desc"` — newest first. `"asc"` — oldest first (recommended with date filtering). `"unordered"` — no guaranteed order. See [Polling Trigger Guide](polling-trigger-guide.md). |
+| Field           | Required          | Description                                                                                                                                                                                                          |
+| --------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger.id`    | Yes               | Unique identifier for each item. Used for deduplication.                                                                                                                                                             |
+| `trigger.date`  | If `type: "date"` | Timestamp field. Items with dates after the last known date are considered new.                                                                                                                                      |
+| `trigger.type`  | Yes               | `"id"` — tracks by ID only. `"date"` — tracks by date + ID (more reliable).                                                                                                                                          |
+| `trigger.order` | Yes               | Must match actual API response order. `"desc"` — newest first. `"asc"` — oldest first (recommended with date filtering). `"unordered"` — no guaranteed order. See [Polling Trigger Guide](polling-trigger-guide.md). |
 
 ### Trigger Type: `id` vs `date`
 
-| | `id` trigger | `date` trigger |
-|---|---|---|
-| Tracks | Last seen ID | Last seen date + same-date IDs |
-| Best for | Auto-increment IDs, sequential | Timestamps, created_at/updated_at |
-| Deduplication | By ID comparison | By date + ID comparison |
-| Recommended order | `desc` | `asc` + date filter (see [Polling Trigger Guide](polling-trigger-guide.md)) |
+|                   | `id` trigger                   | `date` trigger                                                              |
+| ----------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| Tracks            | Last seen ID                   | Last seen date + same-date IDs                                              |
+| Best for          | Auto-increment IDs, sequential | Timestamps, created_at/updated_at                                           |
+| Deduplication     | By ID comparison               | By date + ID comparison                                                     |
+| Recommended order | `desc`                         | `asc` + date filter (see [Polling Trigger Guide](polling-trigger-guide.md)) |
 
 ### Important Rules
 
@@ -471,11 +515,11 @@ Responder modules (type_id: 11) define the HTTP response sent back to a webhook 
 
 ### Key Fields
 
-| Field | Purpose |
-|---|---|
-| `response.status` | HTTP status code to return (e.g., 200, 201, 204). |
-| `response.headers` | Response headers. Usually `content-type`. |
-| `response.body` | Response body. Can reference `{{parameters.*}}` from the responder module's expect. |
+| Field              | Purpose                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `response.status`  | HTTP status code to return (e.g., 200, 201, 204).                                   |
+| `response.headers` | Response headers. Usually `content-type`.                                           |
+| `response.body`    | Response body. Can reference `{{parameters.*}}` from the responder module's expect. |
 
 ### When to Use
 
@@ -536,34 +580,34 @@ Agency modules use the `agency` directive instead of `url`. The `agency.payload`
 
 ### Key Fields
 
-| Field | Purpose |
-|---|---|
-| `agency.action` | `"execute"` — run HTTP request via agent. `"inputs"` — fetch connected system inputs only. |
-| `agency.payload.body` | The HTTP request spec forwarded to the agent: `url`, `method`, `headers`, `body`, `queryParams`. |
-| `agency.payload.connectorType` | Must be `"http"`. Pagination only works with this connector type. |
-| `agency.payload.expiresAfterInMillis` | Agent-side timeout — how long the broker waits for the agent to complete the task. |
-| `agency.connectedSystem.inputs` | Available in IML after `agency.initialize()` runs. Contains the connected system's base URL and other inputs configured in Make. |
+| Field                                 | Purpose                                                                                                                          |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `agency.action`                       | `"execute"` — run HTTP request via agent. `"inputs"` — fetch connected system inputs only.                                       |
+| `agency.payload.body`                 | The HTTP request spec forwarded to the agent: `url`, `method`, `headers`, `body`, `queryParams`.                                 |
+| `agency.payload.connectorType`        | Must be `"http"`. Pagination only works with this connector type.                                                                |
+| `agency.payload.expiresAfterInMillis` | Agent-side timeout — how long the broker waits for the agent to complete the task.                                               |
+| `agency.connectedSystem.inputs`       | Available in IML after `agency.initialize()` runs. Contains the connected system's base URL and other inputs configured in Make. |
 
 ### Response Structure
 
 The broker wraps the agent's HTTP response, creating a **nested structure**:
 
-| Expression | Content |
-|---|---|
-| `body` | Broker response envelope |
-| `body.body` | Agent response (includes `statusCodeValue`, `headers`, `body`) |
-| `body.body.body` | Actual HTTP response body from the target API |
-| `body.body.statusCodeValue` | HTTP status code from the target API |
-| `body.body.headers` | Response headers from the target API |
+| Expression                  | Content                                                        |
+| --------------------------- | -------------------------------------------------------------- |
+| `body`                      | Broker response envelope                                       |
+| `body.body`                 | Agent response (includes `statusCodeValue`, `headers`, `body`) |
+| `body.body.body`            | Actual HTTP response body from the target API                  |
+| `body.body.statusCodeValue` | HTTP status code from the target API                           |
+| `body.body.headers`         | Response headers from the target API                           |
 
 ### Timeout Structure
 
 Agency modules have **two independent timeouts**:
 
-| Timeout | Source | Controls | Default |
-|---|---|---|---|
-| Module-level | `base.imljson` → `"timeout"` | How long Make Runtime waits for the broker response | 40s (`parseInt(NaN) \|\| 40000`) |
-| Agent-side | `agency.payload.expiresAfterInMillis` | How long the broker waits for the agent to complete the task | 40s |
+| Timeout      | Source                                | Controls                                                     | Default                          |
+| ------------ | ------------------------------------- | ------------------------------------------------------------ | -------------------------------- |
+| Module-level | `base.imljson` → `"timeout"`          | How long Make Runtime waits for the broker response          | 40s (`parseInt(NaN) \|\| 40000`) |
+| Agent-side   | `agency.payload.expiresAfterInMillis` | How long the broker waits for the agent to complete the task | 40s                              |
 
 The module-level timeout covers the **entire round-trip**: task creation → agent polling → HTTP execution → response return. Agency modules typically cap this at **60 seconds** because beyond that, the issue is likely on the customer's local infrastructure (slow database, API overload, network issues) — outside Make's control. Direct HTTP modules (non-agency) allow up to **300 seconds** since Make controls the full request lifecycle.
 
@@ -571,11 +615,11 @@ The module-level timeout covers the **entire round-trip**: task creation → age
 
 Source: `imt-app-runtime`
 
-| File | Function | Role |
-|---|---|---|
-| `lib/core/middleware/agency.ts` | `initialize()` | Fetches connected system inputs from broker (`/system-connections/{id}/inputs`) before the request. Sets `agency.connectedSystem.inputs` in the IML context. |
-| `lib/core/chainMiddleware/requester/_request.js` | `_getAgencyRequestOptions()` | Builds the POST request to the broker (`/tasks/{id}/execute`). Sets `agencyRequest` flag. |
-| `lib/core/middleware/agency.ts` | `sanitizeAgencyAuthHeaders()` | Automatically adds `request.headers` to `log.sanitize` — agency auth headers are always redacted. |
+| File                                             | Function                      | Role                                                                                                                                                         |
+| ------------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/core/middleware/agency.ts`                  | `initialize()`                | Fetches connected system inputs from broker (`/system-connections/{id}/inputs`) before the request. Sets `agency.connectedSystem.inputs` in the IML context. |
+| `lib/core/chainMiddleware/requester/_request.js` | `_getAgencyRequestOptions()`  | Builds the POST request to the broker (`/tasks/{id}/execute`). Sets `agencyRequest` flag.                                                                    |
+| `lib/core/middleware/agency.ts`                  | `sanitizeAgencyAuthHeaders()` | Automatically adds `request.headers` to `log.sanitize` — agency auth headers are always redacted.                                                            |
 
 The `agencyRequest` flag enables `localAccess` bypass, allowing the agent to access internal/private IP addresses — this is the core purpose of on-prem agents.
 
@@ -587,7 +631,7 @@ Agency pagination is supported but only for `connectorType: "http"`. The paginat
 {
 	"agency": {
 		"action": "execute",
-		"payload": { "..." : "..." }
+		"payload": { "...": "..." }
 	},
 	"response": {
 		"temp": { "nextCursor": "{{body.body.body.nextCursor}}" }

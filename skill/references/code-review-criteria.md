@@ -8,7 +8,16 @@ Evaluate each change against the following categories:
 
 ### Breaking Changes (risk of breaking existing scenarios)
 
-> **Skip condition**: Jira 티켓 타입이 **App**인 경우 이 카테고리 전체를 건너뛴다. App 타입은 프로덕션에 아직 배포되지 않은 신규 앱이므로 기존 시나리오가 없어 breaking change가 발생할 수 없다.
+> **Skip conditions** (do not evaluate the Breaking Changes category at all):
+>
+> 1. **App-level skip** — If the Jira ticket's `issuetype.name` is **"App"**, skip this category for the entire app. App-type tickets are new apps not yet deployed to production, so no existing scenarios exist that could break.
+> 2. **Per-change skip (new components in existing apps)** — If the change reported by `review-changes.js` is a **pure new-component creation** (a module, RPC, webhook, connection, function, or group whose files have `new_value` only, with no `old_value`), skip breaking-change evaluation for that component. A brand-new component has never been placed in any scenario, so the "existing mapping broken" concept does not apply.
+>
+> In both cases, the review output's Analysis must explicitly state the skip reason:
+>
+> > Breaking Changes check skipped — new {app | component: `{group}/{item}`} (no existing scenarios).
+>
+> All other categories (Bugs, Improvements, Security, ES6+, Code Quality, Tests, UX, Runtime, Polling Triggers) still apply as usual. **Modifications to existing components** (changes with `old_value`) are still subject to breaking-change evaluation — judge this per change, not per app. Example: "existing module A modified + new module B added" means A is evaluated, only B is skipped.
 
 - Interface output fields removed/renamed → existing scenario mappings may break
 - Expect/Parameters fields removed/renamed → existing scenario settings become invalid
@@ -40,9 +49,15 @@ Evaluate each change against the following categories:
 
 ### Security
 
-- Sensitive data sent without log sanitize
-- API key exposed in URL query string
-- User input not validated
+Full catalogue with severity, detection patterns, and fix guidance lives in **`security-reference.md`**. Do **not** duplicate those checks here. When flagging, cite the numeric ID from that file (e.g., `[SECURITY][1.2]`, `[SECURITY][3.1]`).
+
+High-impact triggers that must always force opening `security-reference.md`:
+
+- Any change touching `common.imljson`, `connections/*/install*`, `connections/*/authorize.imljson`, `connections/*/token.imljson`, `connections/*/refresh.imljson` → review §§ 1–2 end to end
+- Any webhook change (`webhooks/**`) → review § 3 (signature, replay, secret type)
+- Any `api.imljson` that takes a URL or hostname from user input → review § 4 (SSRF)
+- Any new/modified `functions/*/code.js` handling untrusted input, dynamic keys, or regex → review § 5
+- Any change to `response.output` / `response.temp` / error `message` → review § 6 (sensitive data exposure)
 
 ### LGTM (no issues)
 
@@ -188,6 +203,12 @@ Any violation in changed/new code results in verdict **Improvement Needed**. Do 
 
 Any violation in changed/new code results in verdict **Improvement Needed**.
 
+**Companion references** (do not restate their content here — link to them in the review output):
+
+- **Quantitative thresholds** (function length, cyclomatic/cognitive complexity, param count, nesting, duplication) → `code-smells-reference.md` § 1. Cite a metric violation as `[QUALITY][function-length=62]` etc.
+- **IMLJSON-specific smells** (`api.imljson`, `parameters.imljson`, `expect.imljson`, `samples.imljson`, `interface.imljson`) → `code-smells-reference.md` §§ 2–3. Cite with the smell ID, e.g. `[QUALITY][A-01]`.
+- The JS **design principles** and **code smells** tables below remain the authoritative list for qualitative JS review (apply to `functions/*/code.js` only).
+
 ### Design Principles
 
 | Principle | Violation (flag it) | Preferred Pattern |
@@ -254,6 +275,41 @@ Before reviewing any change to `connections/{name}/*.imljson`, open the app's `m
 - **If `aliasTo` is set** → every file in that connection (`api`, `parameters`, `common`, `scope*`, `install*`) is **excluded at compile time**. The runtime uses the connection referenced by `aliasTo` (which may live in a different app).
 - **Review implication**: Flag the change as a **runtime no-op**, even if the diff looks syntactically correct. The real fix must go into the source app's connection. A harmless commit can still be verdict "LGTM" but must include this caveat in the Analysis so the developer and QA know the change has no runtime effect on its own.
 - **Full behavior documentation**: see `component-patterns-reference.md` § "Aliased Connections (`aliasTo`)".
+
+### Connection `install` + `installSpec` Verification (Mandatory for OAuth using `common.*`)
+
+When reviewing a connection (especially new apps or new connections), if the connection's `api.imljson` references `common.*` — most commonly `ifempty(parameters.clientId, common.clientId)` / `common.clientSecret` in OAuth2 apps — the connection's `installSpec.imljson` and `install.imljson` **must be non-empty**.
+
+**Checklist:**
+
+1. `rg "common\." connections/{name}/api.imljson` — any hit?
+2. If yes → open `connections/{name}/installSpec.imljson` and `connections/{name}/install.imljson`.
+3. Both files must define the same `common.*` keys that `api.imljson` references:
+   - `installSpec.imljson` declares the admin form (`clientId`, `clientSecret`, etc.)
+   - `install.imljson` maps `parameters.*` → `common.*`
+4. Empty `[]` / `{}` while `api.imljson` references `common.*` → **BUG**. Flag with verdict "Changes Requested" — without it, the OAuth fallback resolves to empty and any user who hasn't supplied their own credentials gets `invalid_client` from the identity provider.
+
+**Exception**: aliased connections — the source connection owns install/installSpec, so local install files being empty is expected.
+
+**Full pattern + example**: see `component-patterns-reference.md` § "OAuth2 Connection with Common Fallback".
+
+### Branding Consistency for Apps in an Existing Family (Mandatory for new apps)
+
+When the Jira ticket type is **App** (new app) AND the app slug shares a prefix with other published apps (e.g. `google-ads-*`, `microsoft-*`, `slack-*`, `hubspot-*`), verify the app matches the family's visual identity:
+
+**Checklist:**
+
+1. **Theme color**: Fetch via admin API — `GET /sdk/apps/{slug}/{version}` returns `app.theme` (hex string). Compare with sibling apps in the same family. A value of `#cccccc` means the developer never set it (platform default placeholder) — always flag this on a family-aligned submission.
+2. **Logo/icon**: Check that the family's shared logo asset has been uploaded. Icons are typically managed via Admin UI, not code — but the review should still note a missing/default icon as an improvement and point the developer to the family's design asset.
+3. **Label/description style**: Sentence casing, product name spelling, and "formerly X" conventions must match the family.
+
+**Example API call** (to verify theme before review):
+
+```
+curl -s "$MAKE_ADMIN/sdk/apps/{slug}/{version}" -H "Authorization: Token $KEY" | jq .app.theme
+```
+
+**Verdict**: mismatch is usually **Improvement Needed** (not a hard blocker), but for a family of approved apps it's still a required consistency check before LGTM. Flag in the review so the developer can align theme via Admin UI or `PATCH /sdk/apps/{slug}/{version}` with `{ "theme": "#......" }`.
 
 ### Runtime Default Error Handling (Do NOT flag as missing)
 

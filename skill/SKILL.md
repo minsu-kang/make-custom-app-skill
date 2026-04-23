@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.11.2
+version: 1.11.3
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -304,6 +304,8 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Polling trigger implementation (order, date filtering, epoch, examples): [polling-trigger-guide.md](references/polling-trigger-guide.md)
 - Component integration tests (test.js structure, communications mocks, debugging): [component-test-guide.md](references/component-test-guide.md)
 - Code review criteria (ES6+, code quality, test coverage, UX, runtime verification): [code-review-criteria.md](references/code-review-criteria.md)
+- Security reference (credentials, OAuth, webhook signature, SSRF, injection, data exposure): [security-reference.md](references/security-reference.md)
+- Code smells & quality thresholds (JS metrics, IMLJSON smells, cross-file smells): [code-smells-reference.md](references/code-smells-reference.md)
 
 ## imt-app-runtime Source Setup
 
