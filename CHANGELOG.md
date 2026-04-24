@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.11.8] - 2026-04-24
+
+- `hooks/__tests__/make-app-auto-actions-check.test.js` — persist the §8 dev-notes decline-detection cases as a real `node:test` suite (10 tests covering: explicit "no + notes-keyword" form, standalone-negation-after-prompt form for both EN and KO, false-positive guards on words containing "no" / "now" / "node", array-form message content, KO prompt variants, and `detectDevNotesPrompted` + `stripHookOutput` smoke). Run with `node --test hooks/__tests__/`. Replaces the throw-away inline `node -e` invocations from 1.11.7 so regressions get caught next time the regex is touched.
+- `hooks/make-app-auto-actions-check.js` — add a conditional bottom export (`module.exports = { detectDevNotesDecline, detectDevNotesPrompted, stripHookOutput }` only when `require.main !== module`). CLI execution path is unchanged; tests can now `require()` the file without triggering `main()`.
+- `install.sh` / `install.ps1` install paths already glob `hooks/*.js` (top-level only), so `hooks/__tests__/` is correctly excluded from end-user installs and only ships in the repo for contributors / CI.
+
 ## [1.11.7] - 2026-04-24
 
 - `hooks/make-app-auto-actions-check.js` — fix §8 Developer Notes false-positive that re-prompted across sessions for tickets the user had already declined. The previous `detectDevNotesDecline` only matched explicit "no + notes-keyword" phrases (`"don't write developer notes"`, `"노트 적지마"`), so context-implicit Korean replies like `"ㄴㄴ"` / `"ㄴㄴ 작성하지마셈"` (right after the agent's "Developer Notes를 작성할까요?" prompt) were never recognized as declines and the hook kept asking forever. Detection now walks messages in conversation order and accepts a second form: a short standalone-negation user reply (`ㄴㄴ`, `ㄴ`, `아니`, `싫`, `필요없`, `no`, `nope`, `nah`, `skip`, `pass`, `decline`, `not now`, `no thanks`, …) immediately following an assistant turn that contained the dev-notes prompt. The original explicit-form regex is preserved for cases where the user volunteers a decline without being prompted.

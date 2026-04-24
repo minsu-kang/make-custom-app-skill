@@ -753,8 +753,18 @@ function escapeRe(s) {
 	return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-try {
-	main();
-} catch (_) {
-	allow();
+// Run main() only when invoked as a CLI hook. When `require()`d (e.g. from
+// the test suite) skip execution and expose internals for unit testing.
+if (require.main === module) {
+	try {
+		main();
+	} catch (_) {
+		allow();
+	}
+} else {
+	module.exports = {
+		detectDevNotesDecline,
+		detectDevNotesPrompted,
+		stripHookOutput,
+	};
 }
