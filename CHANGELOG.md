@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.11.6] - 2026-04-24
+
+- `runtime-reference.md` — add new § "IML Variable Path Syntax" section documenting a critical gotcha verified against `imt-iml/lib/utils.js` `mapVariable`: **IML path indices are 1-based, not 0-based.** Includes a behavior table (`foo[]` = `foo[1]` = first element; `foo[0]` → `undefined`), implications for `response.output` / `response.iterate`, dynamic index evaluation, and the internal `` foo.`1` `` dotted-number stringify form.
+- `SKILL.md` § "Important Notes" — add a one-liner on 1-based IML indexing and clarify that `{{body.results[].field}}` is the idiomatic way to unwrap a one-element response array into a scalar output, linking to the new runtime-reference section.
+- `code-review-criteria.md` § "Out of Scope" — add a new sub-section "IML Path `[]` / `[1]` Shorthand (Do NOT flag as array wrap)" with a pattern table so reviewers stop incorrectly flagging `newMediaItemResults[].mediaItem`-style expressions as accidental array wraps and correctly flag `[0]` (which resolves to `undefined`) as a bug.
+
 ## [1.11.5] - 2026-04-24
 
 - `download-app.js` — extend `metadata.json` to capture compilation + branding + per-zone visibility: `approved` (compilation state — `false` = not yet compiled, `true` = compiled), `compile`, `compilationError`, `theme`, `public`, `beta`, `language`, `countries`, `global` come from the SDK version endpoint; `ipmDeployedToZone`, `private`, `packagePrivate`, `deprecated` (and per-module `private` / `deprecated`) come from a second, admin-only call to `GET {zone}/api/v2/admin/apps/{slug}` matched to the requested major version. The admin call gracefully handles `200` / `403` / `404` (404 = compiled but not IPM-deployed to this zone) and leaves visibility flags `null` when the data is not available.

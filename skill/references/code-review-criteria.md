@@ -83,6 +83,21 @@ The following categories are **explicitly excluded** from code review output. Do
 
 **Exception — functional impact**: Flag only if whitespace change causes actual behavior change (e.g., breaking a template literal, altering a JSON string value). This is extremely rare in IMLJSON files.
 
+### IML Path `[]` / `[1]` Shorthand (Do NOT flag as "array wrap")
+
+`{{body.results[].field}}` and `{{body.results[1].field}}` both resolve to a **scalar** — the first item's `.field` — because IML path indices are 1-based and empty brackets default to `n = 1`. They are **not** an array wrap, iteration, or map.
+
+| Pattern | Resolves to | Flag? |
+|---|---|---|
+| `{{body.items[].field}}` | First item's `field` (scalar) | **No** — idiomatic "unwrap single-item array" |
+| `{{body.items[1].field}}` | First item's `field` (scalar) | **No** — identical to `[]` |
+| `{{body.items[2].field}}` | Second item's `field` (scalar) | **No** — explicit index |
+| `{{body.items[0].field}}` | `undefined` (JS `arr[-1]`) | **Yes — Bug.** Never use `[0]` in IML paths. |
+
+Common anti-pattern mistake: flagging `{{body.newMediaItemResults[].mediaItem}}` as "output is wrapped in an array". It is not — `[]` picks the first (and in this case only) element, producing a scalar `mediaItem` object.
+
+See [runtime-reference.md § IML Variable Path Syntax](runtime-reference.md#iml-variable-path-syntax) for the full source excerpt and index semantics.
+
 ---
 
 ## Test Coverage Enforcement (Mandatory for `functions/*/code.js`)

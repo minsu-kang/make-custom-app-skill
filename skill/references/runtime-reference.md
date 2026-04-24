@@ -431,6 +431,53 @@ Wildcard matching: `"type": { "*": "json", "200-299": "json" }`
 All available error types:
 `DataError`, `UnknownError`, `RuntimeError`, `InconsistencyError`, `RateLimitError`, `OutOfSpaceError`, `ConnectionError`, `InvalidConfigurationError`, `InvalidAccessTokenError`, `UnexpectedError`, `MaxResultsExceededError`, `MaxFileSizeExceededError`, `IncompleteDataError`, `DuplicateDataError`, `ModuleTimeoutError`, `ScenarioTimeoutError`, `OperationsLimitExceededError`, `DataSizeLimitExceededError`, `ExecutionInterruptedError`, `Warning`
 
+## IML Variable Path Syntax
+
+IML expressions (`{{...}}`) resolve variable paths through `imt-iml`'s `mapVariable(data, key)` in `lib/utils.js`. The indexing rules are **not** the same as JavaScript and trip up most reviewers at least once.
+
+### 1-Based Array Indexing (Critical)
+
+IML path indices are **1-based**, not 0-based. Backing source (`imt-iml/lib/utils.js` `mapVariable`):
+
+```js
+if (/\[(\d+)?\]$/.exec(k)) {
+    n = RegExp.$1 ? parseInt(RegExp.$1) : 1; // empty brackets → n = 1
+    ...
+}
+...
+if (Array.isArray(data)) data = data[k - 1]; // 1-based
+if (n != null && Array.isArray(data)) data = data[n - 1]; // 1-based
+```
+
+| IML path | Resolves to (JS) | Notes |
+|---|---|---|
+| `foo[]` | `foo[0]` (first element) | Empty brackets default to `n = 1` → `arr[n - 1]` = `arr[0]` |
+| `foo[1]` | `foo[0]` (first element) | |
+| `foo[2]` | `foo[1]` (second element) | |
+| `foo[3].bar` | `foo[2].bar` | |
+| `foo[0]` | **`foo[-1]` → `undefined`** | **Common bug.** `[0]` is never what you want. |
+
+### Implications for `response.output`, `response.iterate`, etc.
+
+- `{{body.items[].id}}` — returns **one** scalar: the first item's `id`. It does NOT iterate or collect.
+- `{{body.items[1].id}}` — identical to the above (both access item 1 / JS index 0).
+- To iterate all items in the response, use `response.iterate` with `{{body.items}}` — never rely on `[]` to produce a collection.
+- For action modules that upload/create a single entity and the API returns a one-element array (e.g. Google Photos `mediaItems:batchCreate` → `newMediaItemResults`), `{{body.newMediaItemResults[].mediaItem}}` is the correct way to unwrap the single result into a scalar output — it is **not** an array-wrap.
+
+### Dynamic / Expression Indices
+
+When the bracket content is a nested IML expression (e.g. `foo[{{idx}}]`), the engine evaluates the inner expression first, then applies the same 1-based rule. So `foo[{{1}}]` = first item, `foo[{{0}}]` = undefined.
+
+### Dotted-Number Path Syntax
+
+Internally the engine stringifies `foo[]` as `` foo.`1` `` (the backtick-wrapped numeric segment is a path token, not a literal value). Reviewers occasionally see this in debug dumps — it is the same access as `foo[]` / `foo[1]`.
+
+### Takeaways for Code Review
+
+- Flag any `{{...[0]...}}` in IMLJSON as a bug unless the reviewed intent is specifically "return undefined / null".
+- `foo[]` is **not** a bug and **not** an accidental array wrap — it is the idiomatic way to pick the first element out of a single-result array.
+- When a module outputs `{{body.results[].field}}`, the output is a **scalar**, matching interface of type `text`/`number`/object — not an array. Do not request that it be "unwrapped".
+
 ## Limits & Constants
 
 | Limit | Default | Overridable via |
