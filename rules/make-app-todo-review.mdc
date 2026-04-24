@@ -1,0 +1,33 @@
+---
+description: Static § R Code Review TODO template (15 items) — fetch when the user requests a Make custom app code review (with or without Jira ticket)
+globs: 
+alwaysApply: false
+---
+
+# § R · Code Review Template (15 items, verbatim)
+
+Use whenever the user requests a code review. Universal rules and Common Pre/Post blocks are defined in `make-app-todo-rules.mdc`. The full review process — required inputs, Atlassian MCP check, Jira-driven flow, output format, Developer Message, post-review disposition gate, re-review, no-Jira fallback — lives in `skill/workflows/code-review.md`. Read that workflow before / during the review.
+
+| # | id | content |
+|---|---|---|
+| 1 | `common_runtime_path_check` | (Common Pre — verbatim from `make-app-todo-rules.mdc`.) |
+| 2 | `common_context_load` | (Common Pre — verbatim.) |
+| 3 | `common_code_sync` | (Common Pre — verbatim. Also runs `review-changes.js` and reads `latest.json` here, per the common content.) |
+| 4 | `common_jira_fetch` | (Common Pre — verbatim.) |
+| 5 | `common_attachments` | (Common Pre — verbatim.) |
+| 6 | `review_filter_changes` | Filter changes — include only ticket-related, exclude everything unrelated. Never cancel; if all changes are unrelated, complete this with the "No changes found for this ticket's AC" output and proceed to `review_output`. |
+| 7 | `review_analyze` | Review each related change against `code-review-criteria.md` (Breaking / Bug / Improvement / ES6+ / Tests / UX / Runtime / Polling). Mid-review side-actions requested by the user (publish modules if LGTM, apply a tiny fix yourself, `update-component.js public=true`) execute **inside** this item — never as new todos. |
+| 8 | `review_output` | Emit the review output block + "To Developer" message (if Changes Requested). |
+| 9 | `review_ask_disposition` | Ask the user: "Did you return the ticket to the developer, or commit the changes?" |
+| 10 | `review_wait_disposition` | [GATE] Wait for explicit "committed" / "returned" (or Korean equivalent: 커밋했어 / 커밋완료 / 돌려줬어 / 개발자한테 보냈어). Items 11–15 stay `pending` until this is `completed`. |
+| 11 | `review_transition` | (post-disposition) Run `post-review-transition.js {key} {committed|returned}` for every reviewed ticket (parent + reviewed subtasks). |
+| 12 | `common_context_update` | (Common Post — verbatim.) |
+| 13 | `common_upsert_app_context` | (Common Post — verbatim.) |
+| 14 | `common_upsert_jira_ticket` | (Common Post — verbatim.) |
+| 15 | `common_compaction_recommend` | (Common Post — verbatim.) |
+
+**Notes (in addition to universal rules):**
+
+- **Never prompt for Developer Notes during a code review.** No `dev_notes` item exists by design — Dev Notes belong to the original implementer, not the reviewer.
+- **Re-reviews use the same 15-item list.** Do not create a separate "re-review" template, do not add a "re-review" item.
+- **Cancellation examples:** `common_jira_fetch` → `[CANCELLED: review without Jira ticket per workflows/code-review.md § "Review Without Jira Ticket"]`. `common_attachments` → `[CANCELLED: ticket has no attachments]`.

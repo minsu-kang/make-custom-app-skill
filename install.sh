@@ -27,10 +27,11 @@ SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md" "security-reference.md" "code-smells-reference.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
 SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js" "post-review-transition.js")
-RULE_FILES=("make-app-code-review.mdc" "make-app-auto-actions.mdc" "work-discipline.mdc")
+RULE_FILES=("make-app-workflow.mdc" "make-app-todo-rules.mdc" "make-app-todo-bugfix.mdc" "make-app-todo-feature.mdc" "make-app-todo-task.mdc" "make-app-todo-review.mdc" "work-discipline.mdc")
+DEPRECATED_RULE_FILES=("make-app-auto-actions.mdc" "make-app-code-review.mdc")
 HOOKS_DIR="$HOME/.cursor/hooks"
 HOOKS_JSON="$HOME/.cursor/hooks.json"
-HOOK_FILES=("make-app-auto-actions-check.js")
+DEPRECATED_HOOK_FILES=("make-app-auto-actions-check.js" "check-make-app-ticket-sync.js")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
 
@@ -282,76 +283,58 @@ else
     done
 fi
 
-# ── Install Hook Scripts (hooks/ → ~/.cursor/hooks/) ──
+# ── Cleanup deprecated rule files (renamed/split in newer releases) ──
 echo ""
-info "Installing hook scripts..."
+info "Removing deprecated rule files..."
 echo ""
 
-mkdir -p "$HOOKS_DIR"
+for file in "${DEPRECATED_RULE_FILES[@]}"; do
+    if [ -f "$RULES_DIR/$file" ]; then
+        rm -f "$RULES_DIR/$file"
+        ok "removed rules/$file"
+    fi
+done
 
-# Remove legacy hook filename from earlier releases
-rm -f "$HOOKS_DIR/check-make-app-ticket-sync.js"
+# ── Cleanup deprecated stop hooks from earlier releases ──
+# Removed in 1.12.0 — stop-hook enforcement was replaced with strict static TODO
+# templates per work type (see rules/make-app-todo-*.mdc). Delete any leftover
+# hook script and prune its registration from ~/.cursor/hooks.json so old
+# installs stop firing.
+echo ""
+info "Removing deprecated stop hooks (replaced by static TODO templates)..."
+echo ""
 
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/hooks" ]; then
-    cp "$SCRIPT_DIR"/hooks/*.js "$HOOKS_DIR/" 2>/dev/null
-    for file in "$HOOKS_DIR"/*.js; do
-        [ -f "$file" ] || continue
-        chmod +x "$file"
-        ok "hooks/$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${HOOK_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$HOOKS_DIR/$file" "$BASE_URL/hooks/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            chmod +x "$HOOKS_DIR/$file"
-            ok "hooks/$file"
-        else
+if [ -d "$HOOKS_DIR" ]; then
+    for file in "${DEPRECATED_HOOK_FILES[@]}"; do
+        if [ -f "$HOOKS_DIR/$file" ]; then
             rm -f "$HOOKS_DIR/$file"
-            warn "hooks/$file (download failed: HTTP $HTTP_CODE)"
+            ok "removed hooks/$file"
         fi
     done
 fi
 
-# ── Register stop hook in ~/.cursor/hooks.json (merge, don't overwrite) ──
-if command -v node &>/dev/null; then
+if [ -f "$HOOKS_JSON" ] && command -v node &>/dev/null; then
     HOOKS_JSON_PATH="$HOOKS_JSON" node - <<'EOF'
 const fs = require('fs');
 const file = process.env.HOOKS_JSON_PATH;
-let cfg = { version: 1, hooks: {} };
-if (fs.existsSync(file)) {
-    try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
-    if (!cfg.version) cfg.version = 1;
-    if (!cfg.hooks) cfg.hooks = {};
-}
-const list = (cfg.hooks.stop = Array.isArray(cfg.hooks.stop) ? cfg.hooks.stop : []);
-const cmd = 'node ./hooks/make-app-auto-actions-check.js';
-const legacyCmd = 'node ./hooks/check-make-app-ticket-sync.js';
-const before = list.length;
-for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i] && list[i].command === legacyCmd) list.splice(i, 1);
-}
-const removedLegacy = before !== list.length;
-let added = false;
-if (!list.some(h => h && h.command === cmd)) {
-    list.push({ command: cmd, timeout: 15, loop_limit: 1 });
-    added = true;
-}
-if (added || removedLegacy) {
+let cfg;
+try { cfg = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { process.exit(0); }
+if (!cfg || !cfg.hooks || !Array.isArray(cfg.hooks.stop)) process.exit(0);
+const deprecated = new Set([
+    'node ./hooks/make-app-auto-actions-check.js',
+    'node ./hooks/check-make-app-ticket-sync.js',
+]);
+const before = cfg.hooks.stop.length;
+cfg.hooks.stop = cfg.hooks.stop.filter(h => !(h && deprecated.has(h.command)));
+if (cfg.hooks.stop.length !== before) {
+    if (cfg.hooks.stop.length === 0) delete cfg.hooks.stop;
     fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
-    console.log(added ? 'registered' : 'legacy-removed');
-} else {
-    console.log('already-registered');
+    console.log('pruned');
 }
 EOF
     if [ $? -eq 0 ]; then
-        ok "hooks.json (stop hook registered)"
-    else
-        warn "hooks.json (could not register — add manually)"
+        ok "hooks.json (deprecated stop hooks pruned)"
     fi
-else
-    warn "node not found — register the stop hook manually in $HOOKS_JSON"
 fi
 
 # ── Install MCP Server (mcp-server/ → ~/.cursor/skills/make-custom-app/mcp-server/) ──

@@ -1,0 +1,51 @@
+---
+description: Static TODO discipline for Make app work — universal rules, common items, template selection
+globs: 
+alwaysApply: true
+---
+
+# Make App Static TODO Rules
+
+Every session that produces an edit, runs a write script, or has a Jira ticket attached **must** start with `TodoWrite` using exactly one of the four templates below. Pure read-only sessions are exempt until they produce an edit.
+
+## Template Selection
+
+| Trigger | Template | Rule file |
+|---|---|---|
+| Code review (with or without Jira ticket) | § R Code Review (15) | `make-app-todo-review.mdc` |
+| Bug ticket / reported error / QA subtask / regression / "fix this" | § B Bugfix (17) | `make-app-todo-bugfix.mdc` |
+| New module / RPC / webhook / connection / function / brand-new app | § N New / Feature (18) | `make-app-todo-feature.mdc` |
+| Refactor / metadata / UX-only / deprecation / cleanup / public-flag | § T App Task (16) | `make-app-todo-task.mdc` |
+
+One template per session. If scope changes mid-session, finish or cancel the current template first, then create the new one in a fresh turn. Never mutate the active list to absorb new scope.
+
+## Universal Rules (apply to all four templates)
+
+1. **Verbatim creation.** One `TodoWrite` call before any other tool call. Use `id` and order from the template file as-is.
+2. **No additions, merges, splits, reorders, renames.** Inline sub-actions (multi-file edits, multi-component uploads, multi-test runs, follow-up clarifying questions) live **inside** an existing item.
+3. **Single `in_progress`.** Promote the next item only after the current one leaves `in_progress`.
+4. **Completion requires verified output.** Mark `completed` only after the underlying tool has actually run and its output has been read. Intent is not completion.
+5. **`[GATE]` discipline.** Items prefixed `[GATE]` must be `completed` before any later item is moved to `in_progress` or `completed`. No exceptions, regardless of confidence in the outcome.
+6. **Cancellation requires a typed reason.** Mark `cancelled` AND prefix the original `content` with `[CANCELLED: <one-line specific reason>]`. Vague reasons forbidden — name the concrete condition (e.g., `[CANCELLED: no Jira ticket attached]`, `[CANCELLED: no functions/*/code.js touched]`). Original content text stays after the prefix.
+7. **No silent omission.** Every item ends as `completed` or `cancelled`. `pending` / `in_progress` at session end = unfinished session.
+8. **No template swap.** Do not delete and recreate a different template. Finish the current list (cancel remaining items with reasons), then create the new template in a fresh turn.
+9. **Common items are identical.** The `common_*` ids defined below appear verbatim — same id, same content, same position (Pre at top, Post at bottom) — in every template.
+
+## Common Pre Block (always the first 5 items)
+
+| id | content |
+|---|---|
+| `common_runtime_path_check` | Verify `imt-app-runtime-path` is configured and the path exists in `~/.cursor/skills/make-custom-app/SKILL.md` per Workflow § Before Work. Block all subsequent work until present. |
+| `common_context_load` | Confirm app slug + version (auto-detect version via IPME when missing — see `workflows/app-context.md`; ask the user only if IPME fails). Then load `~/.cursor/make-app-contexts/{slug}-v{version}.md` if it exists, and call `search_app_knowledge` (MCP) with the slug + relevant keywords for prior context, related fixes, and known caveats. |
+| `common_code_sync` | Ensure local code under `~/.cursor/make-app-contexts/{slug}-v{version}/` is present and fresh. Run `download-app.js` when missing / older than 24h / open file differs. For code reviews, also run `review-changes.js` and read `latest.json` here. Cancel only for brand-new app creation with no slug yet. |
+| `common_jira_fetch` | Call `getJiraIssue` with fields = `["summary","description","subtasks","comment","status","attachment","issuetype","customfield_10483","customfield_10283"]`. Fetch every subtask with the same fields (filter by status per `workflows/code-review.md` § 3 — Done = skip, Complete = review, Other = context); fetch the parent if the ticket itself is a subtask; read comments on parent and all subtasks; read Developer Notes (`customfield_10483`) before forming any verdict or plan. Cancel only when no Jira ticket is attached. |
+| `common_attachments` | For every attachment from `common_jira_fetch`, run `download-jira-ticket-attachment.js <issue-key>` and analyze images via the Read tool; note videos and their paths. Cancel only when there are zero attachments (or `common_jira_fetch` was cancelled). |
+
+## Common Post Block (always the last 4 items)
+
+| id | content |
+|---|---|
+| `common_context_update` | Create or update `~/.cursor/make-app-contexts/{slug}-v{version}.md` — Work History entry, new caveats, pattern changes. For § R Code Review, this item stays `pending` until the disposition `[GATE]` is `completed` per `workflows/code-review.md` § "Post-Review Disposition Gate". |
+| `common_upsert_app_context` | Call MCP `upsert_app_context` with `{ slug, version }` to sync the updated context file to Pinecone. |
+| `common_upsert_jira_ticket` | Call MCP `upsert_jira_ticket` for the parent ticket and every reviewed/fixed subtask, including `summary`, `description`, and `developer_notes` if available. Cancel only when `common_jira_fetch` was cancelled. |
+| `common_compaction_recommend` | Inform the user: "All tasks complete. Recommending context compaction to maintain accuracy for subsequent tasks." If the user confirms or starts a new task, treat that as the compaction signal. |

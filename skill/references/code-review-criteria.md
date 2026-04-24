@@ -1,6 +1,6 @@
 # Code Review Criteria
 
-Detailed review criteria for Make custom app code reviews. Referenced by the code review rule (`make-app-code-review.mdc`) and the code review workflow (`workflows/code-review.md`).
+Detailed review criteria for Make custom app code reviews. Referenced by the code review workflow (`workflows/code-review.md`) and the static § R TODO template (`rules/make-app-todo-review.mdc`).
 
 ## Review Categories
 

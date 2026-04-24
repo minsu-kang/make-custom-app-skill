@@ -1,0 +1,29 @@
+---
+description: Static § B Bugfix TODO template (17 items) for Make app bug investigations — fetch when fixing reported broken behavior, QA subtasks, regressions
+globs: 
+alwaysApply: false
+---
+
+# § B · Bugfix Template (17 items, verbatim)
+
+Use when investigating and fixing reported broken behavior. Universal rules and Common Pre/Post blocks are defined in `make-app-todo-rules.mdc` — they apply in full.
+
+| # | id | content |
+|---|---|---|
+| 1 | `common_runtime_path_check` | (Common Pre — verbatim from `make-app-todo-rules.mdc`.) |
+| 2 | `common_context_load` | (Common Pre — verbatim.) |
+| 3 | `common_code_sync` | (Common Pre — verbatim.) |
+| 4 | `common_jira_fetch` | (Common Pre — verbatim.) |
+| 5 | `common_attachments` | (Common Pre — verbatim.) |
+| 6 | `bug_reproduce` | Identify the failing component(s) and reproduce or trace the failure path in code; state the root cause hypothesis with file + line references. |
+| 7 | `bug_references_reread` | Re-read references for the files about to be touched (`runtime-reference.md` / `communication-reference.md` / `parameters-reference.md` / `custom-functions-reference.md` / `component-test-guide.md` as applicable). |
+| 8 | `bug_plan` | [GATE] State the root cause and the scope of the fix (which files, which components) and wait for explicit user approval before editing. |
+| 9 | `bug_implement` | Apply all code edits in a single pass. No piecemeal fixes, no "I'll fix the rest after upload". |
+| 10 | `bug_test_function` | (if any `functions/*/code.js` edited) Update `test.js` to cover the bug scenario + edge cases; run `test-function.js` for each changed function. Cancel only when no `code.js` was touched. |
+| 11 | `bug_test_component` | (if any `api.imljson` edited) Run `test-component.js` for each changed `(type, name)` component; create or extend mockup test data when missing. Cancel only when no `api.imljson` was touched. |
+| 12 | `bug_upload` | [GATE] Show diff summary, get user confirmation, then run the matching write script (`update-app.js` and/or `update-component.js` / `delete-component.js`). |
+| 13 | `bug_dev_notes` | Ask the user: "Shall I write Developer Notes to the Jira ticket?" If approved, write to `customfield_10483` via `editJiraIssue` (ADF: Root Cause / Fix / Affected Components / Changed Files). Cancel only when `common_jira_fetch` was cancelled or `bug_upload` was cancelled. |
+| 14 | `common_context_update` | (Common Post — verbatim.) |
+| 15 | `common_upsert_app_context` | (Common Post — verbatim.) |
+| 16 | `common_upsert_jira_ticket` | (Common Post — verbatim.) |
+| 17 | `common_compaction_recommend` | (Common Post — verbatim.) |

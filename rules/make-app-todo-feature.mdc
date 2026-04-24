@@ -1,0 +1,30 @@
+---
+description: Static § N New/Feature Implementation TODO template (18 items) — fetch when adding new modules/RPCs/webhooks/connections/functions or creating a brand-new app
+globs: 
+alwaysApply: false
+---
+
+# § N · New / Feature Implementation Template (18 items, verbatim)
+
+Use for adding new components to an existing app **and** for brand-new app creation. Universal rules and Common Pre/Post blocks are defined in `make-app-todo-rules.mdc`.
+
+| # | id | content |
+|---|---|---|
+| 1 | `common_runtime_path_check` | (Common Pre — verbatim from `make-app-todo-rules.mdc`.) |
+| 2 | `common_context_load` | (Common Pre — verbatim.) |
+| 3 | `common_code_sync` | (Common Pre — verbatim. Cancel for brand-new app creation per the rule there.) |
+| 4 | `common_jira_fetch` | (Common Pre — verbatim.) |
+| 5 | `common_attachments` | (Common Pre — verbatim.) |
+| 6 | `new_existing_structure` | Read `metadata.json` + `base.imljson` + `common.imljson` + the most-similar existing components to extract conventions (auth, error handling, pagination, naming, field structure). Cancel only for brand-new app creation with no existing components. |
+| 7 | `new_references_reread` | Re-read `app-ux-best-practices.md` + `parameters-reference.md` + `component-patterns-reference.md` + `runtime-reference.md` + `communication-reference.md` (and `custom-functions-reference.md` if any function will be created). |
+| 8 | `new_design` | [GATE] Present the full design (component list with type / name / label, auth flow if new connection, RPC dependencies, expect/interface skeleton) and wait for explicit user approval. |
+| 9 | `new_scaffold` | For each new component, ask the user to confirm then run `create-component.js` — RPCs first, then modules / webhooks / connections / functions in dependency order. |
+| 10 | `new_implement` | Fill in `api.imljson` / `parameters.imljson` / `expect.imljson` / `interface.imljson` / `samples.imljson` / `connection` / `common` / `base` per the approved design. |
+| 11 | `new_test_function` | For each created `functions/*/code.js`, write `test.js` covering happy path + edge cases; run `test-function.js`. Cancel only when no functions were created. |
+| 12 | `new_test_component` | For each new module / RPC / connection / webhook, run `test-component.js`; create or extend mockup test data when missing. Cancel only when no `api.imljson`-bearing component was created or modified. |
+| 13 | `new_upload` | [GATE] Show summary of files to push, get user confirmation, then run `update-app.js` for non-scaffold IML/spec changes. |
+| 14 | `new_dev_notes` | Ask the user: "Shall I write Developer Notes to the Jira ticket?" If approved, write to `customfield_10483` via `editJiraIssue` (ADF Feature template tables). Cancel only when `common_jira_fetch` was cancelled. |
+| 15 | `common_context_update` | (Common Post — verbatim.) |
+| 16 | `common_upsert_app_context` | (Common Post — verbatim.) |
+| 17 | `common_upsert_jira_ticket` | (Common Post — verbatim.) |
+| 18 | `common_compaction_recommend` | (Common Post — verbatim.) |

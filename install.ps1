@@ -34,10 +34,11 @@ $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md", "security-reference.md", "code-smells-reference.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js")
-$RULE_FILES = @("make-app-code-review.mdc", "make-app-auto-actions.mdc", "work-discipline.mdc")
+$RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "work-discipline.mdc")
+$DEPRECATED_RULE_FILES = @("make-app-auto-actions.mdc", "make-app-code-review.mdc")
 $HOOKS_DIR = Join-Path $env:USERPROFILE ".cursor\hooks"
 $HOOKS_JSON = Join-Path $env:USERPROFILE ".cursor\hooks.json"
-$HOOK_FILES = @("make-app-auto-actions-check.js")
+$DEPRECATED_HOOK_FILES = @("make-app-auto-actions-check.js", "check-make-app-ticket-sync.js")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
@@ -305,101 +306,71 @@ else {
     }
 }
 
-# ── Install Hook Scripts ──
+# ── Cleanup deprecated rule files (renamed/split in newer releases) ──
 Write-Host ""
-Write-Info "Installing hook scripts..."
+Write-Info "Removing deprecated rule files..."
 Write-Host ""
 
-New-Item -ItemType Directory -Force -Path $HOOKS_DIR | Out-Null
-
-# Remove legacy hook filename from earlier releases
-$legacyHook = Join-Path $HOOKS_DIR "check-make-app-ticket-sync.js"
-if (Test-Path $legacyHook) { Remove-Item -Force $legacyHook }
-
-$localHooksDir = if ($ScriptDir) { Join-Path $ScriptDir "hooks" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localHooksDir)) {
-    Copy-Item -Force (Join-Path $ScriptDir "hooks\*.js") $HOOKS_DIR
-    foreach ($file in (Get-ChildItem -Path $HOOKS_DIR -Filter "*.js")) {
-        Write-Ok "hooks/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $HOOK_FILES) {
-        $outPath = Join-Path $HOOKS_DIR $file
-        if (Download-File "$baseUrl/hooks/$file" $outPath) {
-            Write-Ok "hooks/$file"
-        }
-        else {
-            Write-Warn "hooks/$file (download failed)"
-        }
+foreach ($file in $DEPRECATED_RULE_FILES) {
+    $rulePath = Join-Path $RULES_DIR $file
+    if (Test-Path $rulePath) {
+        Remove-Item -Force $rulePath
+        Write-Ok "removed rules/$file"
     }
 }
 
-# ── Register stop hook in ~/.cursor/hooks.json (merge, don't overwrite) ──
-try {
-    $cfg = $null
-    if (Test-Path $HOOKS_JSON) {
-        try { $cfg = Get-Content $HOOKS_JSON -Raw | ConvertFrom-Json } catch { $cfg = $null }
-    }
-    if (-not $cfg) {
-        $cfg = [pscustomobject]@{ version = 1; hooks = [pscustomobject]@{} }
-    }
-    if (-not ($cfg.PSObject.Properties.Name -contains 'version')) {
-        $cfg | Add-Member -NotePropertyName version -NotePropertyValue 1
-    }
-    if (-not ($cfg.PSObject.Properties.Name -contains 'hooks') -or -not $cfg.hooks) {
-        $cfg | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) -Force
-    }
+# ── Cleanup deprecated stop hooks from earlier releases ──
+# Removed in 1.12.0 — stop-hook enforcement was replaced with strict static TODO
+# templates per work type (see rules/make-app-todo-*.mdc). Delete any leftover
+# hook script and prune its registration from ~/.cursor/hooks.json so old
+# installs stop firing.
+Write-Host ""
+Write-Info "Removing deprecated stop hooks (replaced by static TODO templates)..."
+Write-Host ""
 
-    $stopList = @()
-    if ($cfg.hooks.PSObject.Properties.Name -contains 'stop' -and $cfg.hooks.stop) {
-        $stopList = @($cfg.hooks.stop)
-    }
-
-    $cmd = "node ./hooks/make-app-auto-actions-check.js"
-    $legacyCmd = "node ./hooks/check-make-app-ticket-sync.js"
-
-    # Drop legacy registration from earlier releases
-    $filtered = @()
-    $removedLegacy = $false
-    foreach ($h in $stopList) {
-        if ($h -and ($h.PSObject.Properties.Name -contains 'command') -and $h.command -eq $legacyCmd) {
-            $removedLegacy = $true
-            continue
+if (Test-Path $HOOKS_DIR) {
+    foreach ($file in $DEPRECATED_HOOK_FILES) {
+        $hookPath = Join-Path $HOOKS_DIR $file
+        if (Test-Path $hookPath) {
+            Remove-Item -Force $hookPath
+            Write-Ok "removed hooks/$file"
         }
-        $filtered += $h
-    }
-    $stopList = $filtered
-
-    $exists = $false
-    foreach ($h in $stopList) {
-        if ($h -and ($h.PSObject.Properties.Name -contains 'command') -and $h.command -eq $cmd) {
-            $exists = $true; break
-        }
-    }
-
-    $changed = $false
-    if (-not $exists) {
-        $stopList += [pscustomobject]@{ command = $cmd; timeout = 15; loop_limit = 1 }
-        $changed = $true
-    }
-    if ($changed -or $removedLegacy) {
-        if ($cfg.hooks.PSObject.Properties.Name -contains 'stop') {
-            $cfg.hooks.stop = $stopList
-        } else {
-            $cfg.hooks | Add-Member -NotePropertyName stop -NotePropertyValue $stopList -Force
-        }
-        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $HOOKS_JSON -Encoding UTF8
-        Write-Ok "hooks.json (stop hook registered)"
-    }
-    else {
-        Write-Ok "hooks.json (stop hook already registered)"
     }
 }
-catch {
-    Write-Warn "hooks.json (could not register — add manually): $($_.Exception.Message)"
+
+if (Test-Path $HOOKS_JSON) {
+    try {
+        $cfg = Get-Content $HOOKS_JSON -Raw | ConvertFrom-Json
+        if ($cfg -and ($cfg.PSObject.Properties.Name -contains 'hooks') -and $cfg.hooks `
+            -and ($cfg.hooks.PSObject.Properties.Name -contains 'stop') -and $cfg.hooks.stop) {
+            $deprecatedCmds = @(
+                "node ./hooks/make-app-auto-actions-check.js",
+                "node ./hooks/check-make-app-ticket-sync.js"
+            )
+            $stopList = @($cfg.hooks.stop)
+            $filtered = @()
+            $pruned = $false
+            foreach ($h in $stopList) {
+                if ($h -and ($h.PSObject.Properties.Name -contains 'command') -and ($deprecatedCmds -contains $h.command)) {
+                    $pruned = $true
+                    continue
+                }
+                $filtered += $h
+            }
+            if ($pruned) {
+                if ($filtered.Count -eq 0) {
+                    $cfg.hooks.PSObject.Properties.Remove('stop')
+                } else {
+                    $cfg.hooks.stop = $filtered
+                }
+                $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $HOOKS_JSON -Encoding UTF8
+                Write-Ok "hooks.json (deprecated stop hooks pruned)"
+            }
+        }
+    }
+    catch {
+        # Silent — never block install on hooks.json parse failure
+    }
 }
 
 # ── Install MCP Server ──

@@ -55,7 +55,7 @@ cd make-custom-app-skill
 
 > **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
-Both methods install skill files to `~/.cursor/skills/make-custom-app/`, rule files to `~/.cursor/rules/make-custom-app/`, and hook scripts to `~/.cursor/hooks/` (registered as a `stop` hook in `~/.cursor/hooks.json`).
+Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`. The installer also removes deprecated rule files from earlier releases (`make-app-auto-actions.mdc` and `make-app-code-review.mdc`, replaced in 1.12.0 by the split `make-app-workflow.mdc` + `make-app-todo-*.mdc` rules and the `skill/workflows/code-review.md` workflow) and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
 
 After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
@@ -100,12 +100,14 @@ make-custom-app-skill/
 │       ├── test-function.js           #   IML function test runner
 │       ├── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
 │       └── download-jira-ticket-attachment.js  #   Jira attachment downloader
-├── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
-│   ├── make-app-code-review.mdc        #   Code review input requirements & output format
-│   ├── make-app-auto-actions.mdc       #   Mandatory auto-actions (context, sync, tickets, UX)
-│   └── work-discipline.mdc            #   Systematic work habits & anti-hallucination
-└── hooks/                              # → installed to ~/.cursor/hooks/ (registered in ~/.cursor/hooks.json)
-    └── make-app-auto-actions-check.js  #   Stop hook: verifies make-app-auto-actions.mdc checklist (context update, Pinecone sync, function/component tests, dev notes, post-review transition)
+└── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
+    ├── make-app-workflow.mdc           #   Mandatory pre/during/post actions for any app session
+    ├── make-app-todo-rules.mdc         #   Static TODO discipline — universal rules + Common Pre/Post + selection matrix
+    ├── make-app-todo-bugfix.mdc        #   § B Bugfix template (17 items, fetched on bug work)
+    ├── make-app-todo-feature.mdc       #   § N New / Feature template (18 items, fetched on new component / app)
+    ├── make-app-todo-task.mdc          #   § T App Task template (16 items, fetched on refactor / metadata / UX)
+    ├── make-app-todo-review.mdc        #   § R Code Review template (15 items, fetched on review request)
+    └── work-discipline.mdc             #   Systematic work habits & anti-hallucination
 ```
 
 ### Skill vs Rules
@@ -163,17 +165,17 @@ make-custom-app-skill/
 
 ### Rule Files (`~/.cursor/rules/make-custom-app/`)
 
-| File | Description |
-|------|-------------|
-| `make-app-code-review.mdc` | Code review requirements: input validation, Jira-driven process, output format, developer message, post-review actions. References `code-review-criteria.md` for detailed criteria. |
-| `make-app-auto-actions.mdc` | Mandatory auto-actions: version check, code download/sync, test execution, UX reference, runtime verification, context update, Pinecone sync, developer notes. |
-| `work-discipline.mdc` | Systematic work habits: full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
+Split per concern so each file stays short, focused, and is loaded only when relevant:
 
-### Hook Scripts (`~/.cursor/hooks/`)
-
-| File | Description |
-|------|-------------|
-| `make-app-auto-actions-check.js` | **Stop hook** — scans the session transcript and blocks the stop event when any mandatory action from `make-app-auto-actions.mdc` was skipped. Enforces: §6 (IML function `test.js` + `test-function.js` run on `code.js` change), §6-2 (`test-component.js` run on `api.imljson` change outside code review), §8 (Developer Notes offered/written after write scripts), §9 (context file updated), §10 (`upsert_app_context` + `upsert_jira_ticket` called), and post-review transition when the user replies "committed" / "returned". Installed globally and registered in `~/.cursor/hooks.json` (`loop_limit: 1`, fail-open on errors). |
+| File | When loaded | Description |
+|------|-------------|-------------|
+| `make-app-workflow.mdc` | always | Pre / During / After Work checklist — runtime path check, version check, code sync, auto-execute scripts, Jira attachments, UX reads, IML function tests, runtime reference, post-work context update. |
+| `make-app-todo-rules.mdc` | always | Static TODO discipline — 9 universal rules (verbatim creation, no add / merge / split / reorder, single `in_progress`, `[GATE]` discipline, `[CANCELLED: <reason>]` prefix, no template swap), Common Pre/Post blocks shared by every template, and the template selection matrix. |
+| `make-app-todo-bugfix.mdc` | on bug work | § B Bugfix template (17 items). |
+| `make-app-todo-feature.mdc` | on new component / app | § N New / Feature Implementation template (18 items). |
+| `make-app-todo-task.mdc` | on refactor / metadata / UX | § T App Task template (16 items). |
+| `make-app-todo-review.mdc` | on code review | § R Code Review template (15 items). The full review process — inputs, Atlassian MCP check, Jira-driven flow, output format, Developer Message, post-review disposition gate, re-review, no-Jira fallback — lives in `skill/workflows/code-review.md` (loaded together by the agent). |
+| `work-discipline.mdc` | always | Systematic work habits — full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
 
 ## First Use
 
