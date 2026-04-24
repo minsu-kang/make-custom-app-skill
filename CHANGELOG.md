@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.11.5] - 2026-04-24
+
+- `download-app.js` — extend `metadata.json` to capture compilation + branding + per-zone visibility: `approved` (compilation state — `false` = not yet compiled, `true` = compiled), `compile`, `compilationError`, `theme`, `public`, `beta`, `language`, `countries`, `global` come from the SDK version endpoint; `ipmDeployedToZone`, `private`, `packagePrivate`, `deprecated` (and per-module `private` / `deprecated`) come from a second, admin-only call to `GET {zone}/api/v2/admin/apps/{slug}` matched to the requested major version. The admin call gracefully handles `200` / `403` / `404` (404 = compiled but not IPM-deployed to this zone) and leaves visibility flags `null` when the data is not available.
+- `SKILL.md` § "Important Notes" — document two related but distinct concepts:
+  1. `approved` reflects compilation state (not Make-team production approval).
+  2. Scenario-builder visibility is governed by `versions[*].private` + `versions[*].deprecated` (and the same fields per-module). `private: false` + `deprecated: false` = visible & usable; `private: true` = hidden; `deprecated: true` = hidden in builder but kept in scenarios already using it. The visibility data only exists for apps **IPM-deployed to that specific zone** — `200` / `403` / `404` semantics on the admin endpoint are spelled out so reviewers do not misread a 404 as "app missing". `approved: true` is necessary but not sufficient for production visibility.
+- `hooks/make-app-auto-actions-check.js` — fix §8 (Developer Notes) false positives:
+  1. Skip §8 entirely for code reviews — Dev Notes are the developer's responsibility, not the reviewer's. Code reviews follow §7 of `make-app-code-review.mdc` (disposition prompt + `post-review-transition.js`) instead.
+  2. Broaden the user-decline detector to Korean (`적는 게 아니다`, `쓰지 마`, `안 적`, `필요 없`, `스킵`, `됐다`, etc. adjacent to `dev note` / `developer notes` / `개발자 노트` / `노트`) and scan the **entire** user-message history instead of only the last message — once the user has declined, the rule says "skip, do not ask again" and the decision must persist across turns.
+  3. Broaden the "already prompted" detector to match Korean wording (`Developer Notes를 작성할까요`, `개발자 노트 …` etc.) and to inspect `AskQuestion` tool inputs in addition to assistant prose.
+
 ## [1.11.4] - 2026-04-23
 
 - Add `hooks/make-app-auto-actions-check.js` — Cursor stop hook that enforces the full `make-app-auto-actions.mdc` post-work checklist at session end. Blocks the stop event (with an actionable reminder) when any of the following are missing: §6 (IML function `test.js` update + `test-function.js` run after `code.js` change), §6-2 (`test-component.js` run after `api.imljson` change outside code review), §8 (Developer Notes offered/written after a write script + Jira ticket), §9 (`~/.cursor/make-app-contexts/{slug}-v{version}.md` update), §10 (`upsert_app_context` + `upsert_jira_ticket` per detected ticket), and post-review transition (`post-review-transition.js`) when the user replies "committed" / "returned". Fail-open on any internal error so it never breaks a session; `loop_limit: 1` prevents infinite loops.

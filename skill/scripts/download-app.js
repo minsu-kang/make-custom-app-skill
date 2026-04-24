@@ -306,10 +306,53 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 
 	// --- Metadata ---
 	const appInfo = await apiGetJson(
-		`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull&cols[]=manifestVersion`,
+		`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull&cols[]=manifestVersion&cols[]=approved&cols[]=compile&cols[]=compilationError&cols[]=theme&cols[]=public&cols[]=beta&cols[]=language&cols[]=countries&cols[]=global`,
 		auth,
 	);
 	const appObj = appInfo?.app || appInfo || {};
+
+	// Visibility info (private/deprecated for app + modules) lives on the
+	// admin app endpoint, NOT the SDK version endpoint. This call is per-zone:
+	//   GET {zone}/api/v2/admin/apps/{slug}  →  { app: { versions: [...] } }
+	// Response status interpretation:
+	//   200 → app IPM-deployed to this zone; versions[*] carries private/deprecated
+	//   403 → admin role but no access to this endpoint
+	//   404 → app compiled but NOT IPM-deployed to this zone (unusable in builder)
+	console.log('\n=== Visibility (admin app endpoint) ===');
+	const adminBase = baseUrl.replace(/\/sdk$/, '');
+	const adminUrl = `${adminBase}/apps/${appSlug}`;
+	let verRow = null;
+	let ipmDeployed = null;
+	try {
+		const adminFetch = await fetch(adminUrl, {
+			headers: { Authorization: auth, 'x-imt-apps-sdk-version': '2.4.0' },
+		});
+		if (adminFetch.status === 200) {
+			const adminAppInfo = await adminFetch.json();
+			const adminVersions = adminAppInfo?.app?.versions || [];
+			verRow =
+				adminVersions.find((v) => String(v.version) === String(appVersion)) ||
+				adminVersions.find((v) => parseInt(v.version, 10) === parseInt(appVersion, 10)) ||
+				null;
+			ipmDeployed = true;
+			console.log(`  ✓ IPM-deployed to ${origin || new URL(baseUrl).hostname} (${adminVersions.length} version row(s))`);
+		} else if (adminFetch.status === 404) {
+			ipmDeployed = false;
+			console.log(`  · 404 → app not IPM-deployed to this zone (compiled but not published). Visibility flags = null.`);
+		} else if (adminFetch.status === 403) {
+			ipmDeployed = null;
+			console.log(`  · 403 → caller lacks admin access to this endpoint. Visibility flags = null.`);
+		} else {
+			ipmDeployed = null;
+			console.log(`  · HTTP ${adminFetch.status} on admin endpoint. Visibility flags = null.`);
+		}
+	} catch (err) {
+		ipmDeployed = null;
+		console.log(`  · admin endpoint error: ${err.message}. Visibility flags = null.`);
+	}
+	const moduleVisibility = new Map(
+		(verRow?.modules || []).map((m) => [m.name, { private: m.private ?? null, deprecated: m.deprecated ?? null }]),
+	);
 
 	const metadata = {
 		slug: appSlug,
@@ -318,8 +361,30 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		label: appObj.label || appSlug,
 		description: appObj.description || '',
 		manifestVersion: appObj.manifestVersion ?? 1,
+		approved: appObj.approved ?? null,
+		compile: appObj.compile ?? null,
+		compilationError: appObj.compilationError ?? null,
+		ipmDeployedToZone: ipmDeployed,
+		theme: appObj.theme ?? null,
+		public: appObj.public ?? null,
+		private: verRow?.private ?? null,
+		packagePrivate: verRow?.packagePrivate ?? null,
+		deprecated: verRow?.deprecated ?? null,
+		beta: appObj.beta ?? verRow?.beta ?? null,
+		language: appObj.language ?? null,
+		countries: appObj.countries ?? null,
+		global: appObj.global ?? null,
 		downloadedAt: new Date().toISOString(),
-		modules: modules.map((m) => ({ name: m.name, label: m.label, typeId: m.typeId })),
+		modules: modules.map((m) => {
+			const vis = moduleVisibility.get(m.name) || {};
+			return {
+				name: m.name,
+				label: m.label,
+				typeId: m.typeId,
+				private: vis.private ?? null,
+				deprecated: vis.deprecated ?? m.deprecated ?? null,
+			};
+		}),
 		connections: connections.map((c) => ({
 			name: c.name,
 			label: c.label,

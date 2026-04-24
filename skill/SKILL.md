@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.11.4
+version: 1.11.5
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -249,6 +249,18 @@ These values can be overridden in `common.imljson`:
 - `editable: true` → connection `parameters.imljson` only (deprecated in module expect)
 - Connection reserved words: Do not use `teamID`, `accountName`
 - Common data cannot be changed after app approval
+- App metadata `approved` field reflects **compilation state**, not production approval: `approved: false` = app not yet compiled; `approved: true` = app already compiled. Do NOT interpret it as "in production / approved by Make team".
+- App/module **visibility in Make scenario builder** is controlled by `private` + `deprecated` (per `app.versions[*]` and `app.versions[*].modules[*]`, fetched via `GET {zone}/api/v2/admin/apps/{slug}`):
+  - `private: false` + `deprecated: false` → **visible & usable** in scenario builder (full production)
+  - `private: true` → not visible in scenario builder (regardless of `deprecated`)
+  - `deprecated: true` → not visible in scenario builder regardless of `private`, **but** scenarios already using it still render it
+  - Same logic applies independently at the module level (`versions[*].modules[*].private` / `.deprecated`) — a public version can still hide individual modules
+  - `approved: true` (compiled) is necessary but **not sufficient** for production-visible. Always also check `private` + `deprecated` per zone.
+- The `GET {zone}/api/v2/admin/apps/{slug}` endpoint is **admin-only** and **per-zone**. Response status interpretation:
+  - `200` → app is **IPM-deployed** to that zone; `app.versions[*]` carries the `private` / `deprecated` / `packagePrivate` / `modules[*].private` / `modules[*].deprecated` flags
+  - `403` → caller has admin role but lacks access to this specific endpoint
+  - `404` → app is compiled but **not yet deployed to this zone via IPM (Integromat Package Manager)** → unusable in that zone's scenario builder regardless of `approved`/`private` state
+  - Visibility must be checked per zone an app targets (eu1, us1, …); a 404 in one zone does not imply 404 in others.
 - Triggers use Static Parameters only (cannot map as it's the first module)
 - Trigger sorting: `desc` recommended (3200 record limit)
 - IMLJSON allows comments (`//`)

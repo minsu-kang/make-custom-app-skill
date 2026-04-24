@@ -105,6 +105,9 @@ function analyzeTranscript(messages) {
 
 	const postReviewDisposition = detectDisposition(lastUserMessage, agentText);
 
+	const devNotesDeclined = detectDevNotesDecline(messages);
+	const devNotesPrompted = detectDevNotesPrompted(agentText, toolCalls);
+
 	const touchedMakeApp = detectMakeAppWork({
 		body,
 		toolCalls,
@@ -125,6 +128,8 @@ function analyzeTranscript(messages) {
 		usedWriteScript,
 		isCodeReview,
 		postReviewDisposition,
+		devNotesDeclined,
+		devNotesPrompted,
 		touchedMakeApp,
 		lastUserMessage,
 		agentText,
@@ -202,6 +207,78 @@ function detectDisposition(lastUser, agentText) {
 	if (/\breturn(ed)?\b\s*(to\s+developer)?/.test(t) || /\bsend\s+back\b/.test(t))
 		return 'returned';
 	return null;
+}
+
+/**
+ * Detect whether the user has declined the Developer Notes prompt at any point
+ * in the conversation. Scans all user messages (after stripping any re-injected
+ * hook output) for negation phrases adjacent to "developer notes" / "dev notes" /
+ * "노트" / "customfield_10483". Multilingual.
+ *
+ * Once the user has declined, the rule says "skip, do not ask again" — so the
+ * decision must persist across subsequent turns, not just match the most recent
+ * user message.
+ */
+function detectDevNotesDecline(messages) {
+	const declineNear = new RegExp(
+		// English negation/decline tokens
+		String.raw`(?:` +
+			String.raw`(?:\bno\b|\bnope\b|\bskip\b|\bdon'?t\b|\bdo\s*not\b|\bdecline\b|\bnot\s+now\b|\bnever\b|\bno\s+thanks?\b|` +
+			// Korean negation/decline tokens (common patterns)
+			String.raw`적는\s*게\s*아니|적지\s*마|쓰지\s*마|쓰지\s*않|안\s*적|안\s*써|안\s*씀|안\s*함|아니다|아니야|아니에요|필요\s*없|스킵|건너|패스|됐다|됐어|됐고)` +
+			String.raw`[^.\n]{0,80}` +
+			String.raw`(?:dev(?:eloper)?\s*notes?|customfield_10483|개발자\s*노트|디벨로퍼\s*노트|노트)` +
+			String.raw`)|(?:` +
+			// Same patterns but with "notes" first
+			String.raw`(?:dev(?:eloper)?\s*notes?|customfield_10483|개발자\s*노트|디벨로퍼\s*노트|노트)` +
+			String.raw`[^.\n]{0,80}` +
+			String.raw`(?:\bno\b|\bnope\b|\bskip\b|\bdon'?t\b|\bdo\s*not\b|\bdecline\b|\bnot\s+now\b|\bnever\b|\bno\s+thanks?\b|` +
+			String.raw`적는\s*게\s*아니|적지\s*마|쓰지\s*마|쓰지\s*않|안\s*적|안\s*써|안\s*씀|안\s*함|아니다|아니야|아니에요|필요\s*없|스킵|건너|패스|됐다|됐어|됐고))`,
+		'i',
+	);
+
+	for (const m of messages) {
+		const role = m?.message?.role || m?.role;
+		if (role !== 'user') continue;
+		const content = m?.message?.content;
+		const texts = [];
+		if (typeof content === 'string') texts.push(content);
+		else if (Array.isArray(content)) {
+			for (const c of content) {
+				if (typeof c === 'string') texts.push(c);
+				else if (c && typeof c.text === 'string') texts.push(c.text);
+			}
+		}
+		for (const t of texts) {
+			const clean = stripHookOutput(t);
+			if (declineNear.test(clean)) return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Detect whether the agent has already prompted the user about Developer Notes.
+ * Looks at both:
+ *   - assistant prose (agentText) for "Shall I write Developer Notes ...",
+ *     "Developer Notes를 작성할까요" etc., in any language
+ *   - structured tool calls (AskQuestion) whose prompt mentions developer notes
+ *     or customfield_10483
+ */
+function detectDevNotesPrompted(agentText, toolCalls) {
+	const promptRe =
+		/(?:shall\s+i\s+write\s+developer\s+notes)|(?:write\s+developer\s+notes\??)|(?:developer\s+notes[^.\n]{0,30}(?:작성|기록|쓸까|쓰[시지]|적[시지을]?|남길까|넣을까))|(?:customfield_10483)|(?:개발자\s*노트[^.\n]{0,30}(?:작성|기록|쓸까|쓰[시지]|적[시지을]?|남길까|넣을까))/i;
+
+	if (promptRe.test(agentText || '')) return true;
+
+	for (const t of toolCalls || []) {
+		if (!/^AskQuestion$/i.test(t.name || '')) continue;
+		try {
+			const blob = JSON.stringify(t.input || {});
+			if (promptRe.test(blob)) return true;
+		} catch (_) {}
+	}
+	return false;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -287,22 +364,19 @@ function runChecks(ctx) {
 	}
 
 	// §8: write script on a Jira ticket → Developer Notes acknowledged
-	if (ctx.usedWriteScript && ctx.ticketKeys.length > 0) {
-		const prompted = /shall i write developer notes|write developer notes\??/i.test(
-			ctx.agentText,
-		);
+	//
+	// Skip entirely for code reviews — Developer Notes are the *developer's*
+	// responsibility (their own explanation of what they changed and why), not
+	// the reviewer's. Code reviews follow §7 of make-app-code-review.mdc instead
+	// (disposition prompt + post-review-transition.js).
+	if (!ctx.isCodeReview && ctx.usedWriteScript && ctx.ticketKeys.length > 0) {
 		const wrote = ctx.toolCalls.some(
 			(t) =>
 				(t.name === 'editJiraIssue' ||
 					(t.mcp && t.name && t.name.toLowerCase().includes('edit'))) &&
 				JSON.stringify(t.input || {}).includes('customfield_10483'),
 		);
-		const userDeclined =
-			ctx.lastUserMessage &&
-			/\b(no|skip|don'?t|decline|not\s+now)\b.*\bdev(eloper)?\s*notes?\b/i.test(
-				ctx.lastUserMessage,
-			);
-		if (!wrote && !prompted && !userDeclined) {
+		if (!wrote && !ctx.devNotesPrompted && !ctx.devNotesDeclined) {
 			failures.push({
 				id: '§8',
 				title: 'Developer Notes neither written nor offered',
