@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.11.7] - 2026-04-24
+
+- `hooks/make-app-auto-actions-check.js` — fix §8 Developer Notes false-positive that re-prompted across sessions for tickets the user had already declined. The previous `detectDevNotesDecline` only matched explicit "no + notes-keyword" phrases (`"don't write developer notes"`, `"노트 적지마"`), so context-implicit Korean replies like `"ㄴㄴ"` / `"ㄴㄴ 작성하지마셈"` (right after the agent's "Developer Notes를 작성할까요?" prompt) were never recognized as declines and the hook kept asking forever. Detection now walks messages in conversation order and accepts a second form: a short standalone-negation user reply (`ㄴㄴ`, `ㄴ`, `아니`, `싫`, `필요없`, `no`, `nope`, `nah`, `skip`, `pass`, `decline`, `not now`, `no thanks`, …) immediately following an assistant turn that contained the dev-notes prompt. The original explicit-form regex is preserved for cases where the user volunteers a decline without being prompted.
+
 ## [1.11.6] - 2026-04-24
 
 - `runtime-reference.md` — add new § "IML Variable Path Syntax" section documenting a critical gotcha verified against `imt-iml/lib/utils.js` `mapVariable`: **IML path indices are 1-based, not 0-based.** Includes a behavior table (`foo[]` = `foo[1]` = first element; `foo[0]` → `undefined`), implications for `response.output` / `response.iterate`, dynamic index evaluation, and the internal `` foo.`1` `` dotted-number stringify form.

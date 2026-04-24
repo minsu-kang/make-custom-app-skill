@@ -220,6 +220,8 @@ function detectDisposition(lastUser, agentText) {
  * user message.
  */
 function detectDevNotesDecline(messages) {
+	// "Word near notes" decline — explicit form ("don't write developer notes",
+	// "노트 작성하지 마" etc.). Requires negation + notes-ish keyword adjacency.
 	const declineNear = new RegExp(
 		// English negation/decline tokens
 		String.raw`(?:` +
@@ -237,22 +239,54 @@ function detectDevNotesDecline(messages) {
 		'i',
 	);
 
-	for (const m of messages) {
-		const role = m?.message?.role || m?.role;
-		if (role !== 'user') continue;
+	// Standalone negation — short user reply with no notes keyword. Only counts
+	// as a decline when the IMMEDIATELY PRECEDING assistant turn asked the
+	// dev-notes question (context-implicit decline). Examples that should
+	// trigger only in that context:
+	//   "ㄴㄴ", "ㄴㄴ 작성하지마셈", "no", "no thanks", "skip", "ㄴㄴㄴ",
+	//   "아니", "안 함", "필요없음", "ㄴ ㄴ"
+	// NOTE: Hangul characters do not participate in JS \b word boundaries, so
+	// instead of \b we anchor at start and require either end-of-string or a
+	// non-Hangul / non-word follow char. This lets "ㄴㄴ" match while still
+	// rejecting things like "노" alone or longer mid-sentence words.
+	const standaloneNegationRe = new RegExp(
+		String.raw`^\s*(?:` +
+			String.raw`ㄴ{2,}|ㄴ\s+ㄴ|아니(?:[야다요])?|싫(?:어)?|필요\s*없\S*|건너[^\s]*|패스|스킵|` +
+			String.raw`no|nope|nah|skip|pass|never|don'?t|do\s*not|decline|not\s+now|no\s+thanks?` +
+			String.raw`)(?:\s|[.!?,]|$)`,
+		'i',
+	);
+
+	const promptRe =
+		/(?:shall\s+i\s+write\s+developer\s+notes)|(?:write\s+developer\s+notes\??)|(?:developer\s+notes[^.\n]{0,30}(?:작성|기록|쓸까|쓰[시지]|적[시지을]?|남길까|넣을까))|(?:customfield_10483)|(?:개발자\s*노트[^.\n]{0,30}(?:작성|기록|쓸까|쓰[시지]|적[시지을]?|남길까|넣을까))/i;
+
+	const collectText = (m) => {
 		const content = m?.message?.content;
-		const texts = [];
-		if (typeof content === 'string') texts.push(content);
+		const out = [];
+		if (typeof content === 'string') out.push(content);
 		else if (Array.isArray(content)) {
 			for (const c of content) {
-				if (typeof c === 'string') texts.push(c);
-				else if (c && typeof c.text === 'string') texts.push(c.text);
+				if (typeof c === 'string') out.push(c);
+				else if (c && typeof c.text === 'string') out.push(c.text);
 			}
 		}
-		for (const t of texts) {
-			const clean = stripHookOutput(t);
-			if (declineNear.test(clean)) return true;
+		return out.join('\n');
+	};
+
+	let prevAssistantText = '';
+	for (const m of messages) {
+		const role = m?.message?.role || m?.role;
+		if (role === 'assistant') {
+			prevAssistantText = collectText(m);
+			continue;
 		}
+		if (role !== 'user') continue;
+		const userText = stripHookOutput(collectText(m));
+		if (!userText) continue;
+		// Form 1: explicit decline mentioning notes
+		if (declineNear.test(userText)) return true;
+		// Form 2: short standalone negation following a dev-notes prompt
+		if (promptRe.test(prevAssistantText) && standaloneNegationRe.test(userText.trim())) return true;
 	}
 	return false;
 }
