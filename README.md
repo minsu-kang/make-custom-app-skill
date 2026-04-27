@@ -1,27 +1,40 @@
-# Make Custom App Skill for Cursor
+# Make Custom App Skill for Cursor and Claude Code
 
-An AI skill that helps you build and edit [Make.com](https://www.make.com/) custom apps using IMLJSON — directly inside [Cursor](https://cursor.sh/).
+An AI skill that helps you build and edit [Make.com](https://www.make.com/) custom apps using IMLJSON — directly inside [Cursor](https://cursor.sh/) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Works with the **Make Apps SDK** VS Code/Cursor extension. The agent understands Make's IMLJSON format, module types, connections, RPCs, webhooks, pagination, error handling, and runtime internals.
 
 ## What It Does
 
 - **Write IMLJSON code** — modules (Action, Search, Trigger, Instant Trigger, Responder, Universal), connections (OAuth2, API Key, Basic), RPCs, webhooks, custom IML functions
-- **Auto-manage app context** — downloads and caches full app source code per app, persists across Cursor sessions
+- **Auto-manage app context** — downloads and caches full app source code per app, persists across sessions
 - **Code review with Jira integration** — reviews uncommitted changes against Jira ticket acceptance criteria via Atlassian MCP
 - **Reference runtime internals** — knows the middleware chain, pagination logic, limits, error types, and edge cases from `imt-app-runtime`
 - **Provide real-world examples** — includes Instagram for Business (v5) as a complete reference app
 
 ## Prerequisites
 
+### Cursor
+
 - [Cursor](https://cursor.sh/) installed
 - [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension installed and configured (API key + environment)
 - Node.js (for the app download script)
+- *(Optional)* Pinecone API key + OpenAI API key — required for the shared app context MCP server (team-wide Pinecone vector DB)
 - *(Optional)* [Atlassian MCP Server](https://www.npmjs.com/package/@anthropic/atlassian-mcp-server) configured in Cursor — enables automatic Jira ticket fetching during code reviews
+
+### Claude Code
+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
+- Node.js (for the MCP server and app scripts)
+- [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension installed and configured (API key + environment)
+- *(Optional)* Pinecone API key + OpenAI API key — required for the shared app context MCP server (team-wide Pinecone vector DB)
+- *(Optional)* Atlassian MCP Server configured — enables Jira ticket fetching during code reviews
 
 ## Installation
 
-### macOS / Linux
+### Cursor
+
+#### macOS / Linux
 
 **Option 1: One-liner**
 
@@ -37,7 +50,7 @@ cd make-custom-app-skill
 ./install.sh
 ```
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 **Option 1: One-liner**
 
@@ -59,69 +72,71 @@ Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule
 
 After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
-## Repository Structure
+### Claude Code
 
-```
-make-custom-app-skill/
-├── README.md
-├── install.sh                         # Installer (macOS/Linux)
-├── install.ps1                        # Installer (Windows)
-├── skill/                              # → installed to ~/.cursor/skills/make-custom-app/
-│   ├── SKILL.md                        #   Core domain knowledge + workflow routing
-│   ├── workflows/                      #   Workflow instructions (trigger-based)
-│   │   ├── app-context.md              #   App detection, code download/sync, context management
-│   │   ├── code-review.md             #   Fetch changes, review, generate report
-│   │   ├── bug-investigation.md       #   Root cause analysis, fix, verify
-│   │   ├── feature-request.md         #   Design, create, implement new components
-│   │   ├── app-task.md                #   UX fixes, refactoring, metadata changes
-│   │   └── pinecone-sync.md           #   Auto-sync context to shared Pinecone DB
-│   └── references/                     #   Reference documents (on-demand)
-│       ├── builtin-iml-functions.md    #   IML function reference
-│       ├── communication-reference.md  #   Communication (API) spec
-│       ├── parameters-reference.md     #   Parameters, Interface, RPC patterns
-│       ├── component-patterns-reference.md  #  Base, Connection, Error, Webhook, Trigger, Responder
-│       ├── custom-functions-reference.md    #  Custom IML function conventions
-│       ├── developer-notes-templates.md     #  Developer Notes templates
-│       ├── app-ux-best-practices.md    #   App UX best practices
-│       ├── polling-trigger-guide.md   #   Polling trigger implementation guide
-│       ├── component-test-guide.md    #   Component integration test guide (make-apps-mockup)
-│       ├── code-review-criteria.md    #   Detailed review criteria (ES6+, code quality, tests, UX)
-│       ├── security-reference.md      #   Security checklist (credentials, OAuth, webhook, SSRF, injection)
-│       ├── code-smells-reference.md   #   Quality thresholds + IMLJSON-specific code smells
-│       ├── examples.md                 #   Instagram app examples
-│       └── runtime-reference.md        #   imt-app-runtime internals
-│   └── scripts/                        #   Automation scripts
-│       ├── download-app.js             #   App source code downloader
-│       ├── update-app.js               #   Push code changes to Make via SDK API
-│       ├── review-changes.js           #   Code review change fetcher
-│       ├── create-component.js         #   Create new components (module, rpc, function, connection, webhook)
-│       ├── update-component.js         #   Update component metadata (label, description, connection)
-│       ├── delete-component.js         #   Delete components (with public/private app check)
-│       ├── test-function.js           #   IML function test runner
-│       ├── test-component.js          #   Component integration test runner (module, RPC, connection, webhook)
-│       └── download-jira-ticket-attachment.js  #   Jira attachment downloader
-└── rules/                              # → installed to ~/.cursor/rules/make-custom-app/
-    ├── make-app-workflow.mdc           #   Mandatory pre/during/post actions for any app session
-    ├── make-app-todo-rules.mdc         #   Static TODO discipline — universal rules + Common Pre/Post + selection matrix
-    ├── make-app-todo-bugfix.mdc        #   § B Bugfix template (17 items, fetched on bug work)
-    ├── make-app-todo-feature.mdc       #   § N New / Feature template (18 items, fetched on new component / app)
-    ├── make-app-todo-task.mdc          #   § T App Task template (16 items, fetched on refactor / metadata / UX)
-    ├── make-app-todo-review.mdc        #   § R Code Review template (15 items, fetched on review request)
-    └── work-discipline.mdc             #   Systematic work habits & anti-hallucination
+#### macOS / Linux
+
+**Option 1: One-liner**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.sh | bash
 ```
 
-### Skill vs Rules
+**Option 2: Clone & install**
 
-| | Skill (`skill/`) | Rules (`rules/`) |
-|---|---|---|
-| **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/make-custom-app/` |
-| **When loaded** | On-demand (when Make app work is detected) | Always active |
-| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Behavioral directives referencing detailed docs |
-| **Size** | Large (SKILL.md + workflows + references + scripts) | Concise (~100-180 lines per rule) |
+```bash
+git clone https://github.com/minsu-kang/make-custom-app-skill.git
+cd make-custom-app-skill
+./install-claude.sh
+```
+
+Re-run with `--update` to overwrite skill files while preserving your config, or `--force` for a clean reinstall:
+
+```bash
+./install-claude.sh --update
+./install-claude.sh --force
+```
+
+#### Windows (PowerShell)
+
+**Option 1: One-liner**
+
+```powershell
+irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.ps1 | iex
+```
+
+**Option 2: Clone & install**
+
+```powershell
+git clone https://github.com/minsu-kang/make-custom-app-skill.git
+cd make-custom-app-skill
+.\install-claude.ps1
+```
+
+Use `-Mode update` or `-Mode force` for the equivalent update/clean-install behaviour.
+
+The installer places files under `~/.claude/` and **does not touch your Cursor installation**. After installation, **restart Claude Code**. The skill activates automatically when you ask about Make custom apps.
 
 ## What Gets Installed
 
-### Skill Files (`skill/` → `~/.cursor/skills/make-custom-app/`)
+### Cursor
+
+Skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/` (see tables below — the file inventory is identical for both editors).
+
+### Claude Code
+
+| Target | Location |
+|--------|----------|
+| Skill files | `~/.claude/skills/make-custom-app/` |
+| Rule files | `~/.claude/skills/make-custom-app/rules/` |
+| Agent definition | `~/.claude/agents/make-integration-engineer.md` |
+| MCP server | `~/.claude/skills/make-custom-app/mcp-server/` |
+| MCP registration | `~/.claude/claude.json` (key: `make-custom-app`) |
+| Routing note | appended to `~/.claude/CLAUDE.md` |
+
+The routing note tells the Claude Code orchestrator to delegate any Make app work to the `make-integration-engineer` sub-agent automatically — no manual invocation needed.
+
+### Skill Files (`skill/` → `~/.cursor/skills/make-custom-app/` or `~/.claude/skills/make-custom-app/`)
 
 | File | Description |
 |------|-------------|
@@ -149,7 +164,7 @@ make-custom-app-skill/
 | `references/security-reference.md` | Security checklist — credentials, OAuth flow, webhook signature, SSRF, injection, data exposure (cited as `[SECURITY][1.2]`) |
 | `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
 
-### Script Files (`skill/scripts/` → `~/.cursor/skills/make-custom-app/scripts/`)
+### Script Files (`skill/scripts/` → `…/make-custom-app/scripts/`)
 
 | File | Description |
 |------|-------------|
@@ -163,7 +178,7 @@ make-custom-app-skill/
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 | `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in SKILL.md. |
 
-### Rule Files (`~/.cursor/rules/make-custom-app/`)
+### Rule Files (`~/.cursor/rules/make-custom-app/` or `~/.claude/skills/make-custom-app/rules/`)
 
 Split per concern so each file stays short, focused, and is loaded only when relevant:
 
@@ -176,6 +191,68 @@ Split per concern so each file stays short, focused, and is loaded only when rel
 | `make-app-todo-task.mdc` | on refactor / metadata / UX | § T App Task template (16 items). |
 | `make-app-todo-review.mdc` | on code review | § R Code Review template (15 items). The full review process — inputs, Atlassian MCP check, Jira-driven flow, output format, Developer Message, post-review disposition gate, re-review, no-Jira fallback — lives in `skill/workflows/code-review.md` (loaded together by the agent). |
 | `work-discipline.mdc` | always | Systematic work habits — full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
+
+## Repository Structure
+
+```
+make-custom-app-skill/
+├── README.md
+├── install.sh                         # Cursor installer (macOS/Linux)
+├── install.ps1                        # Cursor installer (Windows)
+├── install-claude.sh                  # Claude Code installer (macOS/Linux)
+├── install-claude.ps1                 # Claude Code installer (Windows)
+├── subagents/
+│   └── make-integration-engineer.md  # Claude Code sub-agent definition
+├── skill/                              # → installed to skills/make-custom-app/
+│   ├── SKILL.md                        #   Core domain knowledge + workflow routing
+│   ├── workflows/                      #   Workflow instructions (trigger-based)
+│   │   ├── app-context.md
+│   │   ├── code-review.md
+│   │   ├── bug-investigation.md
+│   │   ├── feature-request.md
+│   │   ├── app-task.md
+│   │   └── pinecone-sync.md
+│   ├── references/                     #   Reference documents (on-demand)
+│   └── scripts/                        #   Automation scripts
+├── rules/                              # → installed to rules/make-custom-app/
+│   ├── make-app-workflow.mdc
+│   ├── make-app-todo-rules.mdc
+│   ├── make-app-todo-bugfix.mdc
+│   ├── make-app-todo-feature.mdc
+│   ├── make-app-todo-task.mdc
+│   ├── make-app-todo-review.mdc
+│   └── work-discipline.mdc
+└── mcp-server/                         # → installed to skills/make-custom-app/mcp-server/
+    ├── index.ts                        #   MCP server entry point
+    ├── lib/                            #   Pinecone + embeddings helpers
+    └── tools/                          #   MCP tool implementations
+```
+
+### Skill vs Rules (Cursor)
+
+| | Skill (`skill/`) | Rules (`rules/`) |
+|---|---|---|
+| **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/make-custom-app/` |
+| **When loaded** | On-demand (when Make app work is detected) | Always active |
+| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Behavioral directives referencing detailed docs |
+| **Size** | Large (SKILL.md + workflows + references + scripts) | Concise (~100-180 lines per rule) |
+
+## The `make-integration-engineer` Sub-Agent (Claude Code)
+
+When you install for Claude Code, the installer deploys a sub-agent definition to `~/.claude/agents/make-integration-engineer.md`. The orchestrator (your global `~/.claude/CLAUDE.md`) automatically delegates any Make app work to this agent — you do not invoke it explicitly.
+
+**What it is:** A Claude Code sub-agent pre-loaded with the full Make domain skill (SKILL.md + all workflow and rule files). It behaves as a Make Senior Integration Engineer with knowledge of IMLJSON, IML, runtime internals, and the full SDK.
+
+**How invocation works:** The routing note appended to `~/.claude/CLAUDE.md` instructs the orchestrator: *"For any Make.com custom app work — building, debugging, reviewing, or managing Make integrations — delegate to the `make-integration-engineer` sub-agent."* The orchestrator routes matching requests automatically.
+
+**Tools available to the agent:**
+
+| Tool group | Tools |
+|------------|-------|
+| File system | `Read`, `Edit`, `Write`, `Bash`, `Glob`, `Grep` |
+| Web | `WebFetch`, `WebSearch` |
+| Atlassian MCP | `getJiraIssue`, `editJiraIssue`, `searchJiraIssuesUsingJql`, `createJiraIssue`, `getAccessibleAtlassianResources` |
+| Make MCP (Pinecone) | `upsert_app_context`, `search_app_knowledge`, `get_app_summary`, `list_apps`, `upsert_jira_ticket` |
 
 ## First Use
 
