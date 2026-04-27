@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.1] - 2026-04-27
+
+- `skill/workflows/code-review.md` § 3 — add new "Assign to reviewer (mandatory — immediately after fetch)" sub-section. Once parent + subtasks have been fetched via `getJiraIssue` and the reviewable subtask set has been determined (Done = skip, Complete = review), the reviewer is now assigned **at the start of the review** via Atlassian MCP — `getAccessibleAtlassianResources` (cache `cloudId` per session) → `lookupJiraAccountId` with the `jira-email:` value from `SKILL.md` (cache `accountId` per session) → `editJiraIssue` with `fields: { assignee: { accountId } }` for the parent and every Complete subtask. Tickets already assigned to the reviewer are skipped (no-op via `getJiraIssue` payload), and the entire step is skipped when `common_jira_fetch` is cancelled (no-Jira review). All MCP calls; no script. The status transition still happens later via `post-review-transition.js` after the user gives their disposition. The script's own assign step (kept intact) is now an idempotent safety net since pre-review already assigned the reviewer to the same accountId.
+- `rules/make-app-todo-review.mdc` — Notes section gains one line documenting that reviewer assignment runs as a sub-action **inside** `common_jira_fetch` (per Universal Rule 2: no new todo items for sub-actions). Cross-references the workflow's § 3 "Assign to reviewer" for the full procedure.
+
 ## [1.13.0] - 2026-04-27
 
 - **Claude Code support (new feature).** Added `install-claude.sh` (macOS/Linux) and `install-claude.ps1` (Windows) installers that deploy the skill to `~/.claude/skills/make-custom-app/`, register the MCP server in `~/.claude/claude.json`, and append a routing note to `~/.claude/CLAUDE.md`. Support `--update` / `--force` (sh) and `-Mode update` / `-Mode force` (ps1) flags, mirroring the Cursor installer API.

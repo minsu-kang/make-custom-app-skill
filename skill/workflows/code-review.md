@@ -65,7 +65,32 @@ If the ticket itself is a subtask → fetch the **parent** for full scope and AC
 
 Read comments on the parent and all subtasks. Comments often contain clarifications or amendments to AC, QA findings with reproduction steps, reviewer feedback from previous rounds, scope changes, developer status updates that change review scope.
 
-Do NOT proceed to Step 4 until parent + subtasks + comments + Developer Notes have been fetched and analyzed.
+#### Assign to reviewer (mandatory — immediately after fetch)
+
+Once the parent and subtasks are fetched (and the reviewable subtask set is determined per the Done / Complete / Other filter above), **immediately assign the parent + every reviewed subtask to the authenticated reviewer via Atlassian MCP** before any code analysis. This makes the review ownership visible in Jira from the start instead of waiting for the post-review disposition transition.
+
+Procedure (all MCP calls — no script):
+
+1. **Resolve `cloudId` once per session** — call `getAccessibleAtlassianResources` if you don't already have it from a prior step. Cache it for the rest of the review.
+2. **Resolve reviewer's `accountId` once per session** — read the `jira-email:` line from `~/.cursor/skills/make-custom-app/SKILL.md`, then call:
+   ```
+   lookupJiraAccountId({ cloudId, searchString: "<reviewer-email>" })
+   ```
+   Pick the entry whose `emailAddress` exactly matches. Cache the `accountId` for the rest of the review.
+3. **Assign each ticket** — for the parent and every reviewable subtask (those in **Complete**; skip **Done** subtasks):
+   ```
+   editJiraIssue({
+     cloudId,
+     issueIdOrKey: "<KEY>",
+     fields: { assignee: { accountId: "<reviewer-accountId>" } }
+   })
+   ```
+   - Skip when the ticket's `assignee.accountId` (already in the `getJiraIssue` payload) equals the reviewer's accountId — it's already mine, no-op.
+   - Skip when `common_jira_fetch` was cancelled (`[CANCELLED: review without Jira ticket ...]`).
+4. This is a pre-review action: it touches **only the assignee**, never the status. The status transition still happens later via `post-review-transition.js` after the user gives their disposition.
+5. Execute every step as sub-actions **inside** the `common_jira_fetch` TODO item (per Universal Rule 2: no new todos for sub-actions). Do NOT split assignment off into its own todo.
+
+Do NOT proceed to Step 4 until parent + subtasks + comments + Developer Notes have been fetched and analyzed **and assignment has been completed**.
 
 ### 4. Identify expected changes
 
