@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.4 — 2026-04-27
+- Claude Code now requires `make-api-key:` in the last lines of SKILL.md (admin endpoint by default — `make-api-url:` defaults to `https://eu1.make.com/api/v2/admin`). Skill scripts hard-fail with a setup guide when the key is missing; environment-variable fallback removed for Claude Code.
+- Added `skill/scripts/lib/settings.js` — single source of truth for API auth. Cursor still reads from `apps-sdk.environments` in its `settings.json`; Claude Code reads from SKILL.md tail config.
+- Migrated `download-app.js`, `review-changes.js`, `update-app.js`, `update-component.js`, `delete-component.js`, `create-component.js`, `test-component.js` to the shared `loadSettings()` helper (removed seven inline copies).
+- Hard-stop precheck added to both the SKILL.md top banner and the `make-integration-engineer` sub-agent. The skill refuses to load workflows, run scripts, call MCP, or edit any file until BOTH required tail-config lines are valid: `imt-app-runtime-path:` (path must exist on disk; required on Claude Code and Cursor) and `make-api-key:` (Claude Code only). The stop message lists each failed key with its specific reason — missing / placeholder / path does not exist.
+- Updated `install-claude.sh` and `install-claude.ps1` to preserve `make-api-key:` and `make-api-url:` across reinstall/update, alongside the existing `imt-app-runtime-path:` / Jira credential preservation.
+- Added new "Make API Key Setup (Claude Code only — required)" section to `skill/SKILL.md`.
+
 ## 1.13.3 — 2026-04-27
 - Add editor auto-detection (.claude vs .cursor) via process.argv[1] in all skill scripts
 - Add shared skill/scripts/lib/skill-root.js utility (no __dirname)

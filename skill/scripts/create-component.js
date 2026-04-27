@@ -26,56 +26,16 @@
  *   node create-component.js monday 2 connection "Monday v3" oAuth
  *   node create-component.js monday 2 webhook "Monday Events" web monday
  *
- * Reads API key and environment from Cursor settings (same as download-app.js)
+ * API key sources (resolved by lib/settings.js):
+ *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
+ *   Claude Code → `make-api-key:` line in SKILL.md (required)
  */
 
 const fs = require('fs');
-const path = require('path');
-const os = require('os');
-
-const SETTINGS_PATH = path.join(
-	os.homedir(),
-	process.platform === 'win32'
-		? 'AppData/Roaming/Cursor/User/settings.json'
-		: 'Library/Application Support/Cursor/User/settings.json',
-);
+const { loadSettings } = require('./lib/settings');
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
-
-function parseJsonc(text) {
-	let cleaned = text.replace(/\/\/.*$/gm, '');
-	cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
-	cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-	return JSON.parse(cleaned);
-}
-
-function loadSettings() {
-	const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
-	const settings = parseJsonc(raw);
-
-	const activeUuid = settings['apps-sdk.environment'];
-	const environments = settings['apps-sdk.environments'] || [];
-
-	const env = environments.find((e) => e.uuid === activeUuid) || environments[0];
-	if (!env) {
-		console.error('ERROR: apps-sdk.environments configuration not found.');
-		process.exit(1);
-	}
-
-	const version = env.version || 2;
-	let baseUrl;
-	if (version === 1) {
-		baseUrl = `https://${env.url}/v1`;
-	} else {
-		const proto = env.unsafe ? 'http' : 'https';
-		const verPath = env.noVersionPath ? '' : `/v${version}`;
-		const adminPath = env.admin ? '/admin' : '';
-		baseUrl = `${proto}://${env.url}${verPath}${adminPath}`;
-	}
-
-	return { baseUrl, auth: `Token ${env.apikey}`, version };
-}
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));

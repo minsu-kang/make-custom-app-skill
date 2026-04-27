@@ -19,67 +19,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { getEditorDir } = require('./lib/skill-root');
+const { loadSettings } = require('./lib/settings');
 
 const editorDir = getEditorDir();
-const SETTINGS_PATH = editorDir === '.claude'
-	? null  // Claude Code doesn't use this settings path; fall back to env vars
-	: path.join(
-		os.homedir(),
-		process.platform === 'win32'
-			? 'AppData/Roaming/Cursor/User/settings.json'
-			: 'Library/Application Support/Cursor/User/settings.json',
-	);
 const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), editorDir, 'make-app-contexts');
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
-
-function parseJsonc(text) {
-	let cleaned = text.replace(/\/\/.*$/gm, '');
-	cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
-	cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-	return JSON.parse(cleaned);
-}
-
-function loadSettings() {
-	// Claude Code: settings.json path doesn't apply — rely on env vars
-	if (SETTINGS_PATH === null) {
-		const apikey = process.env.MAKE_API_KEY;
-		const baseUrl = process.env.MAKE_API_URL || 'https://eu1.make.com/api/v2';
-		if (!apikey) {
-			console.error('ERROR: MAKE_API_KEY environment variable not set.');
-			console.error('Set it via: export MAKE_API_KEY=<your-token>');
-			console.error('Optionally override base URL: export MAKE_API_URL=https://eu1.make.com/api/v2');
-			process.exit(1);
-		}
-		return { baseUrl, auth: `Token ${apikey}`, version: 2 };
-	}
-
-	const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
-	const settings = parseJsonc(raw);
-
-	const activeUuid = settings['apps-sdk.environment'];
-	const environments = settings['apps-sdk.environments'] || [];
-
-	const env = environments.find((e) => e.uuid === activeUuid) || environments[0];
-	if (!env) {
-		console.error('ERROR: apps-sdk.environments configuration not found.');
-		process.exit(1);
-	}
-
-	const version = env.version || 2;
-	let baseUrl;
-	if (version === 1) {
-		baseUrl = `https://${env.url}/v1`;
-	} else {
-		const proto = env.unsafe ? 'http' : 'https';
-		const verPath = env.noVersionPath ? '' : `/v${version}`;
-		const adminPath = env.admin ? '/admin' : '';
-		baseUrl = `${proto}://${env.url}${verPath}${adminPath}`;
-	}
-
-	return { baseUrl, auth: `Token ${env.apikey}`, version };
-}
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));

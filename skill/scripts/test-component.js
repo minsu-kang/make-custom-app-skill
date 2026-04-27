@@ -26,7 +26,8 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getSkillRoot } = require('./lib/skill-root');
+const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
+const { getMakeApiKey } = require('./lib/settings');
 
 const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
 
@@ -95,20 +96,35 @@ try {
 	if (msg) console.error(`Warning: mockup repo sync failed — ${msg}`);
 }
 
+// Resolve MAKE_API_KEY for the child ts-node process.
+//   Claude Code → SKILL.md `make-api-key:` (single source of truth; getMakeApiKey
+//                 exits with a setup guide if missing).
+//   Cursor      → process env, then mockup `.env`, then Cursor settings.json via
+//                 lib/settings.getMakeApiKey() as a final fallback.
 const envFile = path.join(mockupPath, '.env');
-if (!process.env.MAKE_API_KEY && fs.existsSync(envFile)) {
-	const envContent = fs.readFileSync(envFile, 'utf-8');
-	for (const line of envContent.split('\n')) {
-		const match = line.match(/^([A-Z_]+)\s*=\s*"?([^"]*)"?\s*$/);
-		if (match) process.env[match[1]] = match[2];
+if (getEditorDir() === '.claude') {
+	process.env.MAKE_API_KEY = getMakeApiKey();
+} else {
+	if (!process.env.MAKE_API_KEY && fs.existsSync(envFile)) {
+		const envContent = fs.readFileSync(envFile, 'utf-8');
+		for (const line of envContent.split('\n')) {
+			const match = line.match(/^([A-Z_]+)\s*=\s*"?([^"]*)"?\s*$/);
+			if (match) process.env[match[1]] = match[2];
+		}
 	}
-}
-
-if (!process.env.MAKE_API_KEY) {
-	console.error('MAKE_API_KEY not found. Set it in:');
-	console.error(`  - ${envFile}`);
-	console.error('  - or export MAKE_API_KEY=your-api-key');
-	process.exit(1);
+	if (!process.env.MAKE_API_KEY) {
+		try {
+			process.env.MAKE_API_KEY = getMakeApiKey();
+		} catch (_) {
+			// fall through to error below
+		}
+	}
+	if (!process.env.MAKE_API_KEY) {
+		console.error('MAKE_API_KEY not found. Set it in:');
+		console.error(`  - ${envFile}`);
+		console.error('  - or export MAKE_API_KEY=your-api-key');
+		process.exit(1);
+	}
 }
 
 const formatFlag = flags.find(f => f.startsWith('--format='));

@@ -9,6 +9,11 @@
     "subshell",
     "ENVEOF",
     "imljson",
-    "customfield"
+    "customfield",
+    "apikey",
+    "jsonc",
+    "precheck",
+    "Precheck",
+    "niceinnovative"
   ]
 }

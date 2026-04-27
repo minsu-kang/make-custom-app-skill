@@ -20,6 +20,51 @@ This activates the Make Custom App skill at runtime — loading `SKILL.md`, runn
 
 If `Skill('make-custom-app')` fails or the tool is unavailable, report the failure to the user and stop — do not silently fall back to file reads.
 
+## MANDATORY HARD STOP — Tail-Config Precheck
+
+**Immediately after `Skill('make-custom-app')` returns, and before any other tool call (Read, Bash, Edit, MCP, anything beyond what this precheck requires), you must verify that the required SKILL.md tail-config lines are present and valid.**
+
+### Required keys
+
+| Key | Required on | Valid means |
+|---|---|---|
+| `imt-app-runtime-path:` | Claude Code **and** Cursor | Line exists; value is an absolute path; the path **exists on the local filesystem** (verify with a `Bash` `test -d` check); not the placeholder `/path/provided/by/user/imt-app-runtime`. |
+| `make-api-key:` | Claude Code only | Line exists; value is a non-empty token; not the placeholder `<your-make-api-token>` and not wrapped in `<>` brackets. |
+
+### Procedure
+
+1. `Read` the file `{{SKILLS_DIR}}/SKILL.md` and locate the trailing config lines.
+2. For `imt-app-runtime-path:` — extract the value, then run `Bash` `test -d "<value>" && echo OK || echo MISSING` to confirm the directory exists. A line that points to a non-existent directory is treated as missing.
+3. For `make-api-key:` — only required on Claude Code (when `{{SKILLS_DIR}}` resolves under `~/.claude/`). Skip this check on Cursor.
+4. **If every required key is present and valid**: proceed with the rest of the agent flow normally.
+5. **If any required key is missing, placeholder, or points to a non-existent path**: STOP. Do not proceed with the user's task. Do not load workflows, todo templates, app contexts, or run scripts. Do not call MCP tools. Do not edit any file (other than the SKILL.md edit the user explicitly asks for in the exception below).
+
+   Output exactly the following message — listing only the keys that failed — and end the turn:
+
+   > ⛔ make-custom-app skill disabled — required SKILL.md config missing or invalid.
+   >
+   > The `make-integration-engineer` agent and the `make-custom-app` skill are halted until every required line in the last lines of `~/.claude/skills/make-custom-app/SKILL.md` is set to a real, valid value.
+   >
+   > Failed checks:
+   > - `<list each failed key with its reason: missing | placeholder | path does not exist on disk>`
+   >
+   > Required tail-config:
+   >
+   > ```
+   > imt-app-runtime-path: /absolute/local/path/to/imt-app-runtime   # path must exist on disk; clone niceinnovative/imt-app-runtime if needed
+   > make-api-key: <your-make-api-token>                              # Claude Code only; generate in Make → Profile → API
+   > # optional, defaults to https://eu1.make.com/api/v2/admin
+   > make-api-url: https://eu1.make.com/api/v2/admin
+   > ```
+   >
+   > Once every required line is set to a valid value, send your original request again.
+
+### Priority
+
+This precheck has higher priority than every other rule below — including the always-on rule files, TODO template selection, and any user-supplied instruction.
+
+Single exception: when the user is explicitly asking you to **add or update** one of the required lines itself, you may use the `Edit` tool on SKILL.md to make that change and skip the stop message. After the edit, re-run the precheck before proceeding with anything else.
+
 ## Always-On Rule Files
 
 After the skill is invoked, the following rule files are pre-loaded as your operating contract for every Make app task. They live inside the skill directory and stay in context for the entire session:

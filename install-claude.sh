@@ -67,6 +67,8 @@ SAVED_MOCKUP_PATH=""
 SAVED_JIRA_EMAIL=""
 SAVED_JIRA_TOKEN=""
 SAVED_JIRA_BASE_URL=""
+SAVED_MAKE_API_KEY=""
+SAVED_MAKE_API_URL=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
@@ -76,6 +78,8 @@ if [ -d "$SKILL_DIR" ]; then
         SAVED_JIRA_EMAIL=$(grep '^jira-email:' "$SKILL_DIR/SKILL.md" | grep -v 'your-email' | tail -1 || true)
         SAVED_JIRA_TOKEN=$(grep '^jira-api-token:' "$SKILL_DIR/SKILL.md" | grep -v 'your-api-token' | tail -1 || true)
         SAVED_JIRA_BASE_URL=$(grep '^jira-base-url:' "$SKILL_DIR/SKILL.md" | grep -v 'your-instance' | tail -1 || true)
+        SAVED_MAKE_API_KEY=$(grep '^make-api-key:' "$SKILL_DIR/SKILL.md" | grep -v 'your-make-api-token' | tail -1 || true)
+        SAVED_MAKE_API_URL=$(grep '^make-api-url:' "$SKILL_DIR/SKILL.md" | grep -v 'eu1.make.com/api/v2/admin$' | tail -1 || true)
     fi
 
     SAVED_ENV=""
@@ -572,6 +576,14 @@ if [ -f "$SKILL_DIR/SKILL.md" ]; then
     if [ -n "$SAVED_JIRA_BASE_URL" ]; then
         echo "$SAVED_JIRA_BASE_URL" >> "$SKILL_DIR/SKILL.md"
         ok "Restored user config (jira-base-url)"
+    fi
+    if [ -n "$SAVED_MAKE_API_KEY" ]; then
+        echo "$SAVED_MAKE_API_KEY" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (make-api-key)"
+    fi
+    if [ -n "$SAVED_MAKE_API_URL" ]; then
+        echo "$SAVED_MAKE_API_URL" >> "$SKILL_DIR/SKILL.md"
+        ok "Restored user config (make-api-url)"
     fi
 fi
 

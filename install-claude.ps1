@@ -174,6 +174,8 @@ $SavedMockupPath = ""
 $SavedJiraEmail = ""
 $SavedJiraToken = ""
 $SavedJiraBaseUrl = ""
+$SavedMakeApiKey = ""
+$SavedMakeApiUrl = ""
 $SavedEnv = ""
 
 if (Test-Path $SKILL_DIR) {
@@ -186,6 +188,8 @@ if (Test-Path $SKILL_DIR) {
         $SavedJiraEmail = ($allLines | Where-Object { $_ -match "^jira-email:" -and $_ -notmatch "your-email" } | Select-Object -Last 1) -join ""
         $SavedJiraToken = ($allLines | Where-Object { $_ -match "^jira-api-token:" -and $_ -notmatch "your-api-token" } | Select-Object -Last 1) -join ""
         $SavedJiraBaseUrl = ($allLines | Where-Object { $_ -match "^jira-base-url:" -and $_ -notmatch "your-instance" } | Select-Object -Last 1) -join ""
+        $SavedMakeApiKey = ($allLines | Where-Object { $_ -match "^make-api-key:" -and $_ -notmatch "your-make-api-token" } | Select-Object -Last 1) -join ""
+        $SavedMakeApiUrl = ($allLines | Where-Object { $_ -match "^make-api-url:" -and $_ -notmatch "eu1\.make\.com/api/v2/admin$" } | Select-Object -Last 1) -join ""
     }
 
     $savedEnvFile = Join-Path $SKILL_DIR "mcp-server\.env"
@@ -730,6 +734,14 @@ if (Test-Path $skillMdPath) {
     if ($SavedJiraBaseUrl) {
         Add-Content -Path $skillMdPath -Value "$SavedJiraBaseUrl"
         Write-Ok "Restored user config (jira-base-url)"
+    }
+    if ($SavedMakeApiKey) {
+        Add-Content -Path $skillMdPath -Value "$SavedMakeApiKey"
+        Write-Ok "Restored user config (make-api-key)"
+    }
+    if ($SavedMakeApiUrl) {
+        Add-Content -Path $skillMdPath -Value "$SavedMakeApiUrl"
+        Write-Ok "Restored user config (make-api-url)"
     }
 }
 

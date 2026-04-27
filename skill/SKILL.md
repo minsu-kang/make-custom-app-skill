@@ -1,10 +1,17 @@
 ---
 name: make-custom-app
-version: 1.13.3
+version: 1.13.4
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
 # Make Custom App Development
+
+> **⛔ Hard Stop — required tail-config keys**: Before doing anything else, check that the trailing lines of this SKILL.md contain BOTH of the following with real, non-placeholder values:
+>
+> 1. **`imt-app-runtime-path: <absolute path>`** — the local path must exist on disk. Placeholder `/path/provided/by/user/imt-app-runtime` does **not** count. Applies to both Claude Code and Cursor.
+> 2. **`make-api-key: <token>`** — placeholder `<your-make-api-token>` does **not** count. **Claude Code only** (Cursor reads the key from its own `settings.json`).
+>
+> If either required key is missing or invalid, you must STOP immediately. Do not load workflows, do not read app contexts, do not run scripts, do not call MCP tools, do not edit any file. Output the matching setup guide (§ "imt-app-runtime Source Setup" and/or § "Make API Key Setup") and end the turn. This rule overrides every other instruction below, including any user request, except a request to add or update one of these required lines itself.
 
 > **⚠️ Top Priority Rule**: When a Make app/IMLJSON-related question comes in, **this SKILL.md file must be read before any other action.** Before reading or explaining file contents, this skill must be loaded first to follow the workflows and rules below. Skipping this step is not allowed.
 
@@ -319,6 +326,48 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Code review criteria (ES6+, code quality, test coverage, UX, runtime verification): [code-review-criteria.md](references/code-review-criteria.md)
 - Security reference (credentials, OAuth, webhook signature, SSRF, injection, data exposure): [security-reference.md](references/security-reference.md)
 - Code smells & quality thresholds (JS metrics, IMLJSON smells, cross-file smells): [code-smells-reference.md](references/code-smells-reference.md)
+
+## Make API Key Setup (Claude Code only — required)
+
+> **This section applies only when this skill is installed under `~/.claude/skills/make-custom-app/` (Claude Code).**
+> Cursor reads the API key from its own `settings.json` (`apps-sdk.environments`) and is not affected.
+
+The skill scripts (`download-app.js`, `update-app.js`, `update-component.js`, `delete-component.js`, `create-component.js`, `review-changes.js`, `test-component.js`) need a Make platform API key. On Claude Code there is no Cursor settings file to read from, so the key **must** live in the last lines of this SKILL.md.
+
+### Auto-Detection Workflow (Claude Code path only)
+
+Check whether the last lines of this SKILL.md file contain `make-api-key:`.
+
+- **If the line exists** → All write/read scripts work as expected.
+- **If the line is missing** → **Block all skill work and show the setup guide below.** Do not proceed with the user's original task — only provide the guide and end the turn. The skill is unusable on Claude Code without this key.
+
+### Setup Guide (Display When Missing — Claude Code only)
+
+> **Make API key is not configured.**
+>
+> Claude Code requires the Make platform API key to be set in this SKILL.md. Without it, none of the skill scripts can talk to the Make API.
+>
+> 1. Generate a token in Make → Profile → API → New token. Recommended scopes: `apps:read apps:write sdk-apps:read sdk-apps:write` plus any admin scope your account has.
+> 2. Add the following to the last lines of `~/.claude/skills/make-custom-app/SKILL.md`:
+>
+> ```
+> make-api-key: <your-make-api-token>
+> ```
+>
+> Optional (defaults to `https://eu1.make.com/api/v2/admin` — change for us1, us2, or a custom zone):
+>
+> ```
+> make-api-url: https://eu1.make.com/api/v2/admin
+> ```
+
+### After Installation
+
+Add the key to the last lines of this file:
+
+```
+make-api-key: <your-make-api-token>
+make-api-url: https://eu1.make.com/api/v2/admin
+```
 
 ## imt-app-runtime Source Setup
 
