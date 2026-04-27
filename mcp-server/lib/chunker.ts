@@ -3,7 +3,34 @@ import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
-const CONTEXTS_DIR = path.join(os.homedir(), '.cursor', 'make-app-contexts');
+/**
+ * Resolve the contexts directory based on which editor's skill the MCP
+ * server is running under.
+ *
+ * The MCP server is launched by the editor harness as
+ *   node <homedir>/.claude/skills/make-custom-app/mcp-server/dist/index.js
+ * (Claude Code) or under `.cursor/...` (Cursor). `process.argv[1]` carries
+ * the absolute script path, which lets us pick the matching contexts dir
+ * without relying on a hardcoded `.cursor` segment.
+ *
+ * Claude Code  → ~/.claude/make-app-contexts
+ * Cursor       → ~/.cursor/make-app-contexts
+ * Fallback     → prefer ~/.claude if it exists, else ~/.cursor.
+ */
+function resolveContextsDir(): string {
+	const scriptPath = process.argv[1] || '';
+	if (scriptPath.includes(`${path.sep}.claude${path.sep}`) || scriptPath.includes('/.claude/')) {
+		return path.join(os.homedir(), '.claude', 'make-app-contexts');
+	}
+	if (scriptPath.includes(`${path.sep}.cursor${path.sep}`) || scriptPath.includes('/.cursor/')) {
+		return path.join(os.homedir(), '.cursor', 'make-app-contexts');
+	}
+	const claudeDir = path.join(os.homedir(), '.claude', 'make-app-contexts');
+	if (existsSync(claudeDir)) return claudeDir;
+	return path.join(os.homedir(), '.cursor', 'make-app-contexts');
+}
+
+const CONTEXTS_DIR = resolveContextsDir();
 
 export interface MarkdownSection {
 	section: string;

@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.13.5 — 2026-04-27
+- MCP server `chunker.ts` now resolves the contexts directory from `process.argv[1]` (Claude Code → `~/.claude/make-app-contexts`, Cursor → `~/.cursor/make-app-contexts`) instead of hardcoding `~/.cursor/...`. Without this fix `upsert_app_context` could not find context files installed under the Claude Code path. The `upsert_app_context` "no context files found" error message lists both paths so the user knows where to look.
+
 ## 1.13.4 — 2026-04-27
 - Claude Code now requires `make-api-key:` in the last lines of SKILL.md (admin endpoint by default — `make-api-url:` defaults to `https://eu1.make.com/api/v2/admin`). Skill scripts hard-fail with a setup guide when the key is missing; environment-variable fallback removed for Claude Code.
 - Added `skill/scripts/lib/settings.js` — single source of truth for API auth. Cursor still reads from `apps-sdk.environments` in its `settings.json`; Claude Code reads from SKILL.md tail config.

@@ -2,6 +2,9 @@
 	"agent": "make-integration-engineer",
 	"permissions": {
 		"allow": [
+			"mcp__atlassian__getAccessibleAtlassianResources",
+			"mcp__atlassian__getJiraIssue",
+			"mcp__atlassian__editJiraIssue",
 			"Bash(git status)",
 			"Bash(git status:*)",
 			"Bash(git log)",

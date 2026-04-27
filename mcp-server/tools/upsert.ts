@@ -22,7 +22,7 @@ export function registerUpsertTool(server: McpServer): void {
 						content: [
 							{
 								type: 'text' as const,
-								text: `No context files found for ${slug}-v${version}. Ensure ~/.cursor/make-app-contexts/${slug}-v${version}.md or ${slug}-v${version}/metadata.json exists.`,
+								text: `No context files found for ${slug}-v${version}. Ensure ~/.claude/make-app-contexts/${slug}-v${version}.md (Claude Code) or ~/.cursor/make-app-contexts/${slug}-v${version}.md (Cursor), plus ${slug}-v${version}/metadata.json, exists.`,
 							},
 						],
 					};
