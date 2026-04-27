@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.13.6 — 2026-04-27
+- Fix remote installers dropping `skill/scripts/lib/settings.js`. The file was added in 1.13.4 but never registered in the `SCRIPT_LIB_FILES` arrays of `install-claude.sh`, `install-claude.ps1`, `install-cursor.sh`, `install-cursor.ps1`, so curl/irm-mode installs left it missing and every write/read script failed with `Cannot find module './lib/settings'`. Local-mode installs (cp `*.js` glob) were unaffected.
+
 ## 1.13.5 — 2026-04-27
 - MCP server `chunker.ts` now resolves the contexts directory from `process.argv[1]` (Claude Code → `~/.claude/make-app-contexts`, Cursor → `~/.cursor/make-app-contexts`) instead of hardcoding `~/.cursor/...`. Without this fix `upsert_app_context` could not find context files installed under the Claude Code path. The `upsert_app_context` "no context files found" error message lists both paths so the user knows where to look.
 
