@@ -5,11 +5,11 @@
 # ============================================================
 # Usage:
 #   Fresh install / Update:
-#     irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.ps1 | iex
+#     irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex
 #
 #   Clone & install:
 #     git clone https://github.com/minsu-kang/make-custom-app-skill.git
-#     cd make-custom-app-skill; .\install.ps1
+#     cd make-custom-app-skill; .\install-cursor.ps1
 #
 #   Flags:
 #     -Mode update    Skip confirmation prompt (for scripted updates)
@@ -34,6 +34,7 @@ $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md", "security-reference.md", "code-smells-reference.md")
 $WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js")
+$SCRIPT_LIB_FILES = @("skill-root.js")
 $RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "work-discipline.mdc")
 $DEPRECATED_RULE_FILES = @("make-app-auto-actions.mdc", "make-app-code-review.mdc")
 $HOOKS_DIR = Join-Path $env:USERPROFILE ".cursor\hooks"
@@ -266,6 +267,12 @@ if ($ScriptDir -and (Test-Path $localDownloadJs)) {
     foreach ($file in (Get-ChildItem -Path $SCRIPTS_DEST -Filter "*.js")) {
         Write-Ok "scripts/$($file.Name)"
     }
+    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
+    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
+    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\lib\*.js") $SCRIPTS_LIB_DEST
+    foreach ($file in (Get-ChildItem -Path $SCRIPTS_LIB_DEST -Filter "*.js")) {
+        Write-Ok "scripts/lib/$($file.Name)"
+    }
 }
 else {
     $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
@@ -276,6 +283,17 @@ else {
         }
         else {
             Write-Warn "scripts/$file (download failed)"
+        }
+    }
+    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
+    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
+    foreach ($file in $SCRIPT_LIB_FILES) {
+        $outPath = Join-Path $SCRIPTS_LIB_DEST $file
+        if (Download-File "$baseUrl/skill/scripts/lib/$file" $outPath) {
+            Write-Ok "scripts/lib/$file"
+        }
+        else {
+            Write-Warn "scripts/lib/$file (download failed)"
         }
     }
 }

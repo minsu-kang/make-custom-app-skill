@@ -10,21 +10,26 @@
  *   node review-changes.js google-docs 1
  *
  * Output:
- *   ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
- *   ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/review-{timestamp}.json
+ *   ~/.claude/make-app-contexts/{slug}-v{version}/reviews/latest.json (Claude Code) or
+ *   ~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json (Cursor)
+ *   plus a timestamped review-{timestamp}.json in the same dir
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { getEditorDir } = require('./lib/skill-root');
 
-const SETTINGS_PATH = path.join(
-	os.homedir(),
-	process.platform === 'win32'
-		? 'AppData/Roaming/Cursor/User/settings.json'
-		: 'Library/Application Support/Cursor/User/settings.json',
-);
-const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), '.cursor/make-app-contexts');
+const editorDir = getEditorDir();
+const SETTINGS_PATH = editorDir === '.claude'
+	? null  // Claude Code doesn't use this settings path; fall back to env vars
+	: path.join(
+		os.homedir(),
+		process.platform === 'win32'
+			? 'AppData/Roaming/Cursor/User/settings.json'
+			: 'Library/Application Support/Cursor/User/settings.json',
+	);
+const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), editorDir, 'make-app-contexts');
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
@@ -37,6 +42,19 @@ function parseJsonc(text) {
 }
 
 function loadSettings() {
+	// Claude Code: settings.json path doesn't apply — rely on env vars
+	if (SETTINGS_PATH === null) {
+		const apikey = process.env.MAKE_API_KEY;
+		const baseUrl = process.env.MAKE_API_URL || 'https://eu1.make.com/api/v2';
+		if (!apikey) {
+			console.error('ERROR: MAKE_API_KEY environment variable not set.');
+			console.error('Set it via: export MAKE_API_KEY=<your-token>');
+			console.error('Optionally override base URL: export MAKE_API_URL=https://eu1.make.com/api/v2');
+			process.exit(1);
+		}
+		return { baseUrl, auth: `Token ${apikey}`, version: 2 };
+	}
+
 	const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
 	const settings = parseJsonc(raw);
 

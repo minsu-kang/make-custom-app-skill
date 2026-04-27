@@ -39,7 +39,7 @@ Works with the **Make Apps SDK** VS Code/Cursor extension. The agent understands
 **Option 1: One-liner**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash
 ```
 
 **Option 2: Clone & install**
@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/ma
 ```bash
 git clone https://github.com/minsu-kang/make-custom-app-skill.git
 cd make-custom-app-skill
-./install.sh
+./install-cursor.sh
 ```
 
 #### Windows (PowerShell)
@@ -55,7 +55,7 @@ cd make-custom-app-skill
 **Option 1: One-liner**
 
 ```powershell
-irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex
 ```
 
 **Option 2: Clone & install**
@@ -63,12 +63,12 @@ irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/in
 ```powershell
 git clone https://github.com/minsu-kang/make-custom-app-skill.git
 cd make-custom-app-skill
-.\install.ps1
+.\install-cursor.ps1
 ```
 
 > **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
-Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`. The installer also removes deprecated rule files from earlier releases (`make-app-auto-actions.mdc` and `make-app-code-review.mdc`, replaced in 1.12.0 by the split `make-app-workflow.mdc` + `make-app-todo-*.mdc` rules and the `skill/workflows/code-review.md` workflow) and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
+Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes deprecated rule files from earlier releases (`make-app-auto-actions.mdc` and `make-app-code-review.mdc`, replaced in 1.12.0 by the split `make-app-workflow.mdc` + `make-app-todo-*.mdc` rules and the `skill/workflows/code-review.md` workflow) and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
 
 After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
@@ -136,6 +136,8 @@ Skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/
 
 The routing note tells the Claude Code orchestrator to delegate any Make app work to the `make-integration-engineer` sub-agent automatically — no manual invocation needed.
 
+> **Editor-aware paths:** Markdown workflow and reference files use `${SKILL_ROOT}` and `${CONTEXTS_DIR}` placeholders that resolve to either the `~/.cursor/...` or `~/.claude/...` tree depending on which editor invokes them. Node scripts share the same auto-detection through `skill/scripts/lib/skill-root.js`.
+
 ### Skill Files (`skill/` → `~/.cursor/skills/make-custom-app/` or `~/.claude/skills/make-custom-app/`)
 
 | File | Description |
@@ -177,6 +179,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 | `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in SKILL.md. |
+| `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
 
 ### Rule Files (`~/.cursor/rules/make-custom-app/` or `~/.claude/skills/make-custom-app/rules/`)
 
@@ -197,8 +200,8 @@ Split per concern so each file stays short, focused, and is loaded only when rel
 ```
 make-custom-app-skill/
 ├── README.md
-├── install.sh                         # Cursor installer (macOS/Linux)
-├── install.ps1                        # Cursor installer (Windows)
+├── install-cursor.sh                  # Cursor installer (macOS/Linux)
+├── install-cursor.ps1                 # Cursor installer (Windows)
 ├── install-claude.sh                  # Claude Code installer (macOS/Linux)
 ├── install-claude.ps1                 # Claude Code installer (Windows)
 ├── subagents/
@@ -213,7 +216,8 @@ make-custom-app-skill/
 │   │   ├── app-task.md
 │   │   └── pinecone-sync.md
 │   ├── references/                     #   Reference documents (on-demand)
-│   └── scripts/                        #   Automation scripts
+│   └── scripts/                        #   Automation scripts (editor auto-detected)
+│       └── lib/skill-root.js           #     Shared skill-root + editor-dir resolver
 ├── rules/                              # → installed to rules/make-custom-app/
 │   ├── make-app-workflow.mdc
 │   ├── make-app-todo-rules.mdc

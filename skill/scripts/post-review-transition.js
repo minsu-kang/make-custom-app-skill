@@ -25,8 +25,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const { getSkillRoot } = require('./lib/skill-root');
 
-const SKILL_MD_PATH = path.join(os.homedir(), '.cursor/skills/make-custom-app/SKILL.md');
+const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
 
 // Target status depends on disposition AND current status.
 // IEN has two workflows: one with "Commit" status, another with "Compilation".
@@ -83,7 +84,7 @@ function loadJiraConfig() {
 
 	if (!email || !apiToken) {
 		console.error('ERROR: Jira credentials not configured in SKILL.md.');
-		console.error('Add the following to the last lines of ~/.cursor/skills/make-custom-app/SKILL.md:\n');
+		console.error(`Add the following to the last lines of ${SKILL_MD_PATH}:\n`);
 		console.error('  jira-email: your-email@example.com');
 		console.error('  jira-api-token: your-api-token');
 		console.error('  jira-base-url: https://make.atlassian.net  (optional)\n');

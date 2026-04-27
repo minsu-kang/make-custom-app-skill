@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.3 — 2026-04-27
+- Add editor auto-detection (.claude vs .cursor) via process.argv[1] in all skill scripts
+- Add shared skill/scripts/lib/skill-root.js utility (no __dirname)
+- Replace hardcoded ~/.cursor paths with ${SKILL_ROOT}/${CONTEXTS_DIR} placeholders in workflows, references, and rules
+- Rename install.sh → install-cursor.sh, install.ps1 → install-cursor.ps1 for consistency
+- Split version.json update commands into _cursor and _claude variants
+- Fix all installers (install-cursor.sh, install-claude.sh, install-cursor.ps1, install-claude.ps1) to copy scripts/lib/ subdir
+- Add cspell.json with project-specific word allowlist
+
 ## [1.13.2] - 2026-04-27
 
 - `subagents/make-integration-engineer.md` — enforce invoking the Skill tool (`make-custom-app`) as the first action on every task before any other tool call. Restructured the rules section into 3 always-on rules (work-discipline, make-app-todo-rules, make-app-workflow) plus 4 on-demand rules (todo-build, todo-debug, todo-review, todo-jira) loaded only when the matching workflow runs. Added a post-task memory-update protocol: after each completed task, append a short bullet to `~/.claude/agents/make-integration-engineer.md` under a `## Memory` section capturing reusable patterns (e.g. recurring bug shapes, customer-specific quirks, novel IMLJSON idioms) so the agent improves across sessions. Fixed several cSpell warnings (IMLJSON, ADF, cloudId, accountId).

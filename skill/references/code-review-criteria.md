@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code Review Criteria
 
 Detailed review criteria for Make custom app code reviews. Referenced by the code review workflow (`workflows/code-review.md`) and the static § R TODO template (`rules/make-app-todo-review.mdc`).
@@ -135,7 +136,7 @@ Any test gap for changed behavior results in verdict **Improvement Needed**. Inc
 When **any** `functions/*/code.js` file is changed in the review, **automatically run `test-function.js`** after downloading the app code:
 
 ```
-node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-version>
+node ${SKILL_ROOT}/scripts/test-function.js <app-slug> <app-version>
 ```
 
 - Run once with **no function filter** to test all functions (catches regressions across the app)
@@ -147,12 +148,12 @@ node ~/.cursor/skills/make-custom-app/scripts/test-function.js <app-slug> <app-v
 
 ### Component Integration Tests (Mandatory for api.imljson changes)
 
-**Before running or writing component tests**, re-read `~/.cursor/skills/make-custom-app/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
+**Before running or writing component tests**, re-read `${SKILL_ROOT}/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
 
 When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks), **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
+node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
 ```
 
 - Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`)
@@ -171,7 +172,7 @@ node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-
 
 ## UX Guideline Compliance (Mandatory for expect/parameters changes)
 
-When expect or parameters files are changed, **read `~/.cursor/skills/make-custom-app/references/app-ux-best-practices.md` first** and verify:
+When expect or parameters files are changed, **read `${SKILL_ROOT}/references/app-ux-best-practices.md` first** and verify:
 
 - **Label capitalization**: Sentence-style by default, but follow the app's existing convention if consistently Title Case
 - **Label naming**: 1–3 words, descriptive not instructional, no articles
@@ -289,7 +290,7 @@ When code is **removed** in a change (headers deleted, parameters dropped, expre
 
 When reviewing `api.imljson` changes that use runtime variables, IML context features, or middleware behavior (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`):
 
-1. **First**: Check `~/.cursor/skills/make-custom-app/references/runtime-reference.md` for documented behavior
+1. **First**: Check `${SKILL_ROOT}/references/runtime-reference.md` for documented behavior
 2. **If not found or still uncertain**: Search the `imt-app-runtime` source code directly (path in SKILL.md's last line `imt-app-runtime-path:`) to verify actual runtime behavior
 
 **Never assume or guess** how runtime features work. Common mistakes to avoid:
@@ -356,7 +357,7 @@ The `imt-app-runtime` automatically handles common HTTP error codes **without an
 
 ## Polling Trigger: Order and Date Filtering
 
-For detailed patterns and examples, see **`~/.cursor/skills/make-custom-app/references/polling-trigger-guide.md`**.
+For detailed patterns and examples, see **`${SKILL_ROOT}/references/polling-trigger-guide.md`**.
 
 When reviewing a polling trigger, verify these in order:
 

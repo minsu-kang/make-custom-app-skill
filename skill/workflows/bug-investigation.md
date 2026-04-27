@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Bug Investigation Workflow
 
 Workflow for investigating a bug reported via Jira ticket or user description, tracing the root cause through app code, and applying a fix.
@@ -27,7 +28,7 @@ Execute this workflow if any of the following conditions are met:
 
 - Determine app slug and version from the ticket/description (e.g., "MONDAY.COM v2" → `monday`, `2`)
 - If only app name is mentioned without version: auto-detect via IPME (see [App Version Auto-Detection](app-context.md#app-version-auto-detection-ipme))
-- Check if `~/.cursor/make-app-contexts/{slug}-v{version}/` exists
+- Check if `${CONTEXTS_DIR}/{slug}-v{version}/` exists
 - If not, auto-execute the download command (see [App Code Download](app-context.md#app-code-download--sync-execution))
 - Load the context file `{slug}-v{version}.md` if it exists
 - **Check for related past fixes**: Search the context file's Caveats and Work History for previous fixes to the same function/component. If found, pay extra attention — the new bug may be a gap in the previous fix (see "Recurring Bug Handling" below).
@@ -73,7 +74,7 @@ Execute this workflow if any of the following conditions are met:
 **8. Fix & Verify**: Apply the fix, verify it passes, and push to Make.
 
 - **Minimal change principle**: A bug fix must ONLY fix the bug. Do NOT modify existing business logic, refactor surrounding code, or "improve" unrelated patterns. Preserve the original code structure and behavior — change only what is necessary to resolve the specific bug. If a broader refactor is needed, that is a separate task.
-- Write the fixed code to `~/.cursor/make-app-contexts/{slug}-v{version}/` (the local code store)
+- Write the fixed code to `${CONTEXTS_DIR}/{slug}-v{version}/` (the local code store)
 - **Verify**: Confirm the failing test from Step 5 now passes with the fix applied. If it still fails, the fix is incomplete — iterate.
 - **Breaking change check**: Before pushing, compare the fix against the original code and verify zero breaking changes. If ANY existing scenario could produce different results after the fix (other than the bug scenario), the fix scope is too broad — narrow it down.
 - Push the fix using `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make)) — **always ask user for approval before executing**.
@@ -102,7 +103,7 @@ Generate Developer Notes for the Jira ticket using the appropriate template (see
 **11. Post-Commit Sync**: When the user confirms the fix has been committed, **auto-execute** the download command to sync `make-app-contexts` with the committed code.
 
 ```
-Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+Shell tool: node ${SKILL_ROOT}/scripts/download-app.js {app-slug} {app-version}
 required_permissions: ["all"]
 block_until_ms: 120000
 ```

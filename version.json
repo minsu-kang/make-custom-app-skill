@@ -1,7 +1,9 @@
 {
-  "version": "1.13.2",
+  "version": "1.13.3",
   "released": "2026-04-27",
   "min_version": "1.0.0",
-  "update_command": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update",
-  "update_command_windows": "irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.ps1 | iex"
+  "update_command_cursor": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash -s -- --update",
+  "update_command_cursor_windows": "irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex",
+  "update_command_claude": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.sh | bash -s -- --update",
+  "update_command_claude_windows": "irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.ps1 | iex"
 }

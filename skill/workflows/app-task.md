@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # App Task Workflow
 
 Workflow for handling general Make app tasks — refactoring, UX improvements, label/hint updates, component metadata changes, deprecation, cleanup, and other maintenance work.
@@ -54,7 +55,7 @@ Execute this workflow if any of the following conditions are met:
 ```
 1. Show: "Updating component metadata: {component-type} '{name}' — Proceed?"
 2. Wait for user approval
-3. Shell tool: node ~/.cursor/skills/make-custom-app/scripts/update-component.js {app-slug} {app-version} {component-type} {name} {updates-json}
+3. Shell tool: node ${SKILL_ROOT}/scripts/update-component.js {app-slug} {app-version} {component-type} {name} {updates-json}
    required_permissions: ["all"]
    block_until_ms: 30000
 ```
@@ -66,14 +67,14 @@ Execute this workflow if any of the following conditions are met:
 ```
 1. Show: "⚠️ Deleting component: {component-type} '{name}' — This action cannot be undone. Proceed?"
 2. Wait for EXPLICIT user approval
-3. Shell tool: node ~/.cursor/skills/make-custom-app/scripts/delete-component.js {app-slug} {app-version} {component-type} {name}
+3. Shell tool: node ${SKILL_ROOT}/scripts/delete-component.js {app-slug} {app-version} {component-type} {name}
    required_permissions: ["all"]
    block_until_ms: 30000
 ```
 
 ### For Code Refactoring
 
-- Write updated code to `~/.cursor/make-app-contexts/{slug}-v{version}/`
+- Write updated code to `${CONTEXTS_DIR}/{slug}-v{version}/`
 - Push using `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make))
 - If custom IML functions are modified, update `test.js` accordingly
 
@@ -99,7 +100,7 @@ Generate Developer Notes using the appropriate template from [developer-notes-te
 **8. Post-Commit Sync**: When the user confirms changes have been committed, **auto-execute** the download command to sync.
 
 ```
-Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+Shell tool: node ${SKILL_ROOT}/scripts/download-app.js {app-slug} {app-version}
 required_permissions: ["all"]
 block_until_ms: 120000
 ```

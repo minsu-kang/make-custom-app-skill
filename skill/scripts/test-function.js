@@ -9,7 +9,9 @@
  *   node test-function.js google-docs 1 parseError getError # test multiple
  *   node test-function.js monday 2 --tz=Europe/Prague       # custom timezone
  *
- * Reads code.js and test.js from ~/.cursor/make-app-contexts/{slug}-v{version}/functions/
+ * Reads code.js and test.js from
+ *   ~/.claude/make-app-contexts/{slug}-v{version}/functions/ (Claude Code) or
+ *   ~/.cursor/make-app-contexts/{slug}-v{version}/functions/ (Cursor).
  * Uses @integromat/iml from imt-app-runtime for built-in IML functions.
  */
 
@@ -17,9 +19,10 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const os = require('os');
+const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 
-const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), '.cursor/make-app-contexts');
-const SKILL_MD_PATH = path.join(os.homedir(), '.cursor/skills/make-custom-app/SKILL.md');
+const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), getEditorDir(), 'make-app-contexts');
+const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
 
 function getRuntimePath() {
 	if (!fs.existsSync(SKILL_MD_PATH)) return null;

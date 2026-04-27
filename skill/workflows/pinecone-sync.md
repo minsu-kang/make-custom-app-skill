@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Shared Context (Pinecone) Auto-Sync
 
 Automatically syncs local context to the shared Pinecone vector DB via the `make-app-context` MCP server. This enables team-wide knowledge sharing — any context saved locally is immediately searchable by all team members.
@@ -22,7 +23,7 @@ Before calling any MCP tool, check if the server is available by looking at the 
 
 2. **Resolve the mcp-server path** (check in order, use the first match):
    a. `mcp-server-path:` line at the end of SKILL.md → use that path.
-   b. Default installed path `~/.cursor/skills/make-custom-app/mcp-server/` → if `package.json` exists there, use this path.
+   b. Default installed path `${SKILL_ROOT}/mcp-server/` → if `package.json` exists there, use this path.
    - If a path is found → Continue to step 3.
    - If neither exists → **MCP server is not installed.** Show the "Full Setup Guide" below and end the turn.
 
@@ -43,13 +44,13 @@ Before calling any MCP tool, check if the server is available by looking at the 
 > Open **Cursor menu bar → Terminal → New Window** and run the installer:
 >
 > ```
-> curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash
+> curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash
 > ```
 >
 > After installation completes, configure the MCP server:
 >
 > ```
-> cd ~/.cursor/skills/make-custom-app/mcp-server
+> cd ${SKILL_ROOT}/mcp-server
 > cp .env.example .env
 > ```
 >
@@ -160,4 +161,4 @@ Arguments: {
 - **Always auto-sync after saving context.** Never skip this step or ask the user whether to sync.
 - If MCP server is not available, **show the appropriate setup guide and end the turn.** Do not skip the guide.
 - If the MCP call fails with a transient error (network, timeout), inform the user and suggest retrying later. Do not block the rest of the workflow.
-- The `upsert_app_context` reads from `~/.cursor/make-app-contexts/` — ensure the local files are saved before calling it.
+- The `upsert_app_context` reads from `${CONTEXTS_DIR}/` — ensure the local files are saved before calling it.

@@ -1,6 +1,6 @@
 ---
 description: Static § T App Task TODO template (16 items) — fetch for refactor, metadata-only updates, UX adjustments, deprecation, cleanup, public-flag flip
-globs: 
+globs:
 alwaysApply: false
 ---
 
@@ -8,21 +8,21 @@ alwaysApply: false
 
 Use for non-bug, non-feature work: refactor, metadata-only update (label / description / public flag), UX adjustment to existing fields, deprecation, cleanup, version bump, branding tweak. Universal rules and Common Pre/Post blocks are defined in `make-app-todo-rules.mdc`.
 
-| # | id | content |
-|---|---|---|
-| 1 | `common_runtime_path_check` | (Common Pre — verbatim from `make-app-todo-rules.mdc`.) |
-| 2 | `common_context_load` | (Common Pre — verbatim.) |
-| 3 | `common_code_sync` | (Common Pre — verbatim.) |
-| 4 | `common_jira_fetch` | (Common Pre — verbatim.) |
-| 5 | `common_attachments` | (Common Pre — verbatim.) |
-| 6 | `task_references_reread` | Re-read the relevant references (`app-ux-best-practices.md` for any UX change; `parameters-reference.md` for any expect/parameters/interface change; `runtime-reference.md` + `communication-reference.md` for `api.imljson` change). |
-| 7 | `task_plan` | [GATE] State exactly what will change (file list, component list, before/after for each metadata field) and wait for explicit user approval before editing. |
-| 8 | `task_implement` | Apply the code / metadata edits in a single pass. No piecemeal fixes. |
-| 9 | `task_test_function` | (if any `functions/*/code.js` edited) Update `test.js` + run `test-function.js`. Cancel only when no `code.js` was touched. |
-| 10 | `task_test_component` | (if any `api.imljson` edited) Run `test-component.js` for each changed component. Cancel only when no `api.imljson` was touched. |
-| 11 | `task_upload` | [GATE] Show summary of changes, get user confirmation, then run the matching write script (`update-app.js` / `update-component.js` / `delete-component.js`). |
-| 12 | `task_dev_notes` | Ask the user: "Shall I write Developer Notes to the Jira ticket?" Cancel only when `common_jira_fetch` was cancelled, or when the change is metadata-only with no implementation detail worth recording. |
-| 13 | `common_context_update` | (Common Post — verbatim.) |
-| 14 | `common_upsert_app_context` | (Common Post — verbatim.) |
-| 15 | `common_upsert_jira_ticket` | (Common Post — verbatim.) |
-| 16 | `common_compaction_recommend` | (Common Post — verbatim.) |
+| #   | id                            | content                                                                                                                                                                                                                               |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `common_runtime_path_check`   | (Common Pre — verbatim from `make-app-todo-rules.mdc`.)                                                                                                                                                                               |
+| 2   | `common_context_load`         | (Common Pre — verbatim.)                                                                                                                                                                                                              |
+| 3   | `common_code_sync`            | (Common Pre — verbatim.)                                                                                                                                                                                                              |
+| 4   | `common_jira_fetch`           | (Common Pre — verbatim.)                                                                                                                                                                                                              |
+| 5   | `common_attachments`          | (Common Pre — verbatim.)                                                                                                                                                                                                              |
+| 6   | `task_references_reread`      | Re-read the relevant references (`app-ux-best-practices.md` for any UX change; `parameters-reference.md` for any expect/parameters/interface change; `runtime-reference.md` + `communication-reference.md` for `api.imljson` change). |
+| 7   | `task_plan`                   | [GATE] State exactly what will change (file list, component list, before/after for each metadata field) and wait for explicit user approval before editing.                                                                           |
+| 8   | `task_implement`              | Apply the code / metadata edits in a single pass. No piecemeal fixes.                                                                                                                                                                 |
+| 9   | `task_test_function`          | (if any `functions/*/code.js` edited) Update `test.js` + run `test-function.js`. Cancel only when no `code.js` was touched.                                                                                                           |
+| 10  | `task_test_component`         | (if any `api.imljson` edited) Run `test-component.js` for each changed component. Cancel only when no `api.imljson` was touched.                                                                                                      |
+| 11  | `task_upload`                 | [GATE] Show summary of changes, get user confirmation, then run the matching write script (`update-app.js` / `update-component.js` / `delete-component.js`).                                                                          |
+| 12  | `task_dev_notes`              | Ask the user: "Shall I write Developer Notes to the Jira ticket?" Cancel only when `common_jira_fetch` was cancelled, or when the change is metadata-only with no implementation detail worth recording.                              |
+| 13  | `common_context_update`       | (Common Post — verbatim.)                                                                                                                                                                                                             |
+| 14  | `common_upsert_app_context`   | (Common Post — verbatim.)                                                                                                                                                                                                             |
+| 15  | `common_upsert_jira_ticket`   | (Common Post — verbatim.)                                                                                                                                                                                                             |
+| 16  | `common_compaction_recommend` | (Common Post — verbatim.)                                                                                                                                                                                                             |

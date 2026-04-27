@@ -26,8 +26,9 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { getSkillRoot } = require('./lib/skill-root');
 
-const SKILL_MD_PATH = path.join(os.homedir(), '.cursor/skills/make-custom-app/SKILL.md');
+const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
 
 function getMockupPath() {
 	if (!fs.existsSync(SKILL_MD_PATH)) return null;

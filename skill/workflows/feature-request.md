@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Feature Request Workflow
 
 Workflow for implementing a new feature in a Make app, typically driven by a Jira feature request ticket.
@@ -53,7 +54,7 @@ For **new** components (modules, RPCs, webhooks, custom functions), use `create-
 ```
 1. Show: "Creating new component: {component-type} '{name}' (label: {label}) — Proceed?"
 2. Wait for user approval
-3. Shell tool: node ~/.cursor/skills/make-custom-app/scripts/create-component.js {app-slug} {app-version} {component-type} {name} {label} [additional-args]
+3. Shell tool: node ${SKILL_ROOT}/scripts/create-component.js {app-slug} {app-version} {component-type} {name} {label} [additional-args]
    required_permissions: ["all"]
    block_until_ms: 30000
 ```
@@ -69,7 +70,7 @@ Component types and arguments:
 
 **6. Write Component Code**: Write IMLJSON code for each section.
 
-- Write code to `~/.cursor/make-app-contexts/{slug}-v{version}/` (local code store)
+- Write code to `${CONTEXTS_DIR}/{slug}-v{version}/` (local code store)
 - Push each section using `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make))
 - Follow the implementation order:
     1. **RPCs first** (if new) — other components may depend on them
@@ -109,7 +110,7 @@ Generate Developer Notes using the [Feature template](../references/developer-no
 **11. Post-Commit Sync**: When the user confirms changes have been committed, **auto-execute** the download command to sync.
 
 ```
-Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+Shell tool: node ${SKILL_ROOT}/scripts/download-app.js {app-slug} {app-version}
 required_permissions: ["all"]
 block_until_ms: 120000
 ```

@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code Review Workflow
 
 Workflow for AI to fetch uncommitted changes from a Make app and perform a code review. Pair with the static § R TODO template (`rules/make-app-todo-review.mdc`) and the universal TODO discipline (`rules/make-app-todo-rules.mdc`) — the TODO list is created **first**, then this workflow executes inside the matching items.
@@ -41,7 +42,7 @@ Determine the app slug and version per § "Required Inputs". If unclear after IP
 
 Before fetching code or analyzing changes, load existing knowledge about this app:
 
-1. **Local context file**: read `~/.cursor/make-app-contexts/{slug}-v{version}.md` if it exists — app structure, key patterns, caveats, and **work history** (previous reviews, bugs found, known issues).
+1. **Local context file**: read `${CONTEXTS_DIR}/{slug}-v{version}.md` if it exists — app structure, key patterns, caveats, and **work history** (previous reviews, bugs found, known issues).
 2. **Pinecone search**: call `search_app_knowledge` with the app slug and relevant keywords (ticket key, module names, feature area) to find prior context, related fixes, and known caveats from the team.
 3. **Evaluate relevance**: detect re-reviews and load previous issues for verification, identify known caveats that may affect current changes, avoid repeating analysis already captured in prior reviews.
 
@@ -72,7 +73,7 @@ Once the parent and subtasks are fetched (and the reviewable subtask set is dete
 Procedure (all MCP calls — no script):
 
 1. **Resolve `cloudId` once per session** — call `getAccessibleAtlassianResources` if you don't already have it from a prior step. Cache it for the rest of the review.
-2. **Resolve reviewer's `accountId` once per session** — read the `jira-email:` line from `~/.cursor/skills/make-custom-app/SKILL.md`, then call:
+2. **Resolve reviewer's `accountId` once per session** — read the `jira-email:` line from `${SKILL_ROOT}/SKILL.md`, then call:
    ```
    lookupJiraAccountId({ cloudId, searchString: "<reviewer-email>" })
    ```
@@ -103,13 +104,13 @@ Both `download-app.js` and `review-changes.js` must be run **every time** a revi
 Auto-execute both scripts in order via the Shell tool:
 
 ```
-Shell tool: node ~/.cursor/skills/make-custom-app/scripts/download-app.js {app-slug} {app-version}
+Shell tool: node ${SKILL_ROOT}/scripts/download-app.js {app-slug} {app-version}
 required_permissions: ["all"]
 block_until_ms: 120000
 ```
 
 ```
-Shell tool: node ~/.cursor/skills/make-custom-app/scripts/review-changes.js {app-slug} {app-version}
+Shell tool: node ${SKILL_ROOT}/scripts/review-changes.js {app-slug} {app-version}
 required_permissions: ["all"]
 block_until_ms: 60000
 ```
@@ -117,7 +118,7 @@ block_until_ms: 60000
 Read the review data after scripts complete:
 
 ```
-~/.cursor/make-app-contexts/{slug}-v{version}/reviews/latest.json
+${CONTEXTS_DIR}/{slug}-v{version}/reviews/latest.json
 ```
 
 ### 6. Filter changes (mandatory)
@@ -226,7 +227,7 @@ These are **post-disposition** actions, not post-review actions. Updating contex
 
 Once the user confirms, immediately execute (do NOT wait for the user to ask again):
 
-1. **Context file**: create or update `~/.cursor/make-app-contexts/{slug}-v{version}.md` with verdict + changed files + issues + caveats discovered.
+1. **Context file**: create or update `${CONTEXTS_DIR}/{slug}-v{version}.md` with verdict + changed files + issues + caveats discovered.
 2. **Pinecone sync**: `upsert_app_context` (sync the updated context file) + `upsert_jira_ticket` (for each Jira ticket reviewed, store the review result).
 3. **Jira assign + transition** via `post-review-transition.js`:
    - `committed` → assigns to authenticated user (`/myself`) and transitions to "In Testing" (from "Commit" or "Compilation")

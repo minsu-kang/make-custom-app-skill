@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.13.2
+version: 1.13.3
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -26,7 +26,7 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
 
 2. **Run the update command** via Shell tool with `required_permissions: ["all"]`:
    ```
-   curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update
+   curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash -s -- --update
    ```
 
 3. **After update completes successfully**:
@@ -41,7 +41,7 @@ description: Build and edit Make.com custom app IMLJSON code. Use when working w
    > ⚠️ Auto-update failed. You can update manually in an external terminal:
    >
    > ```
-   > curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install.sh | bash -s -- --update
+   > curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash -s -- --update
    > ```
    >
    > Proceeding with the current version for now.

@@ -1,15 +1,17 @@
 ---
 description: Mandatory pre/during/post actions for any Make custom app session
-globs: 
+globs:
 alwaysApply: true
 ---
+
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 
 # Make App Workflow
 
 ## Before Work
 
-1. **Runtime path check (blocking).** If `imt-app-runtime-path` is missing or empty in `~/.cursor/skills/make-custom-app/SKILL.md`, stop and instruct the user to add it. No work proceeds until it exists on disk.
-2. **Version check.** Compare local SKILL.md `version` against remote `version.json`. If outdated, run `install.sh --update` automatically (Shell with `required_permissions:["all"]`), re-read SKILL.md, continue. Never wait for user.
+1. **Runtime path check (blocking).** If `imt-app-runtime-path` is missing or empty in `${SKILL_ROOT}/SKILL.md`, stop and instruct the user to add it. No work proceeds until it exists on disk.
+2. **Version check.** Compare local SKILL.md `version` against remote `version.json`. If outdated, run `install-cursor.sh --update` automatically (Shell with `required_permissions:["all"]`), re-read SKILL.md, continue. Never wait for user.
 3. **Code sync.** When a Make app is detected, run `download-app.js` automatically if the local snapshot is missing, older than 24h, or the open file differs from the local store. Never answer until code is fresh.
 4. **Auto-execute scripts.** Read-only scripts (`download-app.js`, `review-changes.js`, `test-function.js`, `test-component.js`, `download-jira-ticket-attachment.js`) run automatically. Write scripts (`update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`) require explicit user confirmation with a diff summary. Post-review scripts (`post-review-transition.js`) auto-execute on user disposition only.
 
@@ -17,7 +19,7 @@ alwaysApply: true
 
 - **Related ticket lookup.** Subtask → fetch parent. Parent → fetch all subtasks. Always.
 - **Jira attachments (mandatory).** Always include `"attachment"` in `getJiraIssue` `fields`. Auto-download via `download-jira-ticket-attachment.js`; analyze images with the Read tool. Skip = misdiagnosis.
-- **QA subtask investigation.** Search Pinecone (`search_app_knowledge`) and load `~/.cursor/make-app-contexts/{slug}-v{version}.md` before debugging.
+- **QA subtask investigation.** Search Pinecone (`search_app_knowledge`) and load `${CONTEXTS_DIR}/{slug}-v{version}.md` before debugging.
 - **UX changes.** Read `references/app-ux-best-practices.md` before any label / hint / field-structure / message / naming / ordering change. Never rely on memory.
 - **IML function edits.** Updating `functions/{name}/code.js` requires updating `functions/{name}/test.js` and running `test-function.js`. Re-read `references/custom-functions-reference.md` § "test.js" before writing tests.
 - **`api.imljson` changes (non-review).** Run `test-component.js` after upload; create or extend mockup test data when missing. Re-read `references/component-test-guide.md` first.
@@ -27,6 +29,6 @@ alwaysApply: true
 ## After Work
 
 - **Developer Notes prompt.** After Jira-ticket work that ran a write script, ask the user: *"Shall I write Developer Notes to the Jira ticket?"* If approved, write to `customfield_10483` via `editJiraIssue` (ADF tables: Root Cause / Fix / Affected Components / Changed Files). Skip for code reviews and pure read-only sessions.
-- **Context file.** Create or update `~/.cursor/make-app-contexts/{slug}-v{version}.md` (Work History, Caveats). For code reviews, defer until the user explicitly confirms "committed" or "returned".
+- **Context file.** Create or update `${CONTEXTS_DIR}/{slug}-v{version}.md` (Work History, Caveats). For code reviews, defer until the user explicitly confirms "committed" or "returned".
 - **Pinecone sync.** Call MCP `upsert_app_context` and `upsert_jira_ticket` immediately after the context file write. Same code-review gate applies.
 - **Compaction.** When all TODO items are completed, recommend `/compact`.

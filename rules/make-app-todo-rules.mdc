@@ -1,8 +1,10 @@
 ---
 description: Static TODO discipline for Make app work — universal rules, common items, template selection
-globs: 
+globs:
 alwaysApply: true
 ---
+
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 
 # Make App Static TODO Rules
 
@@ -35,9 +37,9 @@ One template per session. If scope changes mid-session, finish or cancel the cur
 
 | id | content |
 |---|---|
-| `common_runtime_path_check` | Verify `imt-app-runtime-path` is configured and the path exists in `~/.cursor/skills/make-custom-app/SKILL.md` per Workflow § Before Work. Block all subsequent work until present. |
-| `common_context_load` | Confirm app slug + version (auto-detect version via IPME when missing — see `workflows/app-context.md`; ask the user only if IPME fails). Then load `~/.cursor/make-app-contexts/{slug}-v{version}.md` if it exists, and call `search_app_knowledge` (MCP) with the slug + relevant keywords for prior context, related fixes, and known caveats. |
-| `common_code_sync` | Ensure local code under `~/.cursor/make-app-contexts/{slug}-v{version}/` is present and fresh. Run `download-app.js` when missing / older than 24h / open file differs. For code reviews, also run `review-changes.js` and read `latest.json` here. Cancel only for brand-new app creation with no slug yet. |
+| `common_runtime_path_check` | Verify `imt-app-runtime-path` is configured and the path exists in `${SKILL_ROOT}/SKILL.md` per Workflow § Before Work. Block all subsequent work until present. |
+| `common_context_load` | Confirm app slug + version (auto-detect version via IPME when missing — see `workflows/app-context.md`; ask the user only if IPME fails). Then load `${CONTEXTS_DIR}/{slug}-v{version}.md` if it exists, and call `search_app_knowledge` (MCP) with the slug + relevant keywords for prior context, related fixes, and known caveats. |
+| `common_code_sync` | Ensure local code under `${CONTEXTS_DIR}/{slug}-v{version}/` is present and fresh. Run `download-app.js` when missing / older than 24h / open file differs. For code reviews, also run `review-changes.js` and read `latest.json` here. Cancel only for brand-new app creation with no slug yet. |
 | `common_jira_fetch` | Call `getJiraIssue` with fields = `["summary","description","subtasks","comment","status","attachment","issuetype","customfield_10483","customfield_10283"]`. Fetch every subtask with the same fields (filter by status per `workflows/code-review.md` § 3 — Done = skip, Complete = review, Other = context); fetch the parent if the ticket itself is a subtask; read comments on parent and all subtasks; read Developer Notes (`customfield_10483`) before forming any verdict or plan. Cancel only when no Jira ticket is attached. |
 | `common_attachments` | For every attachment from `common_jira_fetch`, run `download-jira-ticket-attachment.js <issue-key>` and analyze images via the Read tool; note videos and their paths. Cancel only when there are zero attachments (or `common_jira_fetch` was cancelled). |
 
@@ -45,7 +47,7 @@ One template per session. If scope changes mid-session, finish or cancel the cur
 
 | id | content |
 |---|---|
-| `common_context_update` | Create or update `~/.cursor/make-app-contexts/{slug}-v{version}.md` — Work History entry, new caveats, pattern changes. For § R Code Review, this item stays `pending` until the disposition `[GATE]` is `completed` per `workflows/code-review.md` § "Post-Review Disposition Gate". |
+| `common_context_update` | Create or update `${CONTEXTS_DIR}/{slug}-v{version}.md` — Work History entry, new caveats, pattern changes. For § R Code Review, this item stays `pending` until the disposition `[GATE]` is `completed` per `workflows/code-review.md` § "Post-Review Disposition Gate". |
 | `common_upsert_app_context` | Call MCP `upsert_app_context` with `{ slug, version }` to sync the updated context file to Pinecone. |
 | `common_upsert_jira_ticket` | Call MCP `upsert_jira_ticket` for the parent ticket and every reviewed/fixed subtask, including `summary`, `description`, and `developer_notes` if available. Cancel only when `common_jira_fetch` was cancelled. |
 | `common_compaction_recommend` | Inform the user: "All tasks complete. Recommending context compaction to maintain accuracy for subsequent tasks." If the user confirms or starts a new task, treat that as the compaction signal. |

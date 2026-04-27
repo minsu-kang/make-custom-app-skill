@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Component Integration Test Guide
 
 ## When to Read This
@@ -19,7 +20,7 @@ All tests run inside the **`make-apps-mockup`** repository. This skill provides 
 ## How to Run
 
 ```bash
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
+node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
 ```
 
 | Option | Description |
@@ -30,10 +31,10 @@ node ~/.cursor/skills/make-custom-app/scripts/test-component.js <app-slug> <app-
 
 Examples:
 ```bash
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module                    # all modules
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module CreateItemV2       # one module
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 rpc listBoards getUsers   # multiple RPCs
-node ~/.cursor/skills/make-custom-app/scripts/test-component.js monday 2 module --format=json      # JSON for AI
+node ${SKILL_ROOT}/scripts/test-component.js monday 2 module                    # all modules
+node ${SKILL_ROOT}/scripts/test-component.js monday 2 module CreateItemV2       # one module
+node ${SKILL_ROOT}/scripts/test-component.js monday 2 rpc listBoards getUsers   # multiple RPCs
+node ${SKILL_ROOT}/scripts/test-component.js monday 2 module --format=json      # JSON for AI
 ```
 
 ## How It Works

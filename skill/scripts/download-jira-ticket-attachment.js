@@ -7,7 +7,8 @@
  *   node download-jira-ticket-attachment.js IEN-14934
  *
  * Downloads all attachments from a Jira issue to:
- *   ~/.cursor/make-app-contexts/attachments/{issue-key}/
+ *   ~/.claude/make-app-contexts/attachments/{issue-key}/ (Claude Code) or
+ *   ~/.cursor/make-app-contexts/attachments/{issue-key}/ (Cursor)
  *
  * Requires jira-email and jira-api-token in SKILL.md
  */
@@ -16,9 +17,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 
-const SKILL_MD_PATH = path.join(os.homedir(), '.cursor/skills/make-custom-app/SKILL.md');
-const ATTACHMENTS_DIR = path.join(os.homedir(), '.cursor/make-app-contexts/attachments');
+const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
+const ATTACHMENTS_DIR = path.join(os.homedir(), getEditorDir(), 'make-app-contexts/attachments');
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
 
@@ -63,7 +65,7 @@ function loadJiraConfig() {
 
 	if (!email || !apiToken) {
 		console.error('ERROR: Jira credentials not configured in SKILL.md.');
-		console.error('Add the following to the last lines of ~/.cursor/skills/make-custom-app/SKILL.md:\n');
+		console.error(`Add the following to the last lines of ${SKILL_MD_PATH}:\n`);
 		console.error('  jira-email: your-email@example.com');
 		console.error('  jira-api-token: your-api-token');
 		console.error('  jira-base-url: https://make.atlassian.net  (optional, defaults to make.atlassian.net)\n');

@@ -29,6 +29,7 @@ SKILL_FILES=("SKILL.md")
 REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md" "security-reference.md" "code-smells-reference.md")
 WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md")
 SCRIPT_FILES=("download-app.js" "review-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js" "post-review-transition.js")
+SCRIPT_LIB_FILES=("skill-root.js")
 RULE_FILES=("make-app-workflow.mdc" "make-app-todo-rules.mdc" "make-app-todo-bugfix.mdc" "make-app-todo-feature.mdc" "make-app-todo-task.mdc" "make-app-todo-review.mdc" "work-discipline.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
@@ -262,6 +263,12 @@ if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/scripts/download-app.js" ]; t
     for file in "$SCRIPTS_DEST"/*.js; do
         ok "scripts/$(basename "$file")"
     done
+    mkdir -p "$SCRIPTS_DEST/lib"
+    cp "$SCRIPT_DIR"/skill/scripts/lib/*.js "$SCRIPTS_DEST/lib/" 2>/dev/null
+    for file in "$SCRIPTS_DEST"/lib/*.js; do
+        [ -f "$file" ] || continue
+        ok "scripts/lib/$(basename "$file")"
+    done
 else
     BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
 
@@ -272,6 +279,17 @@ else
         else
             rm -f "$SCRIPTS_DEST/$file"
             warn "scripts/$file (download failed: HTTP $HTTP_CODE)"
+        fi
+    done
+
+    mkdir -p "$SCRIPTS_DEST/lib"
+    for file in "${SCRIPT_LIB_FILES[@]}"; do
+        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/lib/$file" "$BASE_URL/skill/scripts/lib/$file" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+            ok "scripts/lib/$file"
+        else
+            rm -f "$SCRIPTS_DEST/lib/$file"
+            warn "scripts/lib/$file (download failed: HTTP $HTTP_CODE)"
         fi
     done
 fi
