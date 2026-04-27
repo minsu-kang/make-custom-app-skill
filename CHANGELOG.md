@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.13.0] - 2026-04-27
+
+- **Claude Code support (new feature).** Added `install-claude.sh` (macOS/Linux) and `install-claude.ps1` (Windows) installers that deploy the skill to `~/.claude/skills/make-custom-app/`, register the MCP server in `~/.claude/claude.json`, and append a routing note to `~/.claude/CLAUDE.md`. Support `--update` / `--force` (sh) and `-Mode update` / `-Mode force` (ps1) flags, mirroring the Cursor installer API.
+- **`subagents/make-integration-engineer.md`** — new Claude Code sub-agent definition. Pre-loads the full Make domain skill (SKILL.md + all workflows and rule files) and is deployed to `~/.claude/agents/make-integration-engineer.md` by the installer. The orchestrator routes any Make app work to this agent automatically via the routing note in `~/.claude/CLAUDE.md`.
+- **`.claude/CLAUDE.md`** — new project-scoped version-sync rules (PostToolUse hook companion).
+- **`.claude/settings.local.json`** — updated with PostToolUse version-sync hook (gitignored; not committed).
+- **`README.md`** — updated prerequisites, installation, "What Gets Installed", repository-structure tree, and new "The `make-integration-engineer` Sub-Agent" section to document Claude Code support alongside Cursor.
+- **`.gitignore`** — added `.claude/settings.local.json` exclusion.
+
 ## [1.12.1] - 2026-04-27
 
 - `runtime-reference.md` § "Pagination Internals" — add new sub-section "`pagination.condition` is Evaluated TWICE per cycle (Critical)" documenting a critical runtime trap verified against `imt-app-runtime`. The condition is evaluated **twice** per cycle: once after the response (in the pagination middleware, with `pagination.page = N`), and again before the next request (in `getPaginationRequestOptions`, with `pagination.page` already incremented to `N+1` by `enablePagination()`). When the condition expression references `pagination.page` directly, this dual evaluation produces a non-obvious off-by-one: `total_pages > pagination.page` skips the last page (the second check fires `total_pages > N+1` which is false one page early → request for the last page is skipped entirely → last page's data never fetched). The correct pattern is `total_pages >= pagination.page` (or its inverted form `pagination.page <= total_pages`, which matches the runtime's own `test/pagination.spec.ts:921`). Body-driven conditions (`body.has_more`, `body.current_page < body.total_pages`, `body.next_cursor`) sidestep the trap entirely. Includes a behavior table, source-line citations, and the full request-skip mechanism (`ctx.request.options = undefined` → `if (!requestOptions) return next()` in `fetcher/middleware.ts:35-38` → `!batch` exits the loop in `init.ts`).
