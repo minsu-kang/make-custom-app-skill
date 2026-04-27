@@ -83,6 +83,21 @@ The following categories are **explicitly excluded** from code review output. Do
 
 **Exception — functional impact**: Flag only if whitespace change causes actual behavior change (e.g., breaking a template literal, altering a JSON string value). This is extremely rare in IMLJSON files.
 
+### `pagination.condition` with `>=` and `pagination.page` (Do NOT flag as "extra request")
+
+When a `total_pages`-style API uses the runtime's `pagination.page` variable directly in `api.pagination.condition`, `>=` (or its inverted form `pagination.page <= total_pages`) is the **correct** pattern. **Do NOT** suggest changing it to `>` — that breaks pagination by silently dropping the last page.
+
+| Pattern (uses `pagination.page`) | Verdict | Why |
+|---|---|---|
+| `{{body.pagination.total_pages >= pagination.page}}` | **Correct** | Runtime evaluates `condition` twice per cycle (after response + before next request); second check sees the post-increment page number. `>=` correctly stops on the iteration **after** the last page is fetched. |
+| `{{pagination.page <= body.pagination.total_pages}}` | **Correct** | Equivalent to `>=`; this is the form used in the runtime's own pagination tests (`test/pagination.spec.ts:921`). |
+| `{{body.pagination.total_pages > pagination.page}}` | **Bug** | Off-by-one: second condition check fires with `pagination.page = N+1`, so `total_pages > N+1` becomes false one page early → request for the last page is skipped → last page's data is never returned. Flag as `[BUG]`. |
+| `{{pagination.page < body.pagination.total_pages}}` | **Bug** | Same off-by-one as `>`. Flag as `[BUG]`. |
+
+**Body-driven conditions** (`{{body.has_more}}`, `{{body.current_page < body.total_pages}}`, `{{body.next_cursor}}`) reference fields on the **just-received response** rather than the runtime's pre-incremented `pagination.page`, so `<` / `>` / `==` behave intuitively in those forms — review them on their own merits.
+
+Full mechanism: see [runtime-reference.md § "`pagination.condition` is Evaluated TWICE per cycle"](runtime-reference.md#paginationcondition-is-evaluated-twice-per-cycle-critical). Re-read it before flagging any `pagination.condition` change.
+
 ### IML Path `[]` / `[1]` Shorthand (Do NOT flag as "array wrap")
 
 `{{body.results[].field}}` and `{{body.results[1].field}}` both resolve to a **scalar** — the first item's `.field` — because IML path indices are 1-based and empty brackets default to `n = 1`. They are **not** an array wrap, iteration, or map.
