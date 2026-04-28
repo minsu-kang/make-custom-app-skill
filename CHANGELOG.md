@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.8 — 2026-04-28
+- Auto-update flow now hard-stops on outdated skill: cancel current task, run install command for the detected editor (Claude Code → `install-claude.sh`/`.ps1`, Cursor → `install-cursor.sh`/`.ps1`), and refuse all other tool calls until the update succeeds. Failure no longer falls back to "proceed with current version" — instead instruct the user to update manually and end the turn. Fixes Cursor-only command being shown to Claude Code users.
+- `make-integration-engineer` subagent now enforces the same auto-update hard stop directly after `Skill('make-custom-app')` and before the tail-config precheck, so the agent that actually drives the tools also blocks until the skill is on the latest version. Previously the version check lived only inside `SKILL.md` and could be silently ignored by the agent loop.
+
 ## 1.13.7 — 2026-04-28
 - Fix Claude Code installers writing MCP registration to the wrong path. `install-claude.sh` and `install-claude.ps1` were targeting `~/.claude/claude.json`, but Claude Code reads its config from `~/.claude.json`, so the registration silently went into a stray file and `mcp__make-custom-app__*` tools never became available to the `make-integration-engineer` subagent. Both installers now write to `~/.claude.json`, populate the `env` block with `PINECONE_API_KEY` / `OPENAI_API_KEY` / `PINECONE_INDEX_NAME` parsed from `mcp-server/.env` (previously empty `env: {}` left the server unable to connect to Pinecone or OpenAI), update an existing entry instead of skipping when the args/env drift, and remove the stale `~/.claude/claude.json` left behind by earlier installs when it only contains the orphan entry.
 
