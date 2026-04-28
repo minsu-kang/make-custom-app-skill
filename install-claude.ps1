@@ -31,7 +31,7 @@ $SKILL_DIR = Join-Path $CLAUDE_HOME "skills\make-custom-app"
 $RULES_DIR = Join-Path $SKILL_DIR "rules"
 $AGENTS_DIR = Join-Path $CLAUDE_HOME "agents"
 $CLAUDE_MD = Join-Path $CLAUDE_HOME "CLAUDE.md"
-$CLAUDE_JSON = Join-Path $CLAUDE_HOME "claude.json"
+$CLAUDE_JSON = Join-Path $HOME ".claude.json"
 $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
@@ -535,6 +535,33 @@ OPENAI_API_KEY=$openaiKey
 Write-Host ""
 Write-Info "Registering MCP server in $CLAUDE_JSON..."
 
+# Clean up stale config from earlier buggy installer (<= 1.13.6) that wrote to
+# the wrong path ~/.claude/claude.json. Only remove if it contains nothing but
+# our orphan mcpServers entry.
+$StaleClaudeJson = Join-Path $CLAUDE_HOME "claude.json"
+if ((Test-Path $StaleClaudeJson) -and ($StaleClaudeJson -ne $CLAUDE_JSON)) {
+    if (Select-String -Path $StaleClaudeJson -Pattern '"make-custom-app"' -SimpleMatch -Quiet) {
+        try {
+            $stale = Get-Content $StaleClaudeJson -Raw | ConvertFrom-Json
+            $topKeys = @($stale.PSObject.Properties.Name)
+            $mcpKeys = @()
+            if ($stale.mcpServers) {
+                $mcpKeys = @($stale.mcpServers.PSObject.Properties.Name)
+            }
+            if ($topKeys.Count -eq 1 -and $topKeys[0] -eq 'mcpServers' -and $mcpKeys.Count -eq 1 -and $mcpKeys[0] -eq 'make-custom-app') {
+                Remove-Item -Force $StaleClaudeJson
+                Write-Ok "Removed stale $StaleClaudeJson (left over from earlier installer bug)"
+            }
+            else {
+                Write-Warn "$StaleClaudeJson contains unrelated config - leaving it untouched."
+            }
+        }
+        catch {
+            Write-Warn "Could not parse stale $StaleClaudeJson - leaving it untouched."
+        }
+    }
+}
+
 $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCmd) {
     Write-Warn "node not found - cannot register MCP server. Install Node.js and re-run."
@@ -542,16 +569,38 @@ if (-not $nodeCmd) {
 else {
     # Use forward slashes for the dist/index.js path — Node.js handles them on Windows.
     $McpIndexJs = ($MCP_SERVER_DIR.Replace("\", "/")) + "/dist/index.js"
+    $McpEnvFile = ($MCP_SERVER_DIR.Replace("\", "/")) + "/.env"
 
     $env:CLAUDE_JSON_PATH = $CLAUDE_JSON
     $env:MCP_INDEX_JS = $McpIndexJs
+    $env:MCP_ENV_FILE = $McpEnvFile
 
     $nodeScript = @'
 const fs = require('fs');
 const path = require('path');
 const file = process.env.CLAUDE_JSON_PATH;
 const indexJs = process.env.MCP_INDEX_JS;
+const envFile = process.env.MCP_ENV_FILE;
 const KEY = 'make-custom-app';
+
+function parseEnvFile(p) {
+    if (!p || !fs.existsSync(p)) return {};
+    const out = {};
+    for (const raw of fs.readFileSync(p, 'utf8').split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const eq = line.indexOf('=');
+        if (eq === -1) continue;
+        out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+    }
+    return out;
+}
+
+const envVars = parseEnvFile(envFile);
+const mcpEnv = {};
+for (const k of ['PINECONE_API_KEY', 'OPENAI_API_KEY', 'PINECONE_INDEX_NAME']) {
+    if (envVars[k]) mcpEnv[k] = envVars[k];
+}
 
 let cfg = {};
 let existed = false;
@@ -568,7 +617,12 @@ if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {};
 }
 
-if (cfg.mcpServers[KEY]) {
+const existingEntry = cfg.mcpServers[KEY];
+const needsUpdate = !existingEntry
+    || existingEntry.args?.[0] !== indexJs
+    || JSON.stringify(existingEntry.env || {}) !== JSON.stringify(mcpEnv);
+
+if (!needsUpdate) {
     console.log('skip');
     process.exit(0);
 }
@@ -576,12 +630,12 @@ if (cfg.mcpServers[KEY]) {
 cfg.mcpServers[KEY] = {
     command: 'node',
     args: [indexJs],
-    env: {}
+    env: mcpEnv
 };
 
 fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
-console.log(existed ? 'added' : 'created');
+console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
 '@
 
     # Write the inline script to a temp file and exec node against it

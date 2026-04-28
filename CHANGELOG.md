@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.13.7 — 2026-04-28
+- Fix Claude Code installers writing MCP registration to the wrong path. `install-claude.sh` and `install-claude.ps1` were targeting `~/.claude/claude.json`, but Claude Code reads its config from `~/.claude.json`, so the registration silently went into a stray file and `mcp__make-custom-app__*` tools never became available to the `make-integration-engineer` subagent. Both installers now write to `~/.claude.json`, populate the `env` block with `PINECONE_API_KEY` / `OPENAI_API_KEY` / `PINECONE_INDEX_NAME` parsed from `mcp-server/.env` (previously empty `env: {}` left the server unable to connect to Pinecone or OpenAI), update an existing entry instead of skipping when the args/env drift, and remove the stale `~/.claude/claude.json` left behind by earlier installs when it only contains the orphan entry.
+
 ## 1.13.6 — 2026-04-27
 - Fix remote installers dropping `skill/scripts/lib/settings.js`. The file was added in 1.13.4 but never registered in the `SCRIPT_LIB_FILES` arrays of `install-claude.sh`, `install-claude.ps1`, `install-cursor.sh`, `install-cursor.ps1`, so curl/irm-mode installs left it missing and every write/read script failed with `Cannot find module './lib/settings'`. Local-mode installs (cp `*.js` glob) were unaffected.
 

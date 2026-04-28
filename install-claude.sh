@@ -22,7 +22,7 @@ BRANCH="master"
 SKILL_DIR="$HOME/.claude/skills/make-custom-app"
 RULES_DIR="$SKILL_DIR/rules"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
-CLAUDE_JSON="$HOME/.claude/claude.json"
+CLAUDE_JSON="$HOME/.claude.json"
 VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 SKILL_FILES=("SKILL.md")
@@ -427,20 +427,65 @@ ENVEOF
     fi
 fi
 
-# ── Register MCP Server in ~/.claude/claude.json ──
+# ── Register MCP Server in ~/.claude.json ──
 echo ""
 info "Registering MCP server in $CLAUDE_JSON..."
+
+# Clean up stale config from earlier buggy installer (≤1.13.6) that wrote to
+# the wrong path ~/.claude/claude.json. Only remove if it contains nothing but
+# our orphan mcpServers entry.
+STALE_CLAUDE_JSON="$HOME/.claude/claude.json"
+if [ -f "$STALE_CLAUDE_JSON" ] && [ "$STALE_CLAUDE_JSON" != "$CLAUDE_JSON" ]; then
+    if grep -q '"make-custom-app"' "$STALE_CLAUDE_JSON" 2>/dev/null; then
+        ONLY_KEY_PRESENT=$(node -e "
+            try {
+                const c = JSON.parse(require('fs').readFileSync('$STALE_CLAUDE_JSON','utf8'));
+                const keys = Object.keys(c);
+                const mcpKeys = c.mcpServers ? Object.keys(c.mcpServers) : [];
+                const onlyOurs = keys.length === 1 && keys[0] === 'mcpServers' && mcpKeys.length === 1 && mcpKeys[0] === 'make-custom-app';
+                console.log(onlyOurs ? 'yes' : 'no');
+            } catch (e) { console.log('no'); }
+        " 2>/dev/null)
+        if [ "$ONLY_KEY_PRESENT" = "yes" ]; then
+            rm -f "$STALE_CLAUDE_JSON"
+            ok "Removed stale $STALE_CLAUDE_JSON (left over from earlier installer bug)"
+        else
+            warn "$STALE_CLAUDE_JSON contains unrelated config — leaving it untouched."
+        fi
+    fi
+fi
 
 if ! command -v node &>/dev/null; then
     warn "node not found — cannot register MCP server. Install Node.js and re-run."
 else
     MCP_INDEX_JS="$MCP_SERVER_DIR/dist/index.js"
-    CLAUDE_JSON_PATH="$CLAUDE_JSON" MCP_INDEX_JS="$MCP_INDEX_JS" node - <<'NODEEOF'
+    MCP_ENV_FILE="$MCP_SERVER_DIR/.env"
+    CLAUDE_JSON_PATH="$CLAUDE_JSON" MCP_INDEX_JS="$MCP_INDEX_JS" MCP_ENV_FILE="$MCP_ENV_FILE" node - <<'NODEEOF'
 const fs = require('fs');
 const path = require('path');
 const file = process.env.CLAUDE_JSON_PATH;
 const indexJs = process.env.MCP_INDEX_JS;
+const envFile = process.env.MCP_ENV_FILE;
 const KEY = 'make-custom-app';
+
+function parseEnvFile(p) {
+    if (!p || !fs.existsSync(p)) return {};
+    const out = {};
+    for (const raw of fs.readFileSync(p, 'utf8').split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const eq = line.indexOf('=');
+        if (eq === -1) continue;
+        out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+    }
+    return out;
+}
+
+const envVars = parseEnvFile(envFile);
+const mcpEnv = {};
+for (const k of ['PINECONE_API_KEY', 'OPENAI_API_KEY', 'PINECONE_INDEX_NAME']) {
+    if (envVars[k]) mcpEnv[k] = envVars[k];
+}
 
 let cfg = {};
 let existed = false;
@@ -457,7 +502,12 @@ if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {};
 }
 
-if (cfg.mcpServers[KEY]) {
+const existingEntry = cfg.mcpServers[KEY];
+const needsUpdate = !existingEntry
+    || existingEntry.args?.[0] !== indexJs
+    || JSON.stringify(existingEntry.env || {}) !== JSON.stringify(mcpEnv);
+
+if (!needsUpdate) {
     console.log('skip');
     process.exit(0);
 }
@@ -465,12 +515,12 @@ if (cfg.mcpServers[KEY]) {
 cfg.mcpServers[KEY] = {
     command: 'node',
     args: [indexJs],
-    env: {}
+    env: mcpEnv
 };
 
 fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
-console.log(existed ? 'added' : 'created');
+console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
 NODEEOF
     REG_RESULT=$?
     if [ $REG_RESULT -eq 0 ]; then
