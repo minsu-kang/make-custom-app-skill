@@ -324,6 +324,29 @@ When reviewing a connection (especially new apps or new connections), if the con
 
 **Full pattern + example**: see `component-patterns-reference.md` § "OAuth2 Connection with Common Fallback".
 
+### OAuth `redirect_uri` Convention (Mandatory check for connection changes)
+
+When reviewing **any** connection (new app, new connection in an existing app, or a touched OAuth1/OAuth2 connection in an existing app), and the upstream API supports OAuth with a `redirect_uri` parameter, the connection's `api.imljson` **must** use `{{oauth.localRedirectUri}}` for both `authorize.qs.redirect_uri` and `token.body.redirect_uri`.
+
+**Why**: `oauth.redirectUri` is the legacy variable that always resolves to `integromat.com` (per `accounts/app-runtime-oauth2/lib/account.js` `get redirects()`). Apps using it break OAuth on self-hosted Make instances and on any future Make-hosted environment that doesn't carry the `integromat.com` redirect alias. `oauth.localRedirectUri` resolves to the running instance's host (Make → `make.com`, self-hosted → that customer's host), so it is the only variant that is portable across deployments.
+
+**Checklist:**
+
+1. `rg "oauth\.redirectUri" connections/{name}/api.imljson` — any hit?
+2. If yes, check the `aliasTo` exception first — aliased connections compile no-op, the real fix belongs in the source app's connection (see "Aliased Connections" subsection above).
+3. Otherwise, both `authorize.qs.redirect_uri` and `token.body.redirect_uri` should be `{{oauth.localRedirectUri}}`. If only one of the two is migrated, the OAuth provider returns `redirect_uri_mismatch` / `invalid_grant` (RFC 6749 § 4.1.3 — the values must match exactly).
+4. `refresh.imljson` / `refresh` block does **not** take `redirect_uri` (refresh-token grant has no callback step). Flag any `redirect_uri` inside `refresh` as a bug regardless of which variable it uses.
+5. `oauth.makeRedirectUri` is acceptable only when the upstream provider has a hard `make.com`-only registered redirect AND self-host support is explicitly out of scope. Treat any usage in a new app as Changes Requested unless that justification is documented.
+
+**Verdict mapping:**
+
+- **New app / new connection** with `oauth.redirectUri` → **Changes Requested**.
+- **Existing connection edit** that doesn't touch the `redirect_uri` line → not a blocker on its own, but raise as **Improvement** so the developer can migrate while the file is open.
+- **Existing connection edit** that explicitly modifies the `redirect_uri` line and still uses `oauth.redirectUri` → **Changes Requested**.
+- **Operational reminder to include in the Analysis** (regardless of verdict): when migrating from `oauth.redirectUri` → `oauth.localRedirectUri` on a connection that uses Make-managed common credentials (`installSpec`/`install` populated `common.clientId` / `common.clientSecret`), the new callback URL must also be registered on the upstream OAuth client (e.g. Google Cloud Console). Coordinate with whoever owns that client before flipping the production app.
+
+**Full pattern + variable table**: see `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" and `security-reference.md` § 2.5.
+
 ### Branding Consistency for Apps in an Existing Family (Mandatory for new apps)
 
 When the Jira ticket type is **App** (new app) AND the app slug shares a prefix with other published apps (e.g. `google-ads-*`, `microsoft-*`, `slack-*`, `hubspot-*`), verify the app matches the family's visual identity:

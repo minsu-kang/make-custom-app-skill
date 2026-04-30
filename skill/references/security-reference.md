@@ -28,7 +28,7 @@ Each finding below maps to a verdict — **Critical** (block merge), **High** (c
 | 2.2 | H | Missing `state` parameter in authorize URL | `authorize.imljson` builds `url` without `state` | Add `"state": "{{oauth.state}}"` — runtime injects CSRF-safe state and validates on callback |
 | 2.3 | H | Wildcard/overbroad scope | Scope string like `admin`, `*`, or one scope union that covers multiple modules regardless of user intent | Request the minimum scope each module needs. For apps with per-module scope, define `scope.imljson` + `scopes.imljson` |
 | 2.4 | H | `refresh_token` logged / echoed | `response.output`, `response.temp`, or error message references `body.refresh_token` outside of `connection.refreshToken` assignment in `token.imljson` / `refresh.imljson` | Keep `refresh_token` strictly inside connection storage; never surface to module output |
-| 2.5 | M | `redirect_uri` hardcoded to a non-Make host | `authorize.imljson` sets `redirect_uri` to a developer-controlled URL | Must use Make's `{{oauth.redirectUri}}` — runtime value |
+| 2.5 | M | `redirect_uri` hardcoded or pinned to a single host | `authorize.imljson` / `token.imljson` sets `redirect_uri` to a developer-controlled URL, or uses `{{oauth.redirectUri}}` (integromat.com-only legacy) / `{{oauth.makeRedirectUri}}` (make.com-only) instead of the host-aware variant | Use `{{oauth.localRedirectUri}}` in **both** `authorize.qs.redirect_uri` **and** `token.body.redirect_uri` (must match per RFC 6749 § 4.1.3). It resolves to the running instance's host so the connection works on Make-hosted **and** self-hosted deployments. See `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" for the full variable table. |
 
 ---
 

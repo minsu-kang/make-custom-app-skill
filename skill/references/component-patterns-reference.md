@@ -228,6 +228,46 @@ And in the connection's `api.imljson`, continue to reference the fallback:
 
 **Related**: aliased connections (see above) don't need their own install/installSpec — the source connection owns them.
 
+### OAuth2 Connection — `redirect_uri` Convention
+
+When the upstream API supports the standard OAuth2 / OAuth1 flow with a `redirect_uri` parameter, the connection's `api.imljson` **must** use `{{oauth.localRedirectUri}}` for that field — not `{{oauth.redirectUri}}`. This rule applies both when **building a new connection** and when **reviewing an existing one**.
+
+**Why**: the runtime exposes three different redirect-URI variables, and only `localRedirectUri` resolves to the host the user is actually running on (so it works on Make-hosted **and** self-hosted instances).
+
+| Runtime variable | Resolves to | Use case |
+| --- | --- | --- |
+| `{{oauth.localRedirectUri}}` | `https://<environment.host>/oauth/cb/{connection-name}` — the **current instance's host** (Make → `make.com`, self-hosted → that customer's host) | **Default for all new connections.** Self-host-safe. Required for any app that may be deployed outside Make. |
+| `{{oauth.redirectUri}}` | `https://<environment.redirects.integromat>/oauth/cb/{connection-name}` — **always `integromat.com`** | **Legacy.** Pre-Make-rebrand callback. Do not use in new code. Existing apps still on this value should be migrated when touched. |
+| `{{oauth.makeRedirectUri}}` | `https://<environment.redirects.make>/oauth/cb/{connection-name}` — **always `make.com`** | Make-only deployment (breaks self-host). Use only when the upstream OAuth provider has a hard `make.com`-only redirect registered and self-host support is explicitly out of scope. |
+
+Source of truth: `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` (and the OAuth1 equivalent at `accounts/app-runtime-oauth1/lib/account.js`). When `environment.redirects` is unset (legacy environment configuration), all three variables collapse to the same host-based URI, so `localRedirectUri` is also the safest backward-compatible choice.
+
+**Where to set it (and where you must keep it consistent)**:
+
+```json
+{
+	"authorize": {
+		"qs": {
+			"redirect_uri": "{{oauth.localRedirectUri}}",
+			"...": "..."
+		}
+	},
+	"token": {
+		"body": {
+			"redirect_uri": "{{oauth.localRedirectUri}}",
+			"...": "..."
+		}
+	}
+}
+```
+
+- **`authorize` and `token` must use the same value.** OAuth2 spec (RFC 6749 § 4.1.3) requires the `redirect_uri` in the token-exchange call to exactly match the one sent to the authorize endpoint, otherwise the provider returns `redirect_uri_mismatch` / `invalid_grant`.
+- **`refresh` does not take `redirect_uri`** (refresh-token grant has no callback step) — leave it out, do not add it.
+
+**Operational note (out of scope of the IMLJSON file)**: when migrating an existing connection from `oauth.redirectUri` → `oauth.localRedirectUri`, the new callback URL must also be registered as an "Authorized redirect URI" in the upstream provider's OAuth client (e.g. Google Cloud Console for Google APIs, Facebook App settings for Meta). For apps that ship Make-managed common credentials (`common.clientId` / `common.clientSecret` populated by `installSpec`/`install`), this is an ops-team task on the Make-owned OAuth client — coordinate with whoever owns that client before flipping the value in production.
+
+**Code-review heuristic**: in any connection `api.imljson` diff, `rg "oauth\.redirectUri" connections/{name}/api.imljson` should return zero hits. Any hit (other than a comment explaining a deliberate exception) is at least an Improvement; on a new app or new connection it is Changes Requested.
+
 ### Key Fields
 
 | Field                     | Purpose                                                                                                                                           |

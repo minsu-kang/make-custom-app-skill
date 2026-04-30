@@ -83,13 +83,15 @@ Key points:
 
 ## OAuth Connection — authorize/token/refresh/info Pattern
 
+> `redirect_uri` uses `{{oauth.localRedirectUri}}` (host-aware — works on Make-hosted **and** self-hosted instances). Do not substitute `{{oauth.redirectUri}}` (legacy, integromat.com-only) or `{{oauth.makeRedirectUri}}` (make.com-only) in new code. The same value must appear in both `authorize.qs.redirect_uri` and `token[*].body.redirect_uri` (RFC 6749 § 4.1.3). See `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention".
+
 ```json
 {
     "authorize": {
         "qs": {
             "scope": "{{join(oauth.scope, ',')}}",
             "client_id": "{{ifempty(parameters.clientId, common.clientId)}}",
-            "redirect_uri": "{{oauth.redirectUri}}",
+            "redirect_uri": "{{oauth.localRedirectUri}}",
             "response_type": "code"
         },
         "url": "https://api.instagram.com/oauth/authorize",
@@ -105,7 +107,7 @@ Key points:
                 "code": "{{temp.code}}",
                 "client_id": "{{ifempty(parameters.clientId, common.clientId)}}",
                 "grant_type": "authorization_code",
-                "redirect_uri": "{{oauth.redirectUri}}",
+                "redirect_uri": "{{oauth.localRedirectUri}}",
                 "client_secret": "{{ifempty(parameters.clientSecret, common.clientSecret)}}"
             },
             "type": "urlencoded",
@@ -173,8 +175,9 @@ Key points:
 ```
 
 Key points:
+- `redirect_uri` uses `{{oauth.localRedirectUri}}` in **both** `authorize` and `token` (host-aware, self-host-safe; see note above)
 - `token` is an array for multiple requests (short-lived → long-lived token exchange)
-- `refresh.condition` triggers renewal 1 minute before expiry
+- `refresh.condition` triggers renewal 1 minute before expiry — `refresh` itself takes no `redirect_uri` (refresh-token grant has no callback)
 - `info` sets `uid`, `metadata`, and `data`
 - `ifempty(parameters.xxx, common.xxx)` pattern — user value first, falls back to common value
 

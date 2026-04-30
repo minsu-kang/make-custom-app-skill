@@ -607,6 +607,22 @@ if (module.flags && module.flags.environmentAccess) {
 | Scenario debug mode | `{{environment.debug}}` | No |
 | Server env var `FOO` | `{{environment.system.FOO}}` | Yes — `flags.environmentAccess: ["FOO"]` in common |
 
+## OAuth Connection Variables
+
+Available inside `connections/{name}/api.imljson` (`authorize`, `token`, etc.). Sourced from `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` (and the OAuth1 equivalent at `accounts/app-runtime-oauth1/lib/account.js`).
+
+| Variable | Resolves to | When to use |
+|---|---|---|
+| `{{oauth.localRedirectUri}}` | `https://<environment.host>/oauth/cb/{connection-name}` — the **current instance's host** | **Default for new connections.** Host-aware, works on Make-hosted **and** self-hosted instances. |
+| `{{oauth.redirectUri}}` | `https://<environment.redirects.integromat>/oauth/cb/{connection-name}` — **always `integromat.com`** | **Legacy.** Pre-Make-rebrand callback. Avoid in new code; migrate when touched. |
+| `{{oauth.makeRedirectUri}}` | `https://<environment.redirects.make>/oauth/cb/{connection-name}` — **always `make.com`** | Make-only deployment (breaks self-host). Use only when the upstream provider has a hard `make.com`-only redirect registered AND self-host support is explicitly out of scope. |
+| `{{oauth.scope}}` | Array of scope strings declared in `scope.imljson` / `scopes.imljson` | Joined into the authorize URL via `join(oauth.scope, ' ')` (Google) or `','` (others). |
+| `{{oauth.state}}` | Runtime-injected CSRF-safe state token, validated automatically on callback | Always set `"state": "{{oauth.state}}"` in `authorize.qs`. |
+
+When `environment.redirects` is unset (legacy environment configuration), all three redirect-URI variables collapse to the same host-based URI, so `localRedirectUri` is also the safest backward-compatible choice.
+
+**Cross-reference**: full convention + code-review checklist live in `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" and `code-review-criteria.md` § "OAuth `redirect_uri` Convention".
+
 ## Security
 
 ### Local Access

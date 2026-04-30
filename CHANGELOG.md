@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.9 — 2026-04-30
+
+- Document the OAuth `redirect_uri` convention across the references and the code-review checklist. Connections that support `redirect_uri` must use `{{oauth.localRedirectUri}}` (host-aware — works on Make-hosted **and** self-hosted instances) for both `authorize.qs.redirect_uri` and `token.body.redirect_uri`. `{{oauth.redirectUri}}` is the legacy `integromat.com`-only callback and `{{oauth.makeRedirectUri}}` is `make.com`-only — neither is portable across deployments. Sourced from `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` and the OAuth1 equivalent.
+- `component-patterns-reference.md` — new "OAuth2 Connection — `redirect_uri` Convention" subsection under the Connection Pattern: full variable table, OAuth2 spec reasoning (RFC 6749 § 4.1.3 — authorize/token must match), `refresh` exception (no `redirect_uri`), and operational note about registering the new callback in the upstream OAuth client (e.g. Google Cloud Console) when migrating Make-managed common credentials.
+- `code-review-criteria.md` — new "OAuth `redirect_uri` Convention (Mandatory check for connection changes)" subsection alongside the aliased-connections and install/installSpec checks. Adds an `rg` heuristic, verdict mapping (new connection → Changes Requested, untouched legacy → Improvement, modified line still on legacy → Changes Requested), and the `aliasTo` exception.
+- `security-reference.md` row 2.5 — replaces the legacy "use `{{oauth.redirectUri}}`" recommendation with the host-aware variant and cross-links to the new pattern subsection.
+- `examples.md` — Instagram OAuth example now uses `{{oauth.localRedirectUri}}` in both `authorize` and `token` blocks, with a note above the JSON and an extra Key Points bullet.
+- `runtime-reference.md` — new "OAuth Connection Variables" section between Environment Variables and Security: short table covering `oauth.localRedirectUri` / `oauth.redirectUri` / `oauth.makeRedirectUri` / `oauth.scope` / `oauth.state`, with cross-links to the full convention.
+
 ## 1.13.8 — 2026-04-28
 - Auto-update flow now hard-stops on outdated skill: cancel current task, run install command for the detected editor (Claude Code → `install-claude.sh`/`.ps1`, Cursor → `install-cursor.sh`/`.ps1`), and refuse all other tool calls until the update succeeds. Failure no longer falls back to "proceed with current version" — instead instruct the user to update manually and end the turn. Fixes Cursor-only command being shown to Claude Code users.
 - `make-integration-engineer` subagent now enforces the same auto-update hard stop directly after `Skill('make-custom-app')` and before the tail-config precheck, so the agent that actually drives the tools also blocks until the skill is on the latest version. Previously the version check lived only inside `SKILL.md` and could be silently ignored by the agent loop.
