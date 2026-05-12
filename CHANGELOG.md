@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.10 — 2026-05-12
+
+- `workflows/code-review.md` § 7 — new "Hard Gate — Runtime Reference Read" subsection. Before flagging any Bug / Breaking / Improvement on an `api.imljson` change, the reviewer must `Read` the matching section of `references/runtime-reference.md` (directive-to-section index included: URL normalization, qs encoding, headers/body/type/condition, temp two-phase, response directives, pagination, polling triggers, IML path syntax). Lists real false-positives this gate prevents (double-slash URL bug, undefined `temp`, `body.results[].field` array-wrap). Closes the loop on intuition-based bug flags.
+- `rules/make-app-todo-review.mdc` § R item 7 (`review_analyze`) — content now explicitly references the hard gate, so the runtime-reference read is enforceable from the TODO list, not just the workflow file.
+
 ## 1.13.9 — 2026-04-30
 
 - Document the OAuth `redirect_uri` convention across the references and the code-review checklist. Connections that support `redirect_uri` must use `{{oauth.localRedirectUri}}` (host-aware — works on Make-hosted **and** self-hosted instances) for both `authorize.qs.redirect_uri` and `token.body.redirect_uri`. `{{oauth.redirectUri}}` is the legacy `integromat.com`-only callback and `{{oauth.makeRedirectUri}}` is `make.com`-only — neither is portable across deployments. Sourced from `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` and the OAuth1 equivalent.

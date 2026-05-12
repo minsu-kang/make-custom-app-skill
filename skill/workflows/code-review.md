@@ -154,6 +154,33 @@ For each ticket-related change, evaluate against [code-review-criteria.md](../re
 - **Removed Code**: verify necessity before flagging removals as bugs
 - **Polling Triggers**: verify order, date filtering, epoch
 
+#### Hard Gate — Runtime Reference Read (mandatory before flagging any `api.imljson` issue)
+
+Before flagging **any** Bug / Breaking Change / Improvement on a change whose `code` is `api` (i.e. `api.imljson`), you MUST first `Read` the relevant section(s) of [`references/runtime-reference.md`](../references/runtime-reference.md) that cover the directive in question. Intuition about URL / header / body / response shape is not evidence — the runtime spec is. If the spec confirms the runtime already handles the case you suspected was a bug, **do not flag it**.
+
+Index of must-read sections by directive:
+
+| Directive being flagged | Required reading in `runtime-reference.md` |
+|---|---|
+| `url`, `baseUrl`, path templates, trailing/leading slash | § "URL Normalization" (slash collapse, trailing slash, baseUrl join, encodeUrl) |
+| `qs` / query string | § "URL Normalization" (legacy vs uniform QS encoding, `?→&` rewrite) |
+| `headers`, `body`, `type`, `condition` | § "Communication directives" |
+| `temp` (request-level or response-level) | § "temp" (two-phase evaluation: `temp` → `response.temp`) |
+| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | § "Response Parsing" + § "Response directives" |
+| `pagination` | § "Pagination" |
+| `trigger` (id / date / order / type) | § "Polling Triggers" + [`polling-trigger-guide.md`](../references/polling-trigger-guide.md) |
+| IML path syntax (`foo[]`, `foo[1]`, `body.results[].field`) | § "IML Variable Path Syntax" (1-based indices, single-item unwrap idiom) |
+
+If `runtime-reference.md` does not cover the directive in question, fall back to the `imt-app-runtime` source per `make-app-workflow.md` § During Work. Never flag based on memory alone.
+
+False-positives this gate prevents (real regressions caught in prior reviews):
+
+- Flagging `https://host/{{parameters.path}}` + leading-slash help text as a double-slash bug (runtime collapses `//` in pathname per § "URL Normalization").
+- Flagging a `temp` value consumed in the same request as undefined (two-phase `temp` evaluation per § "temp").
+- Flagging `{{body.results[].field}}` as a wrong array-wrap (1-based IML path indices per § "IML Variable Path Syntax").
+
+Failing this gate produces false-positive Bug verdicts and wastes the developer's time. Mark this gate as completed inside `review_analyze` (§ R TODO template) — never as a separate todo.
+
 ### Cross-Module Pattern Verification (mandatory)
 
 When flagging a missing feature (e.g., RPC, hint, parameter type, pagination) in one component, **search the entire app for every component using the same field/pattern** before writing the review. Report the **complete list** in a single review item — never one-at-a-time.
