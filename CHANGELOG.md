@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.11 — 2026-05-12
+
+- `workflows/code-review.md` § "Post-Review Disposition Gate" — new hard rule: **sub-task `Complete` status is QA territory**. When `post-review-transition.js` aborts on a sub-task currently in `Complete` (allowed pre-status is `Commit` / `Compilation`), the reviewer must NOT bypass — no `--force`, no direct MCP `transitionJiraIssue` call to push it to `Done`. The `Complete → Done` transition belongs to QA; they will mark it `Done` themselves once verified. The script's abort is the correct behavior, not a bug to work around. Reviewer reports the abort as "skipped (QA territory)" and moves on. Only override if the user explicitly says "force it" or names the target status. Codified after a real-session regression where the reviewer auto-pushed a sub-task `Complete → Done`, requiring a manual revert via the To Do → In Progress → Complete loop.
+
 ## 1.13.10 — 2026-05-12
 
 - `workflows/code-review.md` § 7 — new "Hard Gate — Runtime Reference Read" subsection. Before flagging any Bug / Breaking / Improvement on an `api.imljson` change, the reviewer must `Read` the matching section of `references/runtime-reference.md` (directive-to-section index included: URL normalization, qs encoding, headers/body/type/condition, temp two-phase, response directives, pagination, polling triggers, IML path syntax). Lists real false-positives this gate prevents (double-slash URL bug, undefined `temp`, `body.results[].field` array-wrap). Closes the loop on intuition-based bug flags.
