@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.13.11
+version: 1.14.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -81,6 +81,7 @@ When one of the following triggers is detected, read the corresponding workflow 
 | User reports a bug or asks to investigate an error | [bug-investigation.md](workflows/bug-investigation.md) | Root cause analysis, fix, verify, developer notes |
 | User requests a new feature or new component for a Make app | [feature-request.md](workflows/feature-request.md) | Design, create, implement new components |
 | User requests app maintenance, UX updates, refactoring, or cleanup | [app-task.md](workflows/app-task.md) | Metadata changes, UX fixes, refactoring, deprecation |
+| User shares a `Preparation`-status Jira ticket, or asks for task refinement / investigation / feasibility check. **Mandatory auto-trigger**: message contains Jira URL + inline app slug (± version) + ticket status `Preparation` → always this workflow, no confirmation. | [task-refinement.md](workflows/task-refinement.md) | Read ticket + app + references + API docs, decide feasibility, draft implementation plan, highlight breaking changes, optionally create `Investigation` subtask |
 | After context file create/update, Jira work, or code review | [pinecone-sync.md](workflows/pinecone-sync.md) | Auto-sync context to shared Pinecone vector DB |
 
 ## App Components
@@ -90,7 +91,7 @@ A Make app consists of the following components:
 | Component      | IMLJSON Files                                                                                 | Description                                                                            |
 | -------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | **Base**       | `base.imljson`                                                                                | Common settings inherited by modules/RPCs only — **every** field is ignored for connections and webhooks (baseUrl, auth, error handling, logging, etc.) |
-| **Common**     | `common.imljson`                                                                              | Encrypted common data (API secrets, etc.). Locked after app approval                   |
+| **Common**     | `common.imljson`                                                                              | Encrypted common data (API secrets, etc.). Static contents locked after app approval — but install-populated `common.*` values (declared in app-root `installSpec.imljson` + `install.imljson`) remain editable post-approval via the admin panel. See [App-Level Install Params](references/component-patterns-reference.md#app-level-install-params). |
 | **Connection** | `api.imljson`, `parameters.imljson`                                                           | Auth configuration (OAuth2, OAuth1, JWT, API Key, Basic)                               |
 | **Module**     | `api.imljson`, `parameters.imljson`, `expect.imljson`, `interface.imljson`, `samples.imljson` | Functional execution unit                                                              |
 | **RPC**        | `api.imljson`, `parameters.imljson`                                                           | Remote procedure call for dynamic options/fields                                       |
@@ -266,7 +267,8 @@ These values can be overridden in `common.imljson`:
 
 - `editable: true` → connection `parameters.imljson` only (deprecated in module expect)
 - Connection reserved words: Do not use `teamID`, `accountName`
-- Common data cannot be changed after app approval
+- `common.imljson` (static, encrypted shared data baked into the app source at build time) cannot be changed after app approval.
+- **However**, install-flow values that populate `common.*` via app-root `installSpec.imljson` + `install.imljson` remain editable post-approval. An admin user enters or updates them through the admin panel at `{zone_url}/admin/native-apps/{slug}/version/{ver}` (e.g., `https://eu1.make.com/admin/native-apps/make-ai-web-search/version/1`). Adding a new `installSpec` field on an approved app is therefore an ordinary edit, not a structural blocker — see [App-Level Install Params](references/component-patterns-reference.md#app-level-install-params).
 - App metadata `approved` field reflects **compilation state**, not production approval: `approved: false` = app not yet compiled; `approved: true` = app already compiled. Do NOT interpret it as "in production / approved by Make team".
 - App/module **visibility in Make scenario builder** is controlled by `private` + `deprecated` (per `app.versions[*]` and `app.versions[*].modules[*]`, fetched via `GET {zone}/api/v2/admin/apps/{slug}`):
   - `private: false` + `deprecated: false` → **visible & usable** in scenario builder (full production)

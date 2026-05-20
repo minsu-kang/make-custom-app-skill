@@ -1,0 +1,37 @@
+---
+description: Static § P Task Refinement TODO template (18 items) — fetch when refining a Jira ticket (typically in Preparation status) into a feasibility + implementation plan, with optional Investigation subtask creation
+globs: 
+alwaysApply: false
+---
+
+# § P · Task Refinement Template (18 items, verbatim)
+
+Use when the user asks for task refinement, investigation, or feasibility on a Jira ticket — typically a `Preparation`-status ticket. Read-only by default; the only Jira write is the optional `Investigation` subtask. Full workflow lives in `skill/workflows/task-refinement.md`. Universal rules and Common Pre/Post blocks are defined in `make-app-todo-rules.mdc`.
+
+| # | id | content |
+|---|---|---|
+| 1 | `common_runtime_path_check` | (Common Pre — verbatim from `make-app-todo-rules.mdc`.) |
+| 2 | `common_context_load` | (Common Pre — verbatim.) |
+| 3 | `common_code_sync` | (Common Pre — verbatim. Cancel only for brand-new-app refinement with no existing slug.) |
+| 4 | `common_jira_fetch` | (Common Pre — verbatim.) |
+| 5 | `common_attachments` | (Common Pre — verbatim.) |
+| 6 | `refine_status_verify` | Verify ticket `status.name === "Preparation"` (per `workflows/task-refinement.md` § "Required Inputs"). If not, warn the user and require explicit "continue" before proceeding. Cancel only when `common_jira_fetch` was cancelled. |
+| 7 | `refine_app_structure_scan` | Read `metadata.json` + `base.imljson` + `common.imljson` + similar existing modules / RPCs / connections / functions. List reuse candidates (existing RPCs, custom functions, connection auth flow). Cancel only for brand-new-app refinement (no existing components). |
+| 8 | `refine_references_reread` | Re-read the references relevant to the AC (per `workflows/task-refinement.md` § 4 table — `parameters-reference.md`, `communication-reference.md`, `component-patterns-reference.md`, `runtime-reference.md`, `custom-functions-reference.md`, `polling-trigger-guide.md`, `app-ux-best-practices.md`, `examples.md`). Memory-based feasibility claims are forbidden — every verdict must cite a reference section or an existing component. |
+| 9 | `refine_api_research` | Inspect the target API: read `customfield_10283` (API Docs URL) if present; otherwise extract the docs URL from the description. For every endpoint relevant to the AC, capture method / path / auth / request shape / response shape / pagination / rate limit / error shape. WebFetch when accessible; otherwise note "docs not fetchable" and lean on similar existing components. Cancel only when the refinement is purely UX / metadata with no API surface. |
+| 10 | `refine_feasibility_and_design` | [GATE] State the feasibility verdict (Feasible / Feasible with constraints / Not feasible) with concrete reference + existing-component citations. If Feasible / Feasible with constraints, draft the implementation plan (components to create, reused components, API mapping, expect / interface skeleton, pagination plan, custom function needs, test plan outline, pricing / UX copy). |
+| 11 | `refine_breaking_change_check` | For every modified existing component in the plan, evaluate breaking changes (expect / interface field removal or rename, connection schema change, module type change, auth flow change, pagination semantics change). Highlight every unavoidable breaking change with ⚠️ in the output. Skip the check entirely when ticket `issuetype.name === "App"` (brand-new app, no existing scenarios). |
+| 12 | `refine_output` | Emit the investigation report per `workflows/task-refinement.md` § "Output Format" (Feasibility / AC Coverage / Implementation Plan / Breaking Changes / Open Questions / Next Step sections). |
+| 13 | `refine_ask_subtask` | Ask the user: "Shall I create an **Investigation** subtask on `{TICKET-KEY}` with this report?" Cancel only when `common_jira_fetch` was cancelled. |
+| 14 | `refine_subtask_create` | [GATE] On explicit approval: resolve the parent ticket (walk up if user gave a sub-task), check existing `Investigation` subtasks (offer comment vs new on duplicate), then `createJiraIssue` with `issueTypeName: "Sub-task"`, `parent: "<PARENT-KEY>"`, `summary: "Investigation"`, `description: "<ADF body per workflows/task-refinement.md § 'Subtask Body Format'>"`. Report the new subtask key back to the user. Cancel when the user declines, `common_jira_fetch` was cancelled, or the verdict was "Not feasible" with no actionable plan to capture. |
+| 15 | `common_context_update` | (Common Post — verbatim.) Cancel when the verdict was "Not feasible" with no plan worth recording, or for brand-new-app refinement with no context file yet. |
+| 16 | `common_upsert_app_context` | (Common Post — verbatim.) Cancel when `common_context_update` was cancelled. |
+| 17 | `common_upsert_jira_ticket` | (Common Post — verbatim.) |
+| 18 | `common_compaction_recommend` | (Common Post — verbatim.) |
+
+**Notes (in addition to universal rules):**
+
+- **Read-only by default.** No `update-app.js` / `update-component.js` / `create-component.js` / `delete-component.js` calls in any item — refinement never edits or uploads app code. The single write is the optional `Investigation` subtask via Atlassian MCP `createJiraIssue` in `refine_subtask_create`.
+- **No Developer Notes (`customfield_10483`) write during refinement.** Dev Notes belong to the implementer, not the refinement researcher. If a prior investigation exists in Dev Notes, read it as context (in `common_jira_fetch`) but never overwrite it.
+- **Duplicate `Investigation` subtask check.** Before calling `createJiraIssue`, inspect the parent ticket's `subtasks` (from `common_jira_fetch`). If an open `Investigation` subtask already exists, ask the user whether to (a) `addCommentToJiraIssue` on the existing one, (b) create a second one anyway, or (c) skip. Do not silently duplicate.
+- **Cancellation examples:** `common_jira_fetch` → `[CANCELLED: refinement without Jira ticket per workflows/task-refinement.md § "Refinement Without Jira Ticket"]`. `refine_subtask_create` → `[CANCELLED: user declined subtask creation]` or `[CANCELLED: verdict Not feasible — no actionable plan]`. `refine_status_verify` → `[CANCELLED: common_jira_fetch was cancelled]`. `refine_api_research` → `[CANCELLED: UX-only refinement, no API surface]`.

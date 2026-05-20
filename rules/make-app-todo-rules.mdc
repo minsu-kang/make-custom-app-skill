@@ -18,6 +18,9 @@ Every session that produces an edit, runs a write script, or has a Jira ticket a
 | Bug ticket / reported error / QA subtask / regression / "fix this" | § B Bugfix (17) | `make-app-todo-bugfix.mdc` |
 | New module / RPC / webhook / connection / function / brand-new app | § N New / Feature (18) | `make-app-todo-feature.mdc` |
 | Refactor / metadata / UX-only / deprecation / cleanup / public-flag | § T App Task (16) | `make-app-todo-task.mdc` |
+| Task refinement / feasibility study / `Preparation`-status ticket investigation | § P Task Refinement (18) | `make-app-todo-refinement.mdc` |
+
+**Mandatory § P auto-routing.** When a single message contains **all three** of: (a) a Jira ticket URL, (b) an inline app slug (optionally with version, e.g., `make-ai-web-search, 1`), and (c) the ticket's `status.name === "Preparation"` (verified after `getJiraIssue`), this is unambiguously § P Task Refinement — do **not** pick § N, § B, or § T, do **not** ask the user to confirm. A bare verb like "조사해줘" / "검토해줘" / "investigate" / "look into this" — or even no verb at all — is sufficient. The status verification happens inside `refine_status_verify`; if (c) turns out false after the fetch, follow `workflows/task-refinement.md` § "Status check" (warn once, continue on explicit user "continue").
 
 One template per session. If scope changes mid-session, finish or cancel the current template first, then create the new one in a fresh turn. Never mutate the active list to absorb new scope.
 
