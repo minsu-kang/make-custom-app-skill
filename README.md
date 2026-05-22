@@ -149,6 +149,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `workflows/bug-investigation.md` | Root cause analysis, reproduce, fix, verify, developer notes |
 | `workflows/feature-request.md` | Design, create new components, implement, test, push |
 | `workflows/app-task.md` | UX updates, refactoring, metadata changes, deprecation, cleanup |
+| `workflows/task-refinement.md` | Read `Preparation`-status Jira ticket, evaluate feasibility, draft implementation plan, optionally create `Investigation` subtask |
 | `workflows/pinecone-sync.md` | Auto-sync context to shared Pinecone vector DB |
 | **References** | |
 | `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
@@ -179,7 +180,9 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 | `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in SKILL.md. |
+| `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
+| `lib/settings.js` | Shared settings loader — reads installer-configured values from `SKILL.md` (paths, Jira credentials, etc.). |
 
 ### Rule Files (`~/.cursor/rules/make-custom-app/` or `~/.claude/skills/make-custom-app/rules/`)
 
@@ -193,6 +196,7 @@ Split per concern so each file stays short, focused, and is loaded only when rel
 | `make-app-todo-feature.mdc` | on new component / app | § N New / Feature Implementation template (18 items). |
 | `make-app-todo-task.mdc` | on refactor / metadata / UX | § T App Task template (16 items). |
 | `make-app-todo-review.mdc` | on code review | § R Code Review template (15 items). The full review process — inputs, Atlassian MCP check, Jira-driven flow, output format, Developer Message, post-review disposition gate, re-review, no-Jira fallback — lives in `skill/workflows/code-review.md` (loaded together by the agent). |
+| `make-app-todo-refinement.mdc` | on task refinement | § Refinement template — Jira ticket reading, app/reference loading, feasibility analysis, plan drafting, optional `Investigation` subtask creation. Pairs with `skill/workflows/task-refinement.md`. |
 | `work-discipline.mdc` | always | Systematic work habits — full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
 
 ## Repository Structure
@@ -214,6 +218,7 @@ make-custom-app-skill/
 │   │   ├── bug-investigation.md
 │   │   ├── feature-request.md
 │   │   ├── app-task.md
+│   │   ├── task-refinement.md
 │   │   └── pinecone-sync.md
 │   ├── references/                     #   Reference documents (on-demand)
 │   └── scripts/                        #   Automation scripts (editor auto-detected)
@@ -225,6 +230,7 @@ make-custom-app-skill/
 │   ├── make-app-todo-feature.mdc
 │   ├── make-app-todo-task.mdc
 │   ├── make-app-todo-review.mdc
+│   ├── make-app-todo-refinement.mdc
 │   └── work-discipline.mdc
 └── mcp-server/                         # → installed to skills/make-custom-app/mcp-server/
     ├── index.ts                        #   MCP server entry point

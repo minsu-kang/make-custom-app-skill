@@ -24,6 +24,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Force TLS 1.2 for HTTPS — required for GitHub raw on PowerShell 5.1
+# (legacy default on Windows 10 is SSL3/TLS1.0 which GitHub rejects).
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 $REPO = "minsu-kang/make-custom-app-skill"
 $BRANCH = "master"
 $CLAUDE_HOME = Join-Path $env:USERPROFILE ".claude"
@@ -36,10 +40,10 @@ $VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
 
 $SKILL_FILES = @("SKILL.md")
 $REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md", "security-reference.md", "code-smells-reference.md")
-$WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md")
+$WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md", "task-refinement.md")
 $SCRIPT_FILES = @("download-app.js", "review-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js", "post-review-transition.js")
 $SCRIPT_LIB_FILES = @("skill-root.js", "settings.js")
-$RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "work-discipline.mdc")
+$RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "make-app-todo-refinement.mdc", "work-discipline.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $MCP_SERVER_FILES = @(
     "package.json", "tsconfig.json", "index.ts", "register.js",
@@ -283,7 +287,7 @@ New-Item -ItemType Directory -Force -Path $REFERENCES_DIR | Out-Null
 $localReferencesDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\references" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localReferencesDir)) {
-    Copy-Item -Force (Join-Path $localReferencesDir "*.md") $REFERENCES_DIR
+    Copy-Item -Force (Join-Path $localReferencesDir "*.md") $REFERENCES_DIR -ErrorAction SilentlyContinue
     foreach ($file in (Get-ChildItem -Path $REFERENCES_DIR -Filter "*.md")) {
         Write-Ok "references/$($file.Name)"
     }
@@ -342,13 +346,13 @@ New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
 $localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "skill\scripts\download-app.js" } else { "" }
 
 if ($ScriptDir -and (Test-Path $localDownloadJs)) {
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\*.js") $SCRIPTS_DEST
+    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\*.js") $SCRIPTS_DEST -ErrorAction SilentlyContinue
     foreach ($file in (Get-ChildItem -Path $SCRIPTS_DEST -Filter "*.js")) {
         Write-Ok "scripts/$($file.Name)"
     }
     $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
     New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\lib\*.js") $SCRIPTS_LIB_DEST
+    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\lib\*.js") $SCRIPTS_LIB_DEST -ErrorAction SilentlyContinue
     foreach ($file in (Get-ChildItem -Path $SCRIPTS_LIB_DEST -Filter "*.js")) {
         Write-Ok "scripts/lib/$($file.Name)"
     }
@@ -663,6 +667,7 @@ console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
         if (Test-Path $tmpJs) { Remove-Item -Force $tmpJs }
         Remove-Item Env:CLAUDE_JSON_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:MCP_INDEX_JS -ErrorAction SilentlyContinue
+        Remove-Item Env:MCP_ENV_FILE -ErrorAction SilentlyContinue
     }
 }
 

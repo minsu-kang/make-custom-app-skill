@@ -1,0 +1,108 @@
+---
+description: Keep all 4 install scripts (and README/SKILL.md when relevant) in sync whenever an installable file is added, renamed, or removed.
+globs:
+alwaysApply: true
+---
+
+# Install Sync Rule
+
+The 4 installers hardcode the list of files they download from GitHub. When the
+repo is cloned, wildcard copies pick up everything; but when users install via
+`curl | bash` or `irm | iex` (the README-recommended path), **only files listed
+in the installer arrays are downloaded**. Any new file added to a packaged
+directory but missing from the arrays will silently disappear for those users.
+
+This rule prevents that drift.
+
+## 1. Tracked Directories & Their Array Mappings
+
+| Repo directory | Filename pattern | Installer array (all 4 scripts) |
+|---|---|---|
+| `skill/` (root only) | `*.md` | `SKILL_FILES` / `$SKILL_FILES` |
+| `skill/references/` | `*.md` | `REFERENCE_FILES` / `$REFERENCE_FILES` |
+| `skill/workflows/` | `*.md` | `WORKFLOW_FILES` / `$WORKFLOW_FILES` |
+| `skill/scripts/` (root only) | `*.js` | `SCRIPT_FILES` / `$SCRIPT_FILES` |
+| `skill/scripts/lib/` | `*.js` | `SCRIPT_LIB_FILES` / `$SCRIPT_LIB_FILES` |
+| `rules/` | `*.mdc` | `RULE_FILES` / `$RULE_FILES` |
+| `mcp-server/` (selective — see installer for current list) | `*.ts`, `*.js`, `*.json`, `.env.example` | `MCP_SERVER_FILES` / `$MCP_SERVER_FILES` |
+| `subagents/` | hardcoded inline (`make-integration-engineer.md`) | not an array — edit `install-claude.*` only |
+
+## 2. Mandatory Sync Triggers
+
+Whenever any of the following happens to a file inside a tracked directory,
+**you MUST update all 4 installers in the same change**:
+
+- **Add** a new file
+- **Rename** an existing file
+- **Delete** an existing file
+- **Move** a file in or out of a tracked directory
+
+The 4 installers are:
+
+1. `install-cursor.sh`
+2. `install-cursor.ps1`
+3. `install-claude.sh`
+4. `install-claude.ps1`
+
+No exceptions. Updating only `.sh` or only `.ps1` leaves the other platform
+broken for `curl | bash` / `irm | iex` users.
+
+## 3. Verification Steps (run before completing the task)
+
+1. **List actual files** in each tracked directory using `Glob`.
+2. **Compare against each installer's array** using `Grep`.
+3. **Confirm 1:1 match** — same count, same names, both `.sh` and `.ps1`
+   versions of both Cursor and Claude installers.
+
+If any mismatch remains, the change is incomplete.
+
+## 4. README.md Sync
+
+When a new file is added/removed in a tracked directory, also update
+`README.md` if it lists files in the affected section:
+
+- `### Skill Files` table (workflows + references)
+- `### Script Files` table
+- `### Rule Files` table
+- `## Repository Structure` tree
+- Any other section that enumerates files
+
+Search `README.md` for the file's category (e.g. "Workflows", "Script Files",
+"Rule Files") and add/remove the corresponding row. Keep the descriptions
+short and aligned with the rest of the table.
+
+## 5. skill/SKILL.md Sync
+
+`skill/SKILL.md` contains a workflow routing table near the top that maps
+trigger conditions to workflow files. When a workflow is added/renamed/removed:
+
+- Update the routing table row for that workflow
+- Update any cross-reference links elsewhere in `SKILL.md`
+
+When a reference, rule, or script is added/renamed/removed:
+
+- Search `SKILL.md` for any direct mention (path or filename) and update
+
+If the new file does not change behavior the agent should follow, no SKILL.md
+update is needed — but still verify by grepping for the filename.
+
+## 6. Order of Operations for a New File
+
+1. Create the new file in the correct directory under `skill/`, `rules/`,
+   `mcp-server/`, or `subagents/`.
+2. Update all 4 installer arrays (or hardcoded paths for `subagents/`).
+3. Update `README.md` if the file appears in any enumerated list.
+4. Update `skill/SKILL.md` if the file is referenced from routing tables or
+   workflow cross-links.
+5. Run the `Glob` + `Grep` verification from § 3.
+6. Only then is the change ready for commit (which still triggers the
+   `version-sync.mdc` flow).
+
+## 7. Why This Matters
+
+In version 1.14.0, `make-app-todo-refinement.mdc` and `task-refinement.md`
+were added to the repo but never added to any installer array. As a result,
+every user who installed via the README's recommended `curl | bash` /
+`irm | iex` flow received a broken installation missing those files. The fix
+required updating all 4 installers in one pass. This rule exists so that
+class of bug cannot recur.
