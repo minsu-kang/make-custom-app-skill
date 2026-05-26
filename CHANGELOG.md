@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.2 — 2026-05-26
+
+- **`skill/scripts/download-app.js` — `metadata.json` `modules[].deprecated` source-of-truth fix.** The admin app endpoint (`/api/v2/admin/apps/{slug}` → `versions[].modules[].deprecated`) is observed to return stale `false` for modules whose deprecated flag has been toggled in the SDK. The previous merge expression `vis.deprecated ?? m.deprecated ?? null` let that stale `false` win over the correct `true` from the SDK modules endpoint, because `false` is not nullish. Source-of-truth flipped so SDK modules endpoint (`/sdk/apps/{slug}/{version}/modules?cols[]=deprecated`) wins (`m.deprecated ?? vis.deprecated ?? null`); admin endpoint remains authoritative for `private` only. Verified end-to-end against `google-ads-conversions` v1 — four UploadClickConversions modules now correctly report `deprecated: true` in `metadata.json`.
+
 ## 1.14.1 — 2026-05-22
 
 - **Installer file-list sync — 4 installers were missing files that exist in the repo.** All four installers (`install-cursor.sh`, `install-cursor.ps1`, `install-claude.sh`, `install-claude.ps1`) hardcode the download list for `curl | bash` / `irm | iex` flows. Two files added in 1.14.0 were never registered: `skill/workflows/task-refinement.md` and `rules/make-app-todo-refinement.mdc`. Every user who installed via the README-recommended one-liner since 1.14.0 received a broken installation missing both files. All 4 installer arrays now match the repo 1:1 (`WORKFLOW_FILES` 6→7, `RULE_FILES` 7→8).

@@ -344,12 +344,19 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		downloadedAt: new Date().toISOString(),
 		modules: modules.map((m) => {
 			const vis = moduleVisibility.get(m.name) || {};
+			// `deprecated` source of truth = SDK modules endpoint (m.deprecated).
+			// The admin app endpoint (versions[].modules[].deprecated) is observed
+			// to return stale `false` even when the module is deprecated, which
+			// previously slipped through `vis.deprecated ?? m.deprecated` because
+			// `false` is not nullish. SDK endpoint stays authoritative; admin
+			// endpoint remains the source for `private` (SDK endpoint does not
+			// expose it).
 			return {
 				name: m.name,
 				label: m.label,
 				typeId: m.typeId,
 				private: vis.private ?? null,
-				deprecated: vis.deprecated ?? m.deprecated ?? null,
+				deprecated: m.deprecated ?? vis.deprecated ?? null,
 			};
 		}),
 		connections: connections.map((c) => ({
