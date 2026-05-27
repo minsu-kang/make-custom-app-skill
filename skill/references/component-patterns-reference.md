@@ -195,10 +195,12 @@ A connection in one app can be an **alias** of a connection in another app. The 
 
 ### Connection Flow
 
-1. User fills in `parameters.imljson` fields (API key, credentials, etc.)
-2. `api.imljson` runs a validation request using those parameters
-3. On success: `response.data` is saved as `connection.*` (accessible everywhere)
-4. On success: `response.metadata.value` is shown as the connection label in the UI
+1. User fills in `parameters.imljson` fields (API key, credentials, etc.). **Those user inputs are immediately stored in the account's `data` object — accessible as both `{{parameters.fieldName}}` and `{{connection.fieldName}}` from that point on, in every context (connection api, modules, RPCs, webhooks).** No explicit save step is required for the value to be exposed under `connection.*`. Source: `imt-app-runtime/accounts/app-runtime-oauth2/lib/account.js` (and the OAuth1 / Basic equivalents) initialize the apiContext with `parameters: () => this.data, connection: () => this.data` — the two namespaces are aliases over the same store.
+2. `api.imljson` runs a validation request using those parameters (or, for OAuth2, the `authorize` → `token` flow).
+3. On success: any fields written by `response.data` (or `token.response.data` / `refresh.response.data` for OAuth) are **merged into the same `data` object** alongside the user-entered parameter values. This is how you persist derived values (access tokens, refresh tokens, expiration timestamps) and how you **transform** a user input before storage (e.g., `customerId: "{{replace(parameters.customerId, '-', '')}}"` writes back a normalized version of what the user typed, overriding the raw entry).
+4. On success: `response.metadata.value` is shown as the connection label in the Make UI.
+
+**Practical implication for code reviews**: a missing `token.response.data.fooToken` entry is **not** automatically a bug if `fooToken` exists in the connection's `parameters.imljson` and the user supplies it. `{{connection.fooToken}}` resolves correctly in modules/RPCs because user-entered parameter values are already in `account.data`. Only flag it as a bug when (a) the value needs server-side transformation before downstream use, (b) the value is derived from the API response (token, expiry, account id from a `/userinfo` call), or (c) the field is not in `parameters.imljson` at all.
 
 ### API Key Connection
 
@@ -347,7 +349,8 @@ Source of truth: `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` 
 
 | Field                     | Purpose                                                                                                                                           |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `response.data`           | Saved as `connection.*`. Accessible in base, modules, RPCs via `{{connection.fieldName}}`.                                                        |
+| `parameters.imljson` field | User input goes into the shared `account.data` store and is **automatically accessible as both `parameters.{name}` and `connection.{name}`** in every context (connection api, modules, RPCs, webhooks). No explicit save step required. |
+| `response.data`           | Merged into the same `account.data` store. Use it to **persist API-derived values** (access/refresh tokens, expiry, account ids from `/userinfo`) and to **transform a user input** before storage (e.g., normalize hyphens, lowercase, trim). The merged result is accessible as `connection.*`.                                                        |
 | `response.metadata.value` | Displayed as the connection label in the Make UI (e.g., user email or account name).                                                              |
 | `editable: true`          | Allows the user to edit the field after the connection is saved. **Only valid in connection `parameters.imljson`** (deprecated in module expect). |
 
