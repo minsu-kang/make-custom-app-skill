@@ -226,10 +226,12 @@ Skip the context update when:
 
 ## Output Format
 
-The investigation report has a **fixed structure** designed for Jira readability. Two hard rules:
+The investigation report has a **fixed structure** designed for Jira readability. Four hard rules:
 
 1. **Tables for structured comparison data** (AC coverage, components list, breaking-change impact, open questions, pricing, UX copy).
 2. **Fenced code blocks for skeleton code** — every IMLJSON file you mention (`api.imljson`, `expect.imljson`, `interface.imljson`, `installSpec.imljson`, `install.imljson`) must appear as a full JSON code block. Every custom function must appear as a JavaScript code block. **No bullet-list-of-fields substitute** — Jira's plain-list rendering hides the structure that matters.
+3. **Every code block in the subtask body MUST be wrapped in an ADF `expand` element.** One code block per `expand`; the `expand.attrs.title` is the file path (e.g. `modules/scrapeAPublicWebsite/api.imljson`, `functions/validateScrapeUrl/code.js`, `installSpec.imljson`) or, for the rare non-file code block, a short descriptive label (e.g. `External API response shape`). This keeps the ticket scannable while preserving the full code for the implementer who opens each section. Prose, tables, headings, and bullet lists stay at the top level — only code blocks go inside `expand`. See § "Subtask body delivery" for the ADF node structure.
+4. **The subtask description body is English-only.** The investigation chat may run in any language the user prefers, but the subtask body that ends up on Jira must be in English so the rest of the team (reviewers, implementers, QA) can consume it. This applies to every field: summary, body prose, table cells, code-block titles, `expand` titles, and Open-Questions entries. Code content (IMLJSON / JavaScript) is already language-neutral; only natural-language strings need translation.
 
 Forbidden in refinement reports (do not include even if drafted earlier):
 
@@ -237,7 +239,9 @@ Forbidden in refinement reports (do not include even if drafted earlier):
 - Make-skill internal commands (`update-component.js`, `update-app.js`, `test-component.js`, `download-app.js`, `create-component.js`, `delete-component.js`) — these belong to the implementer's session, not the ticket body. Use generic dev-step language (e.g., "Create new module `generateAnAgentResponse` (typeId 9 Search)", not "run `update-component.js …`").
 - "Test Plan" section — test design is implementation territory, not refinement. The implementer writes function/component tests in the § N / § B session.
 
-### Template (markdown — render directly via `contentFormat: "markdown"`)
+### Template (structural reference — emit as ADF per § "Subtask body delivery")
+
+The markdown below is the canonical **structure** (sections, headings, tables, field labels). It is **not** the wire format. On emit, the agent converts this template to ADF JSON so every fenced code block is wrapped in an `expand` element per hard rule 3, and so all natural-language content is in English per hard rule 4.
 
 ```markdown
 # Task Refinement: {TICKET-KEY} — {ticket summary}
@@ -407,9 +411,29 @@ Estimated dev effort: ~{0.5–1 day}.
 
 ### Subtask body delivery
 
-Default: call `createJiraIssue` (or `editJiraIssue` when revising) with `contentFormat: "markdown"` and pass the template above as the description. Atlassian's renderer handles GFM tables, fenced code blocks (with `json` / `javascript` highlighting), inline code, and standard headers.
+**Default: ADF (`contentFormat: "adf"`).** The body is constructed as Atlassian Document Format JSON so that every code block can be wrapped in a collapsible `expand` element per hard rule 3. Tables, headings, prose, and lists are plain ADF nodes; code blocks are nested inside `expand`. Body language is English per hard rule 4.
 
-Optional ADF: convert to ADF only when the user explicitly requests "ADF" or when the report includes content the markdown renderer can't represent (e.g., a `panel: warning` block for a critical unavoidable breaking change that must stand out above the table). The markdown path covers ~95% of refinement reports — do not over-engineer the default.
+Minimum required `expand` shape for one code snippet:
+
+```json
+{
+    "type": "expand",
+    "attrs": { "title": "modules/scrapeAPublicWebsite/api.imljson" },
+    "content": [
+        {
+            "type": "codeBlock",
+            "attrs": { "language": "json" },
+            "content": [{ "type": "text", "text": "{ ... full JSON content ... }" }]
+        }
+    ]
+}
+```
+
+One `expand` per file (or per logical snippet). Do **not** group multiple files inside a single `expand` — each file gets its own collapsible block titled with its path. The agent typically emits 10–15 `expand` nodes for a feature-sized refinement (e.g. brand-new app: `installSpec.imljson`, `install.imljson`, `common.imljson`, `metadata.json`, `base.imljson`, `groups.imljson`, one per `modules/{name}/{api,expect,interface,parameters,samples}.imljson`, one per `functions/{name}/code.js`, and any `External API response shape` reference snippet).
+
+Recommended construction approach: build the ADF body programmatically (e.g., a small Python script using `urllib.request`) rather than hand-writing the JSON. Hand-written ADF for a 10+ `expand` body is error-prone (mismatched braces, missing `attrs`, untyped text nodes). The agent already has the Atlassian API token from `SKILL.md` tail config (`jira-email` + `jira-api-token`), so a direct `POST /rest/api/3/issue` with the constructed ADF body in `fields.description` is the simplest path when the Atlassian MCP `createJiraIssue` tool is unavailable or rejects the request.
+
+Markdown fallback (`contentFormat: "markdown"`) is allowed **only** when the refinement contains zero code blocks (rare — UX-only refinements, metadata-only). The moment a single code block is required, switch to ADF so the `expand` rule applies.
 
 ## Refinement Without Jira Ticket
 

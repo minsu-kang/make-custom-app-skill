@@ -1,6 +1,6 @@
 {
-  "version": "1.14.3",
-  "released": "2026-05-27",
+  "version": "1.14.4",
+  "released": "2026-05-28",
   "min_version": "1.0.0",
   "update_command_cursor": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash -s -- --update",
   "update_command_cursor_windows": "irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex",
