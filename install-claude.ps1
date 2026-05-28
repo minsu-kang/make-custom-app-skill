@@ -621,8 +621,13 @@ if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {};
 }
 
+// Absolute node path — Claude Code (and Cursor) launched from a GUI shortcut
+// inherits no shell PATH, so a literal 'node' fails with `spawn node ENOENT`.
+const NODE_BIN = process.execPath;
+
 const existingEntry = cfg.mcpServers[KEY];
 const needsUpdate = !existingEntry
+    || existingEntry.command !== NODE_BIN
     || existingEntry.args?.[0] !== indexJs
     || JSON.stringify(existingEntry.env || {}) !== JSON.stringify(mcpEnv);
 
@@ -632,7 +637,7 @@ if (!needsUpdate) {
 }
 
 cfg.mcpServers[KEY] = {
-    command: 'node',
+    command: NODE_BIN,
     args: [indexJs],
     env: mcpEnv
 };

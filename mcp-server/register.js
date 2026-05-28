@@ -49,8 +49,12 @@ if (existsSync(MCP_CONFIG_PATH)) {
 
 const alreadyExists = !!mcpConfig.mcpServers[SERVER_NAME];
 
+// Use absolute node path so Cursor (launched from macOS GUI without shell PATH)
+// can spawn the server. Literal 'node' fails with `spawn node ENOENT`.
+const NODE_BIN = process.execPath;
+
 mcpConfig.mcpServers[SERVER_NAME] = {
-	command: 'node',
+	command: NODE_BIN,
 	args: [DIST_ENTRY],
 	env: {
 		PINECONE_API_KEY: env.PINECONE_API_KEY,
@@ -66,7 +70,7 @@ if (alreadyExists) {
 } else {
 	console.log(`✅ Registered "${SERVER_NAME}" in ${MCP_CONFIG_PATH}`);
 }
-console.log(`   Command: node ${DIST_ENTRY}`);
+console.log(`   Command: ${NODE_BIN} ${DIST_ENTRY}`);
 console.log(`   Env vars: ${requiredKeys.join(', ')}`);
 console.log('');
 console.log('👉 Restart Cursor to activate the MCP server.');
