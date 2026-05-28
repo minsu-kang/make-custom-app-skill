@@ -75,6 +75,29 @@ Before setting or omitting any property (`type`, `required`, `default`, `spec`, 
 
 The same applies to any IMLJSON directive, runtime feature, IML function, or API behavior. **If you cannot point to the source where you verified it, you have not verified it.**
 
+### External API Reference Verification (mandatory before any external-API claim)
+
+When working with — or reviewing — code that integrates with an external service (Etsy, Slack, Notion, Google, etc.), every claim about the **third-party API surface** must be backed by the official API documentation. The internal `imt-app-runtime` and skill references describe Make's runtime, NOT the external vendor's contract — they cannot validate vendor field names, parameter support, or endpoint semantics.
+
+Before writing or saying any of the following, **fetch the official API docs first**:
+
+- **"Endpoint X supports query parameter Y"** (e.g., `findAllListingsActive` supports `includes`)
+- **"Body field Z exists / is optional / accepts type T"** (e.g., `updateListingInventory` accepts `readiness_state_on_property`)
+- **"Header H is required / has default D"**
+- **"Endpoint returns field F"** / **"Field F is/isn't on the response"**
+- **"Module is missing parameter P that the API exposes"** — common in code reviews
+- **"Endpoint A and Endpoint B behave the same"** (different paths often differ in supported params even when they look symmetric, e.g. `/listings/active` vs `/shops/{shop_id}/listings/active`)
+
+Verification rules:
+
+1. **No claim from memory, pattern matching, or "looks like".** Existing app code is a hint, not proof. The vendor changes specs without warning; the in-app code may already be wrong.
+2. **Use `WebFetch` / `WebSearch` against the vendor's docs**, the published OpenAPI/Swagger spec, or the vendor's official tutorials. GitHub OpenAPI mirrors (e.g. `etsy-openapi-php`, `etsy-ts`) are acceptable secondary sources only when the official docs page is JS-rendered and unfetchable; the most recent vendor tutorial wins on conflict.
+3. **When you cannot find the source, say so to the user.** Do NOT guess and do NOT propose changes premised on the unverified claim. Phrase it as: *"I couldn't verify {claim} in {vendor}'s docs — can you confirm or paste the relevant section?"*
+4. **Withdraw immediately when contradicted.** If the verified docs disprove a claim already made in this turn, retract it explicitly in the next message — do not double down or rationalize.
+5. **Record verified facts in the app's context file** (`${CONTEXTS_DIR}/{slug}-v{version}.md` § Caveats) so the next session doesn't re-verify from zero. Pair every recorded fact with the source URL and a one-line quote / example.
+
+This rule fired hard in IEN-15238 (Etsy v2): two unverified claims (`includes` on `/listings/active`, `readiness_state_on_property` as "improvement only") were emitted in a single review pass. The first was wrong (Etsy doesn't support it on that endpoint); the second was a real bug whose severity was understated. Both would have been caught in 30 seconds by a `WebFetch` against the Etsy docs. Cost of a doc fetch ≪ cost of a bad review.
+
 ## 8. Learn From the Current Mistake Immediately
 
 When the user points out a missed case (e.g., "editParams has no gptImage15"):

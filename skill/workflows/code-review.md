@@ -154,6 +154,7 @@ For each ticket-related change, evaluate against [code-review-criteria.md](../re
 - **Test Coverage**: changed functions must have corresponding `test.js`
 - **UX Compliance**: expect/parameters changes follow UX best practices
 - **Runtime Verification**: `api.imljson` changes verified against runtime docs
+- **External API Verification**: every claim about the vendor's API surface (endpoint params, body fields, response shape) backed by the official vendor docs — see "Hard Gate — External API Reference Verification" below
 - **Removed Code**: verify necessity before flagging removals as bugs
 - **Polling Triggers**: verify order, date filtering, epoch
 
@@ -183,6 +184,31 @@ False-positives this gate prevents (real regressions caught in prior reviews):
 - Flagging `{{body.results[].field}}` as a wrong array-wrap (1-based IML path indices per § "IML Variable Path Syntax").
 
 Failing this gate produces false-positive Bug verdicts and wastes the developer's time. Mark this gate as completed inside `review_analyze` (§ R TODO template) — never as a separate todo.
+
+#### Hard Gate — External API Reference Verification (mandatory before flagging any vendor-API issue)
+
+`runtime-reference.md` covers Make's runtime; it does NOT cover the third-party vendor's contract. Before flagging **any** Bug / Breaking Change / Improvement that depends on a claim about the external API (e.g. *"Endpoint X supports `includes`"*, *"`updateListingInventory` body accepts `readiness_state_on_property`"*, *"this module is missing parameter Y that the vendor exposes"*), you MUST first verify the claim in the vendor's official documentation.
+
+Verification procedure:
+
+1. **Identify the exact endpoint and field/parameter** in question — full path (`GET /v3/application/listings/active` vs `GET /v3/application/shops/{shop_id}/listings/active` are different endpoints with different parameter sets, never assume symmetry).
+2. **Fetch the vendor's docs** via `WebFetch` / `WebSearch` against:
+   - The vendor's official API reference page (e.g. `https://developer.etsy.com/documentation/reference/...`).
+   - The vendor's official tutorials (often the only place new fields are documented before the reference catches up).
+   - As secondary sources when the docs page is JS-rendered and unfetchable: published OpenAPI / Swagger spec mirrors on GitHub (e.g. `gordonturner/etsy-open-api-client`, `trusty-codes/etsy-openapi-php`). The most recent vendor tutorial wins on conflict.
+3. **Quote the source.** When flagging the issue in the review output (or "To Developer" message), include the doc URL and a short example/quote that proves the claim. Example: *"Etsy [Listings Tutorial](URL) — body sample includes `\"readiness_state_on_property\": [47626760362]` (line 1690 of the rendered page)."*
+4. **When the docs cannot be fetched or the claim cannot be confirmed**, do NOT flag it. State to the user instead: *"I couldn't verify {claim} in {vendor}'s docs — please confirm or share the relevant section."*
+5. **Existing app code is not proof.** A field already present in `expect.imljson` doesn't mean it's a vendor field — it may be a legacy artifact. Symmetric-looking endpoints (`/listings/active` vs `/shops/{shop_id}/listings/active`) frequently diverge on `includes`, pagination, sort order. Always verify per-endpoint.
+6. **Withdraw on contradiction.** If verification proves a claim wrong mid-review, retract it explicitly in the next message and downgrade/upgrade the verdict accordingly.
+
+False-positives this gate prevents (real regressions caught in prior reviews):
+
+- Flagging `listAllactiveListings/api` for missing `includes=Inventory` — Etsy's `findAllListingsActive` (`GET /v3/application/listings/active`) does not accept `includes` at all (verified via Etsy OpenAPI spec). Only the per-shop variant supports it.
+- Under-flagging missing `readiness_state_on_property` on `updateInventory` as a low-priority "Improvement" — Etsy Listings Tutorial documents it as a first-class body field, sibling of `price_on_property` / `quantity_on_property` / `sku_on_property`. Correct severity is **Bug** (3-variation listings with property-varying readiness state cannot be updated without it).
+
+Failing this gate produces either false-positive Bug verdicts (waste developer time) or false-negative Bug verdicts (let real bugs through to prod). Mark this gate as completed inside `review_analyze` (§ R TODO template) — never as a separate todo.
+
+After verification, **record the verified fact in `${CONTEXTS_DIR}/{slug}-v{version}.md` § Caveats** with the source URL, so the next session does not re-verify from zero. Pair every recorded fact with a one-line quote or example from the docs.
 
 ### Cross-Module Pattern Verification (mandatory)
 
@@ -241,6 +267,37 @@ Once the above items are addressed, please request a re-review. Thanks!
 ```
 
 Severity: `BREAKING` / `BUG` / `IMPROVEMENT`. Skip this section entirely if LGTM.
+
+### Audience Rule — No Skill-Repo Commands in Developer Messages
+
+The "To Developer" message is read by developers who **do not use this skill** — they work in the Make Internal App (VS Code extension) and the SDK web UI, not in the local `make-custom-app-skill` toolchain. Anything specific to this skill is noise (or worse, confusing) to them.
+
+**Forbidden in any "To Developer" message** (and equally in any review output that may be copy-pasted into Jira / Slack / Teams):
+
+- Skill scripts: `update-component.js`, `update-app.js`, `create-component.js`, `delete-component.js`, `download-app.js`, `review-changes.js`, `test-component.js`, `test-function.js`, `post-review-transition.js`, `download-jira-ticket-attachment.js`, etc.
+- Skill paths: `~/.cursor/skills/make-custom-app/...`, `~/.claude/skills/make-custom-app/...`, `${SKILL_ROOT}`, `${CONTEXTS_DIR}`, `~/.cursor/make-app-contexts/...`, `~/.claude/make-app-contexts/...`.
+- Skill-internal references: `Pinecone`, `upsert_app_context`, `upsert_jira_ticket`, `search_app_knowledge`, the `make-app-context` MCP server, `make-apps-mockup`, `${slug}-v${version}.md`.
+- Skill-internal flags / invocations: `node {script} ... public=true`, `--debug`, `--format=json`, `--update`, etc.
+
+**Speak in the developer's language instead** — describe the *change* in IMLJSON / SDK terms:
+
+- Don't say *"Run `update-component.js timebuzzer 1 module SearchTiles public=true` to publish."*
+  Say *"Set the module to public in the SDK (Module → Visibility → Public)."*
+- Don't say *"Add to `expect.imljson`..."* with a path like `~/.cursor/skills/make-custom-app/...`.
+  Say *"In `modules/SearchTiles/expect.imljson`, add the following field..."* with the in-app relative path.
+- Don't reference `test-component.js` runs.
+  Say *"Verify the module returns the expected output for the new parameter."* The developer will use whatever workflow they prefer.
+
+This rule applies to:
+
+- The "To Developer" Markdown block (§ "Developer Message" template above).
+- Any quoted "To Developer" snippet appearing in the chat that the user might copy-paste to Jira.
+- Any Jira comment / Developer Notes content authored on the developer's behalf.
+
+It does NOT apply to:
+
+- Internal review output (the analysis above the "To Developer" line) — internal commands are fine when the user is the audience.
+- Skill-side post-review actions (`post-review-transition.js`, MCP `upsert_*`) — those run silently against the user's local environment and never appear in developer-facing copy.
 
 ## Post-Review Disposition Gate (STRICT)
 
