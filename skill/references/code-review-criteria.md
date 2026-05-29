@@ -114,6 +114,19 @@ Common anti-pattern mistake: flagging `{{body.newMediaItemResults[].mediaItem}}`
 
 See [runtime-reference.md § IML Variable Path Syntax](runtime-reference.md#iml-variable-path-syntax) for the full source excerpt and index semantics.
 
+### `scopes.imljson` Empty Object `{}` (Do NOT flag as Improvement)
+
+`connections/{name}/scopes.imljson` is an **object** keyed by scope-name → human-readable description (catalog for the `additionalScopes` picker UI), **not** an array. An empty `{}` simply means the connection offers no extra scopes beyond what `scope.imljson` and module/RPC `scope.imljson` already request — this is **common and valid**, used by `google-ads-conversions`, `google-ads-customer-match`, `whatsapp-business-cloud`, `cloudconvert`, `getresponse`, `github`, `google-merchant`, etc.
+
+| File | Correct shape | Wrong shape (real bug) |
+|---|---|---|
+| `connections/{name}/scope.imljson` | Array `["<scope-url>", ...]` (default active scopes) | `{}` object — runtime expects array |
+| `connections/{name}/scopes.imljson` | Object `{ "<scope>": "<description>" }` (catalog for `additionalScopes` UI) | `[]` array — picker UI fails to render |
+
+**Do NOT** suggest converting `scopes.imljson` `{}` → `[]`. That inverts the schema. The opposite mistake (`scope.imljson` `{}` instead of `[]`) **is** a bug — flag those.
+
+Full mechanism, including how the active scope set is composed at OAuth `authorize` time (connection scope ∪ triggering module's scope ∪ user's `additionalScopes`), in [component-patterns-reference.md § "OAuth Scope Files"](component-patterns-reference.md#oauth-scope-files--scopeimljson-vs-scopesimljson).
+
 ---
 
 ## Test Coverage Enforcement (Mandatory for `functions/*/code.js`)

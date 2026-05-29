@@ -345,6 +345,53 @@ Source of truth: `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` 
 
 **Code-review heuristic**: in any connection `api.imljson` diff, `rg "oauth\.redirectUri" connections/{name}/api.imljson` should return zero hits. Any hit (other than a comment explaining a deliberate exception) is at least an Improvement; on a new app or new connection it is Changes Requested.
 
+### OAuth Scope Files — `scope.imljson` vs `scopes.imljson`
+
+These two filenames look near-identical but have **opposite shapes** and **different purposes**. Confusing them is a recurring false-positive in connection reviews.
+
+| File | Shape | Purpose | Empty value |
+|---|---|---|---|
+| `connections/{name}/scope.imljson` | **Array** of strings: `["<scope-url>", ...]` | Default active scopes auto-requested at connection time. Joined into the OAuth `authorize` URL via the runtime's `oauth.scope` variable. | `[]` — no default scopes (only module/RPC scopes apply at request time) |
+| `connections/{name}/scopes.imljson` | **Object** keyed by scope: `{ "<scope-key>": "<description>", ... }` | **Catalog** of additional scopes the user can pick from in the connection form's `additionalScopes` UI. Acts as a dictionary mapping scope identifier → human-readable label shown in the picker. | `{}` — no extra scopes selectable beyond what `scope.imljson` and module/RPC scopes already request. **Common and valid.** |
+
+The active set sent to the OAuth provider at `authorize` time is the union of:
+
+1. `connections/{name}/scope.imljson` (connection defaults)
+2. The triggering module / RPC's own `module/scope.imljson` (auto-merged when the user creates the connection from inside that module's settings)
+3. Any user-selected scopes from `connection.parameters.additionalScopes` (which the picker UI populates from `scopes.imljson`)
+
+**Examples of valid `scopes.imljson` shapes** (sampled across published apps):
+
+```json
+// google-sheets-v2 — populated catalog
+{
+    "https://www.googleapis.com/auth/spreadsheets": "Access to spreadsheets",
+    "https://www.googleapis.com/auth/drive": "Access to files in Google Drive"
+}
+```
+
+```json
+// productboard-v1 — populated catalog with granular permissions
+{
+    "entities:read":  "Read entities (features, components, initiatives, etc.) ...",
+    "entities:write": "Create and update entities ...",
+    "entities:delete": "Delete entities ..."
+}
+```
+
+```json
+// google-ads-conversions, google-ads-customer-match, whatsapp-business-cloud,
+// cloudconvert, getresponse, github, google-merchant — empty catalog (no extras)
+{}
+```
+
+**Code-review heuristic** (false-positive guard):
+
+- An empty `scopes.imljson` `{}` is **NOT** a bug or an improvement — many production apps ship it empty. Do **not** suggest converting it to `[]`.
+- An empty `scope.imljson` `[]` is fine when the connection itself needs no default scope (module/RPC scopes will be merged in per request).
+- If you see `scopes.imljson` declared as `[]` (an array) — **that** is the bug. The runtime expects an object/dictionary, not an array, and the picker UI will fail to render.
+- Conversely, `scope.imljson` declared as `{}` (an object) is also a bug — the runtime expects an array of scope strings.
+
 ### Key Fields
 
 | Field                     | Purpose                                                                                                                                           |
