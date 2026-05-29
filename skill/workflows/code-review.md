@@ -59,8 +59,10 @@ Call `getJiraIssue` with **all required fields in a single call**: `fields: ["su
 If the ticket has subtasks → fetch them all with the same fields and **filter by status**:
 
 - **Done** → skip (QA-verified already, no review needed)
-- **Complete** → review (developer finished, QA pending — this is the subtask that needs review attention)
-- **Other** → fetch for context (requirements, scope) but prioritize "Complete"
+- **Test** → review (developer finished the subtask fix, QA pending — this is the subtask that needs review attention)
+- **Other** → fetch for context (requirements, scope) but prioritize "Test"
+
+> **Subtask status lifecycle (IEN board).** There is no `Complete` status. The flow is: QA creates a subtask and returns it to the developer → developer fixes it and sets the subtask to **`Test`** → once all subtasks are done the developer sets the **parent** ticket to **`Commit`** and requests review → the reviewer (you), on a `committed` disposition, moves the **parent** to **`In Testing`** → QA then tests each subtask directly and moves it **`Test` → `Done`** (verified) or returns it to the developer again. The reviewer never transitions a `Test` subtask — that is QA territory (see § "Post-Review Disposition Gate").
 
 If the ticket itself is a subtask → fetch the **parent** for full scope and AC.
 
@@ -70,7 +72,7 @@ Read comments on the parent and all subtasks. Comments often contain clarificati
 
 Once the parent and subtasks are fetched, **immediately assign the parent ticket to the authenticated reviewer via Atlassian MCP** before any code analysis. This makes the review ownership visible in Jira from the start instead of waiting for the post-review disposition transition.
 
-**Scope: parent ticket only. Never assign sub-tasks.** Sub-tasks (regardless of status — `Complete`, `Done`, `In Progress`, anything) stay with their original assignee. Sub-task ownership belongs to the implementer / QA, not the reviewer. Touching the sub-task `assignee` field is forbidden during code review.
+**Scope: parent ticket only. Never assign sub-tasks.** Sub-tasks (regardless of status — `Test`, `Done`, `In Progress`, anything) stay with their original assignee. Sub-task ownership belongs to the implementer / QA, not the reviewer. Touching the sub-task `assignee` field is forbidden during code review.
 
 Procedure (all MCP calls — no script):
 
@@ -323,7 +325,7 @@ Once the user confirms, immediately execute (do NOT wait for the user to ask aga
      - "Compilation" → "To Do" (the "Compilation" workflow has no direct "In Progress" transition)
    - The script aborts with a clear message if the ticket's current status is not in the allowed list ("Commit" or "Compilation" by default). Use `--from-status=<name1,name2>` to customize, or `--force` only when the user explicitly opts in.
    - Run for **every** reviewed ticket (parent + reviewed subtasks).
-   - **⛔ Hard Rule — Sub-task "Complete" status is QA territory.** If a reviewable sub-task is in `Complete` status (not `Commit` / `Compilation`), the script will abort. **Do NOT bypass this** — do not pass `--force`, do not directly call MCP `transitionJiraIssue` to push it to `Done`. The `Complete → Done` transition belongs to QA; they will mark it `Done` themselves once verified. Skip the sub-task transition silently and move on; report the abort to the user as "skipped (QA territory)". Only override if the user explicitly says "force it" or names the target status.
+   - **⛔ Hard Rule — Sub-task "Test" status is QA territory.** If a reviewable sub-task is in `Test` status (not `Commit` / `Compilation`), the script will abort. **Do NOT bypass this** — do not pass `--force`, do not directly call MCP `transitionJiraIssue` to push it to `Done`. The `Test → Done` transition belongs to QA; they will mark it `Done` themselves once verified (or return it to the developer). Skip the sub-task transition silently and move on; report the abort to the user as "skipped (QA territory)". Only override if the user explicitly says "force it" or names the target status.
 
 These map to `common_context_update`, `common_upsert_app_context`, `common_upsert_jira_ticket`, `review_transition` in the § R TODO template — they stay `pending` until the disposition `[GATE]` (`review_wait_disposition`) is `completed`.
 
