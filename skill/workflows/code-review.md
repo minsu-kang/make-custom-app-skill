@@ -126,6 +126,21 @@ Read the review data after scripts complete:
 ${CONTEXTS_DIR}/{slug}-v{version}/reviews/latest.json
 ```
 
+#### 5a. Interpret `review-changes.js` output — compiled vs uncompiled app (mandatory)
+
+`review-changes.js` lists **uncommitted changes** via `GET /sdk/apps/{slug}/{version}?cols[0]=changes` (`app.changes` = `[{id, group, item, code}]`), then fetches each change's `old_value`/`new_value` via `GET /sdk/apps/{slug}/{version}/changes/{id}`. Crucially, **change-tracking is gated by the `approved` flag**, not by `compile`: a non-approved app writes every SDK edit **directly** to the DB working copy without creating any `apps.change` row, so `app.changes` is always empty for it. (Full mechanism + pipeline: [app-compilation-and-deployment-reference.md](../references/app-compilation-and-deployment-reference.md).)
+
+This makes the meaning of "0 changes" depend entirely on the app's `approved` state. **Before concluding anything from a 0-change result, read `metadata.json` (`approved`) for the app:**
+
+| `metadata.json` state | What `review-changes.js` returns | Correct interpretation |
+|---|---|---|
+| **Non-approved** — `approved: false` (typical for a brand-new `issuetype: "App"` ticket; usually `compile: false` too) | **Structurally always 0** — edits write straight to `apps.*`, no change rows are ever created, no matter how much was changed | **NOT "nothing to review."** Review the **full app code** (base, connection, every module/RPC/webhook/function, install/installSpec, groups, common) against the ticket AC. On re-reviews, re-read the full current code each round — the developer's fixes ARE the current full state; there is no diff to show. |
+| **Approved** — `approved: true` | Real uncommitted changes (delta vs the committed baseline), or 0 if the developer genuinely saved nothing new | Diff-based review on `old_value → new_value`. If 0 here, it genuinely means "No uncommitted changes found." |
+
+**Do not describe a non-approved app's 0-change result as "all committed via SDK" or "no changes to review."** The accurate phrasing is: *"App is not approved (`approved: false`) → SDK edits write directly to the DB, no change rows → reviewing full app code."*
+
+**Jira status nuance**: the canonical pre-review status is **Compilation**; some developers colloquially set **Commit** instead. Both mean "ready for review," and `post-review-transition.js` accepts either (see § "Post-Review Disposition Gate").
+
 ### 6. Filter changes (mandatory)
 
 For each change in `latest.json`, determine whether it is related to the Jira ticket's AC:
@@ -303,14 +318,21 @@ It does NOT apply to:
 
 ## Post-Review Disposition Gate (STRICT)
 
-After delivering the review output (and Developer Message if applicable), ask:
+After delivering the review output (and Developer Message if applicable), ask the disposition question — **the verb depends on the app's compilation state** (`metadata.json` `approved`/`compile`, see § 5a):
 
-> Did you return the ticket to the developer, or commit the changes?
+- **Uncompiled app** (`approved: false` / `compile: false` — e.g. a brand-new `issuetype: "App"`): the forward action is **compile**, not commit. Ask:
+  > Did you **compile** the app, or return it to the developer?
+- **Compiled app** (`approved: true`): the forward action is **commit**. Ask:
+  > Did you return the ticket to the developer, or **commit** the changes?
+
+The two LGTM-path verbs (compile / commit) map to the **same** `post-review-transition.js {key} committed` call — the script transitions `Commit`/`Compilation` → `In Testing` either way. Only the question wording changes, to match what the user actually does (you don't "commit" an app that has never been compiled).
 
 **Until the user explicitly confirms one of the following, do NOT touch the context file, do NOT call `upsert_app_context` / `upsert_jira_ticket`, do NOT run `post-review-transition.js`:**
 
-- "committed" / "커밋했어" / "커밋완료" — the changes were committed (LGTM path) → `post-review-transition.js {key} committed`
-- "returned" / "돌려줬어" / "개발자한테 보냈어" — the ticket was returned to the developer (Changes Requested path) → `post-review-transition.js {key} returned`
+- LGTM / forward path → `post-review-transition.js {key} committed`. Accepted phrases:
+  - Compiled app: "committed" / "커밋했어" / "커밋완료"
+  - Uncompiled app: "compiled" / "컴파일했어" / "컴파일완료" / "컴파일할게" / "내가 컴파일할게"
+- "returned" / "돌려줬어" / "돌려줌" / "개발자한테 보냈어" — the ticket was returned to the developer (Changes Requested path) → `post-review-transition.js {key} returned`
 
 These are **post-disposition** actions, not post-review actions. Updating context files mid-review pollutes the knowledge base with results the user has not yet acted on.
 
@@ -362,7 +384,7 @@ Standard code-quality review using the criteria in [code-review-criteria.md](../
 
 - **ALWAYS run both `download-app.js` and `review-changes.js` before every review** — never rely on previously saved local code or `latest.json`. The local code may be stale, and review data must be freshly fetched each time, including re-reviews.
 - After review, if fixes are needed, apply them via `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make)) instead of manually editing in the SDK.
-- If there are 0 changes: inform the user "No uncommitted changes found."
+- If `review-changes.js` returns 0 changes: **first check `metadata.json` `approved`/`compile`** (see § 5a). Uncompiled app (`approved: false`/`compile: false`) → 0 is structural, review the **full app code** against the AC (never report "nothing to review"). Compiled app (`approved: true`) with 0 → genuinely "No uncommitted changes found."
 - Focus the review on **old_value → new_value comparison**. If only `new_value` exists (new component), evaluate quality of `new_value` only.
 - If any breaking change is found, the overall verdict must be **Changes Requested**. Exception: skip breaking change evaluation entirely when the Jira ticket type is "App" (new app, not yet deployed — no existing scenarios to break).
 - If any bug is found, the overall verdict must be **Changes Requested**.

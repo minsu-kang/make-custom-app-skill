@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.14.8
+version: 1.14.9
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -270,6 +270,7 @@ These values can be overridden in `common.imljson`:
 - `common.imljson` (static, encrypted shared data baked into the app source at build time) cannot be changed after app approval.
 - **However**, install-flow values that populate `common.*` via app-root `installSpec.imljson` + `install.imljson` remain editable post-approval. An admin user enters or updates them through the admin panel at `{zone_url}/admin/native-apps/{slug}/version/{ver}` (e.g., `https://eu1.make.com/admin/native-apps/make-ai-web-search/version/1`). Adding a new `installSpec` field on an approved app is therefore an ordinary edit, not a structural blocker — see [App-Level Install Params](references/component-patterns-reference.md#app-level-install-params).
 - App metadata `approved` field reflects **compilation state**, not production approval: `approved: false` = app not yet compiled; `approved: true` = app already compiled. Do NOT interpret it as "in production / approved by Make team".
+  - **Consequence for code review / `review-changes.js`**: change-tracking is gated by **`approved`**, not `compile`. A **non-approved** app (`approved: false`) writes every SDK edit directly to the DB with **no `apps.change` rows**, so `review-changes.js` returns **0 changes no matter how much the developer edited** — review the **full app code**, never report "nothing to review." An **approved** app returns a real `old_value → new_value` diff (uncommitted delta vs the committed baseline). Full compile→IPM→zone-install→runtime pipeline: [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md); review handling: [code-review.md § 5a](workflows/code-review.md).
 - App/module **visibility in Make scenario builder** is controlled by `private` + `deprecated` (per `app.versions[*]` and `app.versions[*].modules[*]`, fetched via `GET {zone}/api/v2/admin/apps/{slug}`):
   - `private: false` + `deprecated: false` → **visible & usable** in scenario builder (full production)
   - `private: true` → not visible in scenario builder (regardless of `deprecated`)
@@ -339,6 +340,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Code review criteria (ES6+, code quality, test coverage, UX, runtime verification): [code-review-criteria.md](references/code-review-criteria.md)
 - Security reference (credentials, OAuth, webhook signature, SSRF, injection, data exposure): [security-reference.md](references/security-reference.md)
 - Code smells & quality thresholds (JS metrics, IMLJSON smells, cross-file smells): [code-smells-reference.md](references/code-smells-reference.md)
+- App compilation & deployment (SDK/DB → compiled PKR package, IPM registry, per-zone install, runtime resolve, `approved`/`compile`/`changes` semantics): [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md)
 
 ## Make API Key Setup (Claude Code only — required)
 

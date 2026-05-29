@@ -166,6 +166,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification |
 | `references/security-reference.md` | Security checklist — credentials, OAuth flow, webhook signature, SSRF, injection, data exposure (cited as `[SECURITY][1.2]`) |
 | `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
+| `references/app-compilation-and-deployment-reference.md` | How SDK/DB code becomes a compiled PKR file package — compile pipeline, IPM registry, per-zone install, runtime resolution, and why `review-changes` is 0 for non-approved apps |
 
 ### Script Files (`skill/scripts/` → `…/make-custom-app/scripts/`)
 
