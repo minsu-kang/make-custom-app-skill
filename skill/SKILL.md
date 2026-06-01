@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.14.10
+version: 1.14.11
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -277,6 +277,11 @@ These values can be overridden in `common.imljson`:
   - `deprecated: true` → not visible in scenario builder regardless of `private`, **but** scenarios already using it still render it
   - Same logic applies independently at the module level (`versions[*].modules[*].private` / `.deprecated`) — a public version can still hide individual modules
   - `approved: true` (compiled) is necessary but **not sufficient** for production-visible. Always also check `private` + `deprecated` per zone.
+- **Two endpoints, two visibility controls — do not confuse them** (field-verified, IEN-15262):
+  - `/admin/apps/{slug}` → `versions[*].modules[*].deprecated` / `.private` = **soft-hide**: hidden from the scenario builder for new use, but scenarios **already using** the module keep working.
+  - `/admin/sdk/apps/{slug}/{version}/modules` → per-module `public` = **hard-disable**: `public: false` makes the module owner-only and, on compile/deploy, **removes it from `versions[*].modules[*]` and from every existing scenario that uses it → those scenarios break.**
+  - **To hide/sunset a module that is in production use, set `deprecated: true` (or hide via admin panel). NEVER `public: false`** — that is a hard breaking change, not a hide. `public: false` is only for never-released (owner-only/WIP) modules.
+  - `metadata.json` from `download-app.js` reflects the `/admin/apps` (deployed) view, so a pending-uncompiled `public: false` shows there as `private: false` / `deprecated: false`. Check the SDK `/modules` `public` flag for the real pending state. Relabeling a module "(deprecated)" does **nothing** to visibility — the flag must be set. Details: [app-compilation-and-deployment-reference.md § "Module visibility & hiding"](references/app-compilation-and-deployment-reference.md).
 - The `GET {zone}/api/v2/admin/apps/{slug}` endpoint is **admin-only** and **per-zone**. Response status interpretation:
   - `200` → app is **IPM-deployed** to that zone; `app.versions[*]` carries the `private` / `deprecated` / `packagePrivate` / `modules[*].private` / `modules[*].deprecated` flags
   - `403` → caller has admin role but lacks access to this specific endpoint

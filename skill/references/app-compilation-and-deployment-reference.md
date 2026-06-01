@@ -70,6 +70,21 @@ The API's `app.compile` is no longer the primary DB boolean — `imt-web-api` ov
 
 `apps.app.compiled_name` is set at approval and is the IPM package name (`app_compile` manifest name = `coalesce(compiled_name, name)`). The SDK themes endpoint exposes `isCompiled` per app (`true` once a compiled package exists). `ipmDeployedToZone` is **not** defined in any of the five repos above — it surfaces from the IPME/admin layer and must be read per zone via the admin app endpoint (see SKILL.md visibility notes).
 
+### Module visibility & hiding — `deprecated`/`private` vs SDK `public` (field-verified, IEN-15262)
+
+> Sourced from team knowledge + direct endpoint observation (IEN-15262, TimeCamp v1) — **not** yet cross-checked against the five source repos above. Treat the deploy-side blast radius below as the operational rule; verify in `imt-web-api` before relying on internals.
+
+Two **different** endpoints expose two **different** visibility controls for a module. They are not the same field and do not have the same blast radius:
+
+| Endpoint | Field (per module) | Effect on deploy |
+|---|---|---|
+| `GET {zone}/api/v2/admin/apps/{slug}` → `app.versions[*].modules[*]` | `deprecated` / `private` | **Soft-hide.** Hidden from the scenario builder for **new** use, but scenarios **already using** the module keep rendering & running. Safe for existing customers. `deprecated: true` is the canonical "sunset / hide" flag. |
+| `GET {zone}/api/v2/admin/sdk/apps/{slug}/{version}/modules` → per-module | `public` | **Hard-disable.** `public: false` = module fully disabled (app-owner only). On compile/deploy the module **disappears from `app.versions[*].modules[*]` entirely** and is **removed from every existing scenario that uses it** → those scenarios break. |
+
+**Rule for hiding a module that is already in production use**: set **`deprecated: true`** (or hide via the admin panel). **Never use `public: false`** for that purpose — it is a hard breaking change for existing scenarios, not a soft-hide. `public: false` is only appropriate for modules that were never released to users (owner-only / WIP).
+
+**Why `metadata.json` can mislead about hiding**: `download-app.js` reads the `/admin/apps` (deployed) view, so a module hidden via a *pending, uncompiled* `public: false` still shows `private: false` / `deprecated: false` there. To see the real pending visibility state, query the SDK `/modules` endpoint and read the `public` flag per module. Also note: **relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
+
 ## 4. make-apps-processor — DB snapshot → PKR file package
 
 **Input**: `imt-web-api` `enqueueCompile` runs `apps.app_compile` to build an **`AppToCompile`** JSON snapshot and `POST`s it to `make-apps-processor /compile` (JSON, `202`, queued in RabbitMQ). The processor does **not** read the DB itself.
