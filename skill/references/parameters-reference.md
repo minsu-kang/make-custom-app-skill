@@ -157,6 +157,47 @@ RPCs nested inside a parent select's `options.nested` automatically receive the 
 
 This inheritance works through multiple nesting levels (e.g., `boardId` → `selectMode` options → nested array → column select). The parent parameter values are always available to child RPCs regardless of depth.
 
+#### Per-Option `nested` vs Store-Level `options.nested` (Precedence + Mapped-Value Fallback)
+
+A `select` can attach nested fields from **two** places, and they are **mutually exclusive per value (precedence), not additive**:
+
+1. **Per-option `nested`** — defined inside each individual store option (e.g. an option object returned by the store RPC carries its own `nested`). Renders only when the field value **matches that fetched option** (i.e. picked from the dropdown).
+2. **Store-level `options.nested`** — sibling of `store` (an array or an `rpc://` URL). Acts as the **fallback** that renders when the value does **not** match any fetched option — i.e. a **mapped** or manually **typed** value.
+
+The form renderer (`@integromat/forman`, `lib/utils.ts → resolveInstructions`) resolves the nested spec with a `||` chain — first truthy wins, and `showNestedFieldsets` builds exactly **one** nested fieldset per value:
+
+```
+remote-registered nested
+  || matchedStoreOption.nested      // per-option (dropdown selection) — takes precedence
+  || options.nested                 // store-level (mapped / typed value) — fallback
+  || instructions.options.nested
+  || options.placeholder.nested
+```
+
+Key consequences (verified against forman source, not just docs):
+
+- **No duplication.** When a dropdown option is selected, the per-option `nested` wins and store-level `options.nested` is **not** also rendered — even if both define identically-named fields. Adding a store-level `options.nested` therefore does **not** change the dropdown-selection path.
+- **Mapped/typed values fall through to `options.nested`.** Per-option `nested` requires a matching selected option, so it never fires for a mapped IML expression or a manually typed value. Store-level `options.nested` is what surfaces nested fields in those cases.
+- **The store-level fallback cannot know the option's type.** Because a mapped value is opaque at design time, the fallback RPC/array must return a **generic / superset** spec (all operators, a union of accepted values), not a type-specific one.
+
+**Canonical fix pattern** — "nested fields disappear when the column/value is mapped instead of selected" (monday IEN-15263): keep the existing per-option `nested` for the typed-selection case, and **add** a store-level `options.nested` (commonly an RPC with a `?mode=...` flag) that returns the generic field set for mapped/typed values:
+
+```json
+{
+    "name": "columnId",
+    "type": "select",
+    "editable": true,
+    "options": {
+        "store": "rpc://buildsItemsPageQueryParameters",
+        "nested": "rpc://buildsItemsPageQueryParameters?mode=mapping"
+    }
+}
+```
+
+The RPC branches on the query flag (`"condition": "{{!parameters.mode}}"` for the store list with per-option `nested`; `"condition": "{{parameters.mode === 'mapping'}}"` for a URL-less request returning the generic nested spec).
+
+> ⚠️ Make's docs `?ask=` bot reports that store-level and per-option `nested` "both render" and that `options.nested` "does not render for mapped values" — **both claims are wrong**. The authoritative behavior is the precedence chain above (forman `resolveInstructions`/`findOption`/`showNestedFieldsets`). When editor-rendering behavior matters, verify against forman source, not the docs bot.
+
 ### Collection Type
 
 ```json
