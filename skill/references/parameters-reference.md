@@ -157,30 +157,31 @@ RPCs nested inside a parent select's `options.nested` automatically receive the 
 
 This inheritance works through multiple nesting levels (e.g., `boardId` → `selectMode` options → nested array → column select). The parent parameter values are always available to child RPCs regardless of depth.
 
-#### Per-Option `nested` vs Store-Level `options.nested` (Precedence + Mapped-Value Fallback)
+#### Per-Option `nested` vs Store-Level Fallbacks (`placeholder.nested` / `options.nested`)
 
-A `select` can attach nested fields from **two** places, and they are **mutually exclusive per value (precedence), not additive**:
+A `select` can attach nested fields from **multiple** places, resolved by a **precedence order (first match wins), not additively**. The Make parameter form renderer builds exactly **one** nested fieldset per value, choosing the nested spec in this order:
 
-1. **Per-option `nested`** — defined inside each individual store option (e.g. an option object returned by the store RPC carries its own `nested`). Renders only when the field value **matches that fetched option** (i.e. picked from the dropdown).
-2. **Store-level `options.nested`** — sibling of `store` (an array or an `rpc://` URL). Acts as the **fallback** that renders when the value does **not** match any fetched option — i.e. a **mapped** or manually **typed** value.
+1. **Per-option `nested` from an RPC store** — registered **asynchronously**, only after the store RPC has fetched its options. *(Highest precedence.)*
+2. **Per-option `nested` from a static-array store** — matched **synchronously** against the field value.
+3. **Store-level `options.nested`** — a sibling of `store`; always eligible, **not gated** by any value state.
+4. **`placeholder.nested`** — rendered **only** when the value is in a **placeholder state** (empty / no matched option), i.e. for mapped or manually typed values. *(Lowest precedence.)*
 
-The form renderer (`@integromat/forman`, `lib/utils.ts → resolveInstructions`) resolves the nested spec with a `||` chain — first truthy wins, and `showNestedFieldsets` builds exactly **one** nested fieldset per value:
+**Critical distinction — RPC store vs static-array store:**
 
-```
-remote-registered nested
-  || matchedStoreOption.nested      // per-option (dropdown selection) — takes precedence
-  || options.nested                 // store-level (mapped / typed value) — fallback
-  || instructions.options.nested
-  || options.placeholder.nested
-```
+- For a **static array `store`**, the per-option `nested` is matched **synchronously** against the value (rule 2).
+- For an **`rpc://` string `store`**, the per-option `nested` arrives **asynchronously** (rule 1) — only available **after** the store RPC has fetched and its options' nesteds are registered.
 
-Key consequences (verified against forman source, not just docs):
+This async gap is the trap. On module **reopen** of a *dropdown-selected* RPC-store value, the per-option nested (rule 1) may not be resolved yet during the first render pass. If a store-level `options.nested` (rule 3) exists, it wins the race and renders the **generic** nested spec over what is actually a type-specific selection → the saved type-specific operator/value data appears "not compatible." This is exactly the regression QA caught in monday **IEN-15480**.
 
-- **No duplication.** When a dropdown option is selected, the per-option `nested` wins and store-level `options.nested` is **not** also rendered — even if both define identically-named fields. Adding a store-level `options.nested` therefore does **not** change the dropdown-selection path.
-- **Mapped/typed values fall through to `options.nested`.** Per-option `nested` requires a matching selected option, so it never fires for a mapped IML expression or a manually typed value. Store-level `options.nested` is what surfaces nested fields in those cases.
-- **The store-level fallback cannot know the option's type.** Because a mapped value is opaque at design time, the fallback RPC/array must return a **generic / superset** spec (all operators, a union of accepted values), not a type-specific one.
+**`placeholder.nested` is the robust mechanism for the mapped/typed case.** Unlike `options.nested`, the renderer shows `placeholder.nested` **only** when the value is in a placeholder state (no matched option) — so it does **not** pre-empt the async per-option nested (rule 1) on reopen of a dropdown selection.
 
-**Canonical fix pattern** — "nested fields disappear when the column/value is mapped instead of selected" (monday IEN-15263): keep the existing per-option `nested` for the typed-selection case, and **add** a store-level `options.nested` (commonly an RPC with a `?mode=...` flag) that returns the generic field set for mapped/typed values:
+Other consequences (verified against the Make parameter form renderer's behavior, not docs):
+
+- **No duplication on selection.** When the per-option nested resolves, it wins; the store-level fallback is not *also* rendered.
+- **Mapped/typed values fall through to the fallback.** Per-option nested requires a matched option, so it never fires for a mapped IML expression or a manually typed value — the fallback (`placeholder.nested` / `options.nested`) is what surfaces nested fields then.
+- **The fallback cannot know the option's type.** A mapped value is opaque at design time, so the fallback RPC/array must return a **generic / superset** spec (all operators, a union of accepted values), not a type-specific one.
+
+**Canonical fix pattern** — "nested fields disappear when the column/value is mapped or typed instead of selected" (monday IEN-15263): keep the per-option `nested` (via the RPC store options) for the dropdown case, and add a **`placeholder.nested`** (RPC with a `?mode=...` flag) that returns the generic field set for mapped/typed values:
 
 ```json
 {
@@ -189,14 +190,19 @@ Key consequences (verified against forman source, not just docs):
     "editable": true,
     "options": {
         "store": "rpc://buildsItemsPageQueryParameters",
-        "nested": "rpc://buildsItemsPageQueryParameters?mode=mapping"
+        "placeholder": {
+            "label": " ",
+            "nested": "rpc://buildsItemsPageQueryParameters?mode=mapping"
+        }
     }
 }
 ```
 
 The RPC branches on the query flag (`"condition": "{{!parameters.mode}}"` for the store list with per-option `nested`; `"condition": "{{parameters.mode === 'mapping'}}"` for a URL-less request returning the generic nested spec).
 
-> ⚠️ Make's docs `?ask=` bot reports that store-level and per-option `nested` "both render" and that `options.nested` "does not render for mapped values" — **both claims are wrong**. The authoritative behavior is the precedence chain above (forman `resolveInstructions`/`findOption`/`showNestedFieldsets`). When editor-rendering behavior matters, verify against forman source, not the docs bot.
+> ⚠️ **For an RPC-backed `store`, prefer `placeholder.nested` over store-level `options.nested`.** `options.nested` (rule 3) is not gated and can win the async render race on reopen, rendering generic fields over a dropdown selection (monday IEN-15263 was first shipped with `options.nested` and regressed in QA via IEN-15480; the fix switched to `placeholder.nested`). `options.nested` remains acceptable when the `store` is a **static array** (per-option matches synchronously at rule 2, no async gap).
+>
+> ⚠️ Make's docs `?ask=` bot reports that store-level and per-option `nested` "both render" and that the store-level fallback "does not render for mapped values" — **both claims are wrong**. The authoritative behavior is the precedence order above. When editor-rendering behavior matters, verify against the Make parameter form renderer's actual behavior, not the docs bot.
 
 ### Collection Type
 
@@ -225,7 +231,7 @@ The RPC branches on the query flag (`"condition": "{{!parameters.mode}}"` for th
 
 ### `required` Validation Behavior: Array vs Collection
 
-The Make platform's form validator (`imt-forman`) enforces `required` differently depending on the parent container type.
+The Make platform's parameter form validator enforces `required` differently depending on the parent container type.
 
 **Collection** — child field `required: true` **is enforced**:
 
@@ -266,7 +272,7 @@ The Make platform's form validator (`imt-forman`) enforces `required` differentl
 
 **Why**: Collection is a fixed single object where the user explicitly fills each field — enforcing `required` on child fields is natural. Array is a dynamic, repeatable structure where items are often populated through mapping from previous modules. Validating `required` on every child field of every array item would cause unnecessary failures when mapped values resolve to null at runtime.
 
-**Source**: In `imt-forman`, `array.mjs` passes the spec array directly as the `instructions` parameter when calling the collection validator (`validateNested(value[i], 'collection', instructions.spec, options)`). The collection validator then accesses `instructions.spec` for child field iteration — but since `instructions` already IS the spec array, `.spec` is `undefined` and child-level validation is skipped entirely. This is intentional platform behavior.
+**Source**: In the Make platform's parameter form validator, the `array` input passes the spec array directly as the `instructions` parameter when calling the collection validator (`validateNested(value[i], 'collection', instructions.spec, options)`). The collection validator then accesses `instructions.spec` for child field iteration — but since `instructions` already IS the spec array, `.spec` is `undefined` and child-level validation is skipped entirely. This is intentional platform behavior.
 
 **Practical implication**: If you need strict validation on child fields inside an array, do not rely on `required: true` in the spec. Instead, validate in the module's `api.imljson` communication layer (e.g., using `valid` directive or custom error handling).
 
