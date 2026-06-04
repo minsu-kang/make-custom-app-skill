@@ -14,6 +14,8 @@ functions/
 
 Functions are written as plain JavaScript functions in `function functionName(args) { ... }` form. Executed within the IML sandbox at runtime.
 
+> **Array/object arguments.** IML has no inline `[...]` / `{...}` literal, so calling `myFn(['a'])` / `myFn({ k: v })` delivers `null` / a mangled string to your function — not an array/object. Pass arrays via `split()` / `merge()` / `emptyarray`, and objects via a `temp` (JSON-nested) reference: `{{myFn(temp.obj)}}`. See [builtin-iml-functions.md § "No Inline Array/Object Literals"](builtin-iml-functions.md#no-inline-arrayobject-literals).
+
 > **⚠️ Size limit**: `code.js` has a **5000 character** hard limit enforced by the Make SDK API (error `IM005`). If a function exceeds this limit, reduce size by removing unnecessary comments, shortening variable names, or extracting logic into a separate helper function.
 
 ## test.js (Required)

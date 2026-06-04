@@ -5,6 +5,27 @@ Official docs: https://help.make.com/functions
 
 > In IMLJSON, the argument separator is comma (`,`). Semicolons (`;`) are for the Make scenario UI only.
 
+## No Inline Array/Object Literals
+
+IML has **no array or object literal syntax**. Writing `['a', 'b']` or `{ key: value }` inside `{{ }}` does **not** create an array/object:
+
+- `{{['markdown']}}` → `null` (not `["markdown"]`, and not the string `"['markdown']"`)
+- `{{ { country: parameters.x } }}` → a mangled string (e.g. `"{US}"`), not an object
+
+This is a property of the IML parser, so it holds in **every** position — including the arguments to **any** function: built-in (`if`, `ifempty`, `merge`, `switch`, …) **and** custom IML functions (`functions/*/code.js`). A custom function called as `myFn(['a'])` receives `null`; called as `myFn({ k: v })` it receives a string, not an object.
+
+Build collections with functions/keywords instead, then pass the result (or a `temp` reference) into the function:
+
+| Need | Use (never `[...]` / `{...}`) |
+|---|---|
+| Array from a string | `split('a,b,c', ',')` → `["a","b","c"]` |
+| Empty array | `emptyarray` keyword |
+| Concatenate arrays | `merge(arr1, arr2)` |
+| Object (dynamic values) | build it in `api.temp` as a JSON-nested structure, then reference `{{temp.x}}` (e.g. `{{fn(temp.x)}}`) |
+| Object (fully static) | `parseJSON('{"k":"v"}')` |
+
+**`ifempty` does not treat an empty array `[]` as empty** — only `null` / empty-string. For an "empty array → default" fallback use `if(length(arr), arr, split(...))`, not `ifempty(arr, ...)`.
+
 ## General Functions
 
 | Function | Signature | Return Type | Description |
