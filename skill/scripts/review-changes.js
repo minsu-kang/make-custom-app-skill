@@ -205,6 +205,8 @@ if (!appSlug || !appVersion) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 reviewChanges(appSlug, appVersion).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

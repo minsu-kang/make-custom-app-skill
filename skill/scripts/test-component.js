@@ -153,6 +153,8 @@ if (debug) {
 
 const cmd = cmdParts.join(' ');
 
+require('./lib/version-guard').ensureFreshSkill();
+
 try {
 	const output = execSync(cmd, {
 		cwd: mockupPath,

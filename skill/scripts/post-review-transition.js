@@ -269,6 +269,8 @@ async function main() {
 	console.log(`  URL: ${config.baseUrl}/browse/${issueKey}`);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 main().catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

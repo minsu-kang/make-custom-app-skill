@@ -184,6 +184,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
 | `lib/settings.js` | Shared settings loader — reads installer-configured values from `SKILL.md` (paths, Jira credentials, etc.). |
+| `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). |
 
 ### Rule Files (`~/.cursor/rules/make-custom-app/` or `~/.claude/skills/make-custom-app/rules/`)
 

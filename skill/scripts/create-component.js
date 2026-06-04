@@ -279,6 +279,8 @@ if (!appSlug || !appVersion || !type) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 createComponent(appSlug, appVersion, type, args).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

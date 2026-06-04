@@ -307,6 +307,8 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 updateComponent(appSlug, appVersion, type, name, kvArgs).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

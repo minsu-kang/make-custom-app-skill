@@ -237,6 +237,8 @@ if (!appSlug || !appVersion || !type || !name) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 deleteComponent(appSlug, appVersion, type, name, force).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

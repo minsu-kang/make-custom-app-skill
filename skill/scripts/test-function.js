@@ -261,6 +261,8 @@ if (!slug || !version) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 const functionsDir = path.join(DEFAULT_CONTEXTS_DIR, `${slug}-v${version}`, 'functions');
 
 if (!fs.existsSync(functionsDir)) {

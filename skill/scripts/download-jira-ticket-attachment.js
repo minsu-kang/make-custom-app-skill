@@ -218,6 +218,8 @@ async function main() {
 	}
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 main().catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

@@ -387,6 +387,8 @@ if (!appSlug || !appVersion) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 downloadApp(appSlug, appVersion, outputDir).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);

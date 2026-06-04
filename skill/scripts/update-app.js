@@ -224,6 +224,8 @@ if (!appSlug || !appVersion || !componentPath || !filePath) {
 	process.exit(1);
 }
 
+require('./lib/version-guard').ensureFreshSkill();
+
 updateComponent(appSlug, appVersion, componentPath, filePath).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);
