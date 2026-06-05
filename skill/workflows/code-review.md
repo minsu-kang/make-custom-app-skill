@@ -152,16 +152,23 @@ After filtering: flag any AC items with no corresponding code change. If ALL cha
 
 ### 7. Review each related change
 
-**Skip Breaking Changes** in two cases — evaluate before the review:
+**Skip Breaking Changes** in three cases — evaluate before the review:
 
 1. **App-level skip** — if the Jira ticket's `issuetype.name === "App"`, skip Breaking Changes for the entire app (a new app has never been deployed, no user scenarios exist).
-2. **Per-change skip** — if a change reported by `review-changes.js` is a **pure new-component creation** (files have `new_value` only, no `old_value`), skip Breaking Changes for that component (it has never been placed in any scenario).
+2. **Per-change skip (no `old_value`)** — if a change reported by `review-changes.js` is a **pure new-component creation** (files have `new_value` only, no `old_value`), skip Breaking Changes for that component (it has never been placed in any scenario).
+3. **Per-change skip (`old_value` is the default scaffold template)** — when the SDK creates a new module/RPC, its files are pre-filled with Make's **default scaffold boilerplate** (placeholder `"url": "/users"`, `"iterate": "{{body.users}}"`, the standard scaffold comments like `// Relative to base URL` / `// Query string` / `// Splits array from API response into bundles`, and — for triggers — a default `response.trigger`). `review-changes.js` then reports this boilerplate as the `old_value`, but it is **not a real prior implementation**, so the component is effectively new → skip Breaking Changes. First decide from the **ticket** whether the work is new-component implementation, then confirm by checking whether the `old_value` is the untouched scaffold. The canonical scaffolds are the `model` template app (slug `model`, version 1 — run `download-app.js model 1` to see the current per-type templates under `modules/{Action,ActionCreate,ActionUpdate,ActionDelete,Search,Trigger,InstantTrigger,Responder,Universal,UniversalGraphQL,blank}/`). Recognize a scaffold by markers such as `"url": "/users"` (Search/Trigger) or `"url": "/users/{{parameters.id}}"` (Action), `"iterate": "{{body.users}}"`, `"qs": { "pageSize": 100 }`, the default `response.trigger` (`"id": "{{item.id}}"`, `"date": "{{item.created}}"`, `"order": "desc"`), and the boilerplate comments (`// Relative to base URL`, `// Splits array from API response into bundles`). `blank` is simply `{}`.
 
-In either case, the review output's Analysis must state:
+**How to verify `old_value` is the scaffold (deterministic):** compare the change's `old_value`, whitespace-/comment-insensitive, against the matching template in [`component-scaffold-templates.md`](../references/component-scaffold-templates.md). A match → untouched template → **new component** (skip the `old_value` diff + skip Breaking). That reference carries every per-type scaffold (module by `typeId`, RPC, webhook, connection) plus the full compare procedure; refresh it with `download-app.js model 1`. If `old_value` keeps scaffold markers with only minor edits and no real logic, still treat it as new. Only when `old_value` is a **genuine implementation** (real endpoints/fields, no scaffold markers) do the full diff + Breaking eval. If genuinely ambiguous, default to running the Breaking eval.
+
+In all cases, the review output's Analysis must state:
 
 > Breaking Changes check skipped — new {app | component: `{group}/{item}`} (no existing scenarios).
 
-Modifications to existing components (changes with `old_value`) are still subject to Breaking Changes evaluation.
+Modifications to **real existing components** (changes whose `old_value` is a genuine prior implementation, not the scaffold template) are still subject to Breaking Changes evaluation — including shared components (e.g. `base`, a shared RPC) that a new-component task happens to touch.
+
+**`old_value` comparison rule:** review the `old_value → new_value` diff **only when `old_value` is a real prior implementation**. When `old_value` is the `model` scaffold template, the diff is meaningless — **do not bother comparing against it**; just evaluate the quality of `new_value` on its own. (`new_value` quality is always reviewed; the `old_value` diff is what you skip for scaffold-backed components.)
+
+**Module publish/visibility state is never a finding.** A new module is normally `private: true` or `private: null` in `metadata.json` during implementation/review; the deployer flips it to public in the scenario builder after QA passes. Do NOT flag a new module's `private`/publish/visibility state (`private: true`/`null`) as a Breaking Change, Bug, or Improvement.
 
 For each ticket-related change, evaluate against [code-review-criteria.md](../references/code-review-criteria.md):
 
@@ -385,8 +392,9 @@ Standard code-quality review using the criteria in [code-review-criteria.md](../
 - **ALWAYS run both `download-app.js` and `review-changes.js` before every review** — never rely on previously saved local code or `latest.json`. The local code may be stale, and review data must be freshly fetched each time, including re-reviews.
 - After review, if fixes are needed, apply them via `update-app.js` (see [App Code Update](app-context.md#app-code-update-push-changes-to-make)) instead of manually editing in the SDK.
 - If `review-changes.js` returns 0 changes: **first check `metadata.json` `approved`/`compile`** (see § 5a). Uncompiled app (`approved: false`/`compile: false`) → 0 is structural, review the **full app code** against the AC (never report "nothing to review"). Compiled app (`approved: true`) with 0 → genuinely "No uncommitted changes found."
-- Focus the review on **old_value → new_value comparison**. If only `new_value` exists (new component), evaluate quality of `new_value` only.
-- If any breaking change is found, the overall verdict must be **Changes Requested**. Exception: skip breaking change evaluation entirely when the Jira ticket type is "App" (new app, not yet deployed — no existing scenarios to break).
+- Focus the review on **old_value → new_value comparison** — but only when `old_value` is a real prior implementation. For a **new component** (no `old_value`, OR `old_value` is the `model` scaffold template — see § 7), do NOT compare against `old_value`; evaluate the quality of `new_value` only.
+- **Never run Breaking Changes verification on a new component.** Skip the Breaking Changes category entirely for: (a) "App"-type tickets (new app, not yet deployed), and (b) any new component — a change with no `old_value` or whose `old_value` is the `model` scaffold template (see § 7). Breaking Changes apply only to real existing components (genuine prior `old_value`), including shared components a new-component task happens to touch.
+- If any breaking change is found (on a real existing component), the overall verdict must be **Changes Requested**.
 - If any bug is found, the overall verdict must be **Changes Requested**.
 - If only improvements are found, the overall verdict can be **LGTM (with suggestions)**.
 - Do NOT modify local code in `make-app-contexts` after review. Local code sync is the responsibility of `download-app.js`.

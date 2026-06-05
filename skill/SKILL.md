@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.15.0
+version: 1.15.1
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -349,6 +349,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Security reference (credentials, OAuth, webhook signature, SSRF, injection, data exposure): [security-reference.md](references/security-reference.md)
 - Code smells & quality thresholds (JS metrics, IMLJSON smells, cross-file smells): [code-smells-reference.md](references/code-smells-reference.md)
 - App compilation & deployment (SDK/DB → compiled PKR package, IPM registry, per-zone install, runtime resolve, `approved`/`compile`/`changes` semantics): [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md)
+- Component scaffold templates (default SDK boilerplate from the `model` app — match a change's `old_value` against these to detect new components during review: scaffold match → new component → skip old→new diff + Breaking Changes): [component-scaffold-templates.md](references/component-scaffold-templates.md)
 
 ## Make API Key Setup (Claude Code only — required)
 
