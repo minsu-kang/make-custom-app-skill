@@ -268,10 +268,19 @@ Failing this leads to incomplete reviews where the developer fixes one module bu
 - LGTM / Changes Requested / Needs Discussion
 - {summary of missing AC items or concerns}
 
-### Commit Checklist
+### Commit Checklist (MANDATORY — every verdict, including LGTM)
 Commit message: `{JIRA-KEY}: {concise description}`
 - [ ] {group}/{item}/{code}
 ```
+
+### Output Completeness Gate (STRICT — applies to every verdict)
+
+The review output is **incomplete and invalid** without the `### Commit Checklist` block. It is mandatory for **every** verdict — `LGTM`, `LGTM (with suggestions)`, `Changes Requested`, and `Needs Discussion` alike. An LGTM review with no Commit Checklist is a **format violation**, not an acceptable shortcut.
+
+- The Commit Checklist is the **last block of every review output**, emitted immediately after `### Overall Verdict` (and after any suggestions list).
+- It always contains: (1) a one-line `Commit message:` in the form `{JIRA-KEY}: {concise description}`, and (2) one `- [ ]` line per reviewed `group/item/code` change.
+- **Never end the output at `Overall Verdict` or at the suggestions list.** If you wrote a verdict, you MUST also write the Commit Checklist in the **same message** — do not wait to be asked for it.
+- This is independent of the "To Developer" message below: the Developer Message is conditional (Changes Requested only), but the Commit Checklist is **unconditional**.
 
 ## Developer Message (Changes Requested only)
 
