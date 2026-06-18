@@ -80,6 +80,8 @@ communication()
 
 **URL-less RPCs**: When there is no `url` in `api.imljson`, the `getRequestOptions()` function returns without `requestOptions`. The `request()` middleware then skips the HTTP call and calls `next()`, allowing the rest of the chain — including `temp('response.temp')` and `output()` — to execute normally. This makes it possible to build pure data RPCs that use only `temp` + `response.temp` + `response.output` without any API call.
 
+> **⚠️ This URL-less fallback does NOT apply when the `isc` directive is present.** `isc.initialize()` runs *before* `prepareRequestOptions()` and hard-requires `url` — a url-less ISC component throws `RuntimeError: ISC directive requires a url field to specify the request path.` instead of silently skipping the call. See [§ ISC (Internal Service Communication)](#isc-internal-service-communication).
+
 Supports epoch data (`response.trigger.id/date/type`). Final output sorted by epoch type.
 
 ## Middleware Details
@@ -433,6 +435,87 @@ Determined by `response.type`:
 | `automatic` | Auto-detect from Content-Type |
 
 Wildcard matching: `"type": { "*": "json", "200-299": "json" }`
+
+## ISC (Internal Service Communication)
+
+Added in imt-app-runtime **v1.100.0** (2026-05-22, PR #663). Source: `lib/core/middleware/isc.ts`; spec doc: `ISC-SDK-APPS.md`; tests: `test/isc.spec.ts`.
+
+The `isc` directive lets a **Make-owned** SDK app call Make's own internal services (over the cluster network via JWT mutual auth, `@integromat/isc`) instead of a public third-party API. The first consumer is `ai-module-builder-api` (the "Polymorph" / AI Module Builder modules); initial apps: airtable, google-calendar, google-docs, google-drive, google-forms, google-sheets, instagram-business, jira-software-cloud, pinterest, telegram.
+
+### Directive shape
+
+```json
+{
+	"isc": { "service": "ai-module-builder-api" },
+	"url": "/v1/request",
+	"method": "POST",
+	"headers": { "Content-Type": "application/json" },
+	"body": { "targetService": "google-calendar" },
+	"qs": { "targetService": "google-calendar" },
+	"response": { "output": "{{body}}" }
+}
+```
+
+- `isc.service` — name of the target internal service. **Supports IML** (e.g. `{{parameters.svc}}`); must resolve to a **non-empty string** or the middleware throws.
+- `url` — **required**, treated as a **relative path** (e.g. `/v1/rpc/parameters`). The base URL is resolved from the `INTEGROMAT_ISC_<SERVICE>_URN` env var, NOT from `base.imljson` `baseUrl`. App type definition: `api.isc?: { service: string }` and `flags.allowISC?: string[]` (`imt-app-runtime/lib/types.ts`).
+
+### Middleware position & request bypass
+
+`isc.initialize()` is wired into **all** API entry points (action, search, trigger, hook, rpc), positioned **after `agency` and before `prepareRequestOptions`**:
+
+```
+... → accman.validate() → agency.initialize() → isc.initialize() → prepareRequestOptions() → request() → ...
+```
+
+When `api.isc` is present, the middleware makes the call itself, then sets `REQUEST_MODE.DISABLED` + `responsePrePopulated = true`, so the standard HTTP requester is skipped. The response is fed into the **normal** response chain — `response.valid`, `response.error`, `response.output`, `response.iterate`, `response.temp`, `response.wrapper`, `response.type` parsing all work transparently and behave exactly like a regular HTTP call.
+
+### Required preconditions (each throws `RuntimeError` if unmet)
+
+Validated in this order inside `isc.initialize()`:
+
+1. **`isc.service` resolves to a non-empty string** → else `ISC directive requires "isc.service" to resolve to a non-empty string.`
+2. **`flags.allowISC` (array) includes the target service** → else `ISC directive requires the app to have the target service listed in the allowISC flag.` Set via `POST /admin/sdk/apps/:app/:ver/flags/allowISC` (Make-owned apps only). **Not part of the SDK code download** — it is app-level deployment config, so it cannot be reviewed from `download-app.js` output.
+3. **No `pagination` directive** → ISC does not support pagination (fails loudly: `ISC directive does not currently support the "pagination" directive.`).
+4. **No `encodeUrl` / `encodeUrlMode`** → ISC bypasses `normalizeUrl`, so these throw if present.
+5. **`url` is present** → else `ISC directive requires a url field to specify the request path.` ⚠️ **This is the most common authoring bug** — commenting out / omitting `url` does NOT fall back to the benign URL-less-RPC behavior (that fallback lives in `prepareRequestOptions`, which never runs because `isc` short-circuits first).
+6. **`packageName` present** → becomes the JWT issuer (`app#` prefix stripped).
+7. **Per-service env vars present** → `INTEGROMAT_ISC_<SERVICE>_URN`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_NAME`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_VALUE` (service name normalized: uppercase, non-alphanumeric → `_`). Missing any → `Missing <KEY> environment variable...`.
+
+### Request building parity with the standard requester
+
+- `method` defaults to `GET`, uppercased. **GET never carries a body** even if `api.body` is set.
+- `headers` lower-cased (`mapKeysLower`); a caller-supplied `Content-Type` is respected and not duplicated; JSON body auto-sets `content-type: application/json`.
+- `qs` merged into the path; null/undefined stripped; array values expanded to repeated keys; an existing `?` in `url` is merged (no `?a=1?b=2`).
+- `body`: IML-transformed (`rootArray: true` preserves a top-level array body); JSON-serialized for non-GET.
+- `timeout`: `api.timeout` or default **40000 ms** (matches the standard requester).
+
+### Error handling
+
+All ISC failures are marked `imtExternalError = false` (platform errors, never surfaced as "external API error"):
+
+| Situation | Result |
+|---|---|
+| HTTP 4xx | Error carrying service name + status; routable through `response.error` (e.g. `error.404`) |
+| HTTP 429 | `RateLimitError` (default mapping) |
+| HTTP 5xx | `ConnectionError` — `"Service is temporarily unavailable."` |
+| Network / connection failure | `RuntimeError` (`ISC call to "<service>" failed: <msg>`) |
+
+### Security model (defense in depth)
+
+`allowISC` can only be set on Make-owned apps (system user or `@make.com`/`@integromat.com` author); blocked on ownership transfer; stripped on clone/version to non-Make owners. Runtime checks the allowlist; the JWT `iss` claim = the app's `packageName` (cannot be spoofed); the target service validates the issuer against its own `ALLOWED_ISSUERS` (deny-all when unset).
+
+### Limitations
+
+- **No `pagination`** and **no `encodeUrl`/`encodeUrlMode`** (throw if present).
+- **No recording/replay** — `REQUEST_MODE.DISABLED` skips the requester's recording logic.
+- **Make-owned apps only** — community/third-party SDK apps cannot use ISC.
+
+### Code-review implications
+
+- **A url-less ISC component is a blocking bug**, not a pure-data RPC. Flag it. (Real case: IEN-15506 — `google-calendar` `getParameters` RPC had `//"url": "/v1/rpc/parameters"` commented out; the module's dynamic `expect` failed to load every field at runtime.)
+- **Mocked component tests do NOT exercise ISC validation** — the test harness intercepts the call before `isc.initialize()` runs, so a passing module/RPC integration test does **not** prove `url`/`allowISC`/env are correct. ISC paths can only be validated against a real backend (typically `hqrelease`).
+- **`flags.allowISC` + the `INTEGROMAT_ISC_*` env vars are out of code-review scope** — they are deployment config, not in the SDK download. Note them as a pre-production verification item rather than a code finding.
+- **Do not false-flag** `isc`, `getFieldMapping`, or `safeSerialize` as unknown directives/functions — all are runtime-provided and verified.
 
 ## IML Custom Functions (Runtime-Provided)
 
