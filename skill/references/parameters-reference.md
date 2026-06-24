@@ -24,6 +24,25 @@ Both Expect (mappable params) and Parameters (static params) use the same syntax
 ]
 ```
 
+### Common Spec Properties (all types)
+
+Beyond `name` / `type` / `label` / `help` / `required` / `default`, every parameter spec accepts the properties below. They are rendered by the Make parameter form renderer (imt-forman). Each is verified against real custom apps unless marked otherwise.
+
+| Property | Type | Notes |
+|---|---|---|
+| `advanced` | boolean | Hidden until the form's "Show advanced settings" toggle is on. Use for rarely-needed options. |
+| `placeholder` | string | Empty-state hint text (text-like inputs and `select`). |
+| `mappable` | boolean \| object | `false` locks the field to pick mode (removes the map/pick toggle). Object form `{ "enabled": true, "help": "..." }` supplies map-mode-specific help — see [`mappable` Override](#mappable-override-map-toggle-mode). |
+| `mode` | string | Initial editor mode: `"pick"` (UI) or `"map"` (IML coder). `select` additionally accepts `"edit"` (editable/typeahead select). |
+| `omit` | boolean | Field is rendered and editable but its value is **excluded** from the submitted parameters. Use for UI-only helper fields. |
+| `disabled` | boolean | Not editable; value **not** submitted. |
+| `readonly` | boolean | Not editable; value **still** submitted. |
+| `validate` | object \| false | Type-specific validation rules; `false` disables format checks (but `required` is still enforced). See [Validation](#validation). |
+| `dynamic` | boolean | Marks an RPC-backed field as dynamic → the form renders a refresh button to re-fetch its options/nested fieldset. |
+| `semantic` | string | Affinity hint for variable (pill) suggestions. `file:name` / `file:data` mark a file-upload field pair (filename + buffer). |
+
+> imt-forman exposes additional web-renderer-only properties (`visible`, `isolated`, `erasable`, `coderPlaceholder`, `autofocus`, `autocomplete`, `shadow`, `innerLabel`, …) that are **not** part of the typical custom-app parameter contract. Do not add them unless you confirm them in an actual app.
+
 ### `mappable` Override (Map Toggle Mode)
 
 Any expect parameter can define a `mappable` object whose properties override the parameter's base spec **only when the user flips the Map toggle ON** (mapping mode). This lets you show different guidance depending on whether the user is picking from a dropdown vs. typing/mapping a raw value.
@@ -52,6 +71,33 @@ Only document properties you have verified. Currently verified override: `help`.
 
 `text`, `number`, `integer`, `uinteger`, `boolean`, `date`, `select`, `collection`, `array`, `email`, `url`, `json`, `password`, `hidden`, `buffer`, `filename`, `color`, `filter`, `file`, `folder`, `uuid`, `time`, `timestamp`, `timezone`, `port`, `path`, `cert`, `pkey`
 
+`checkbox` is an alias for `boolean`; `uuid` and `path` are aliases for `text` (see [Type Aliases & Boolean Rendering](#type-aliases--boolean-rendering)).
+
+### Validation
+
+Add a `validate` object with type-specific keys. Set `validate: false` to disable format checks on a field (e.g. a `required` field whose value should not be format-validated). `required` is checked **separately** — an empty value always fails `required` regardless of `validate`.
+
+| Type | Keys |
+|---|---|
+| `text` (and `email`, `url`, `password`, `filename`, `uuid`, `path`) | `min`, `max` (string length), `pattern` (regex string; also accepts the object form `{ "regexp": "...", "label": "..." }`) |
+| `number`, `integer`, `uinteger`, `port` | `min`, `max` (numeric bounds) |
+| `date`, `time`, `timestamp` | `min`, `max` (date/time bounds); `date` also accepts `{ "past": false }` to reject past dates |
+| `array`, multi-`select` (`multiple: true`) | `minItems`, `maxItems`, `unique` |
+
+`unique: true` flags duplicate primitive values. For a complex `array`, `unique: { "by": "<fieldName>" }` flags rows whose named field repeats (null / undefined / empty-string values are skipped).
+
+```json
+{ "name": "username", "type": "text", "validate": { "min": 3, "max": 30, "pattern": "^[a-z][a-z0-9_]*$" } }
+```
+
+```json
+{ "name": "durationSeconds", "type": "number", "validate": { "min": 4, "max": 8 } }
+```
+
+```json
+{ "name": "referenceImages", "type": "array", "validate": { "minItems": 1, "maxItems": 3 }, "spec": { "type": "text" } }
+```
+
 ### Select Type
 
 ```json
@@ -65,6 +111,51 @@ Only document properties you have verified. Currently verified override: `help`.
 	]
 }
 ```
+
+#### Select Properties
+
+| Property | Notes |
+|---|---|
+| `multiple` | Allow multiple selection (output is an array). |
+| `grouped` | Options are grouped; groups carry nested `options`. Common with RPC option sources. |
+| `dropdown` | Use a dropdown UI for multi-select. (forman-documented; rare in apps — verify before use.) |
+| `sort` | Sort options, e.g. `"text"` or `"number"`. |
+| `dynamic` | RPC-backed → show a refresh button to re-fetch options. |
+| `omit` | Exclude the selected value from the submitted parameters. |
+| `mode` | `"edit"` enables an editable/typeahead select. |
+| `mappable` | `false` locks to pick; object `{ "help": "..." }` supplies map-mode help. |
+
+Option-level properties (each item in `options` or `options.store`):
+
+| Property | Notes |
+|---|---|
+| `label`, `value` | Display text + stored value (required). |
+| `default: true` | Marks this option as the default selection. |
+| `description` | Secondary descriptive text shown under the option label. |
+| `nested` | Per-option nested fieldset (see precedence rules below). |
+| `pill`, `icon` | Visual badge / icon. (forman-supported; not seen in current custom apps — verify before use.) |
+
+```json
+{
+	"name": "type",
+	"type": "select",
+	"label": "Search for",
+	"required": true,
+	"options": [
+		{
+			"value": "ISSUE",
+			"label": "Issues",
+			"description": "Search issues by state, author, labels, and other attributes.",
+			"default": true,
+			"nested": [ { "name": "search", "type": "text", "label": "Search Query" } ]
+		}
+	]
+}
+```
+
+**Image options** — `options: { "type": "image", "store": [ { "value": "...", "src": "<url>", "label": "..." } ] }` renders an image picker. (forman-documented; not seen in current custom apps.)
+
+**Pagination / server-side search** — RPC selects can declare `pagination` (`{ "nextParam": "next" }`, envelope `{ items, next }` response) and `searchable` (`{ "param": "query" }`). These are gated behind platform feature flags (`forman-select-pagination`, `forman-select-searchable`) and are silently ignored when off — do not rely on them in custom apps unless confirmed enabled.
 
 ### RPC Dynamic Options
 
@@ -229,6 +320,26 @@ The RPC branches on the query flag (`"condition": "{{!parameters.mode}}"` for th
 }
 ```
 
+#### Array Properties
+
+| Property | Notes |
+|---|---|
+| `labels` | Custom UI text: `{ "add": "Add attendee", "item": "Attendee" }` (add-button + per-item label). |
+| `validate` | `minItems`, `maxItems`, `unique` — see [Validation](#validation). |
+| `rpc` | Add items via a remote search sub-form: `{ "label", "url": "rpc://...", "parameters": [...] }`. |
+| `mappable` | `false` disables mapping the whole array. |
+| `sequence` | `true` → items are user-orderable (drag to reorder). (forman-documented; rare in apps — verify before use.) |
+
+```json
+{
+	"name": "attendees",
+	"type": "array",
+	"label": "Attendees",
+	"labels": { "add": "Add attendee" },
+	"spec": { "type": "email", "label": "Attendee" }
+}
+```
+
 ### `required` Validation Behavior: Array vs Collection
 
 The Make platform's parameter form validator enforces `required` differently depending on the parent container type.
@@ -275,6 +386,102 @@ The Make platform's parameter form validator enforces `required` differently dep
 **Source**: In the Make platform's parameter form validator, the `array` input passes the spec array directly as the `instructions` parameter when calling the collection validator (`validateNested(value[i], 'collection', instructions.spec, options)`). The collection validator then accesses `instructions.spec` for child field iteration — but since `instructions` already IS the spec array, `.spec` is `undefined` and child-level validation is skipped entirely. This is intentional platform behavior.
 
 **Practical implication**: If you need strict validation on child fields inside an array, do not rely on `required: true` in the spec. Instead, validate in the module's `api.imljson` communication layer (e.g., using `valid` directive or custom error handling).
+
+## Text Type Extras
+
+```json
+{
+	"name": "siteUrl",
+	"type": "text",
+	"label": "Site URL",
+	"multiline": false,
+	"rows": 5,
+	"placeholder": "https://example.com/admin",
+	"prefix": "https://",
+	"postfix": "/admin",
+	"validate": { "max": 200 }
+}
+```
+
+- `multiline: true` → renders a textarea; `rows` sets its height. (`rows` is forman-documented; rare in apps.)
+- `prefix` / `postfix` → fixed, non-editable text rendered around the input (URL-style fields).
+- `placeholder` → empty-state hint.
+
+**Text RPC search button** — a `text` input can render a "Search" button that opens a remote sub-form whose result populates the field:
+
+```json
+{
+	"name": "channel",
+	"type": "text",
+	"label": "Channel ID",
+	"required": true,
+	"rpc": {
+		"label": "Search",
+		"url": "rpc://searchChannels",
+		"parameters": [
+			{ "name": "query", "type": "text", "label": "Query", "help": "Name of the channel." }
+		]
+	}
+}
+```
+
+## Boolean Type & Conditional Nesting
+
+`boolean` (and its alias `checkbox`) can reveal nested fields based on its value — the same `nested` mechanism as `select`, plus boolean-only branch control.
+
+```json
+{
+	"name": "addImage",
+	"type": "boolean",
+	"label": "Add Cover Image",
+	"nested": [
+		{ "name": "fileName", "type": "filename", "semantic": "file:name", "required": true },
+		{ "name": "data", "type": "buffer", "semantic": "file:data", "required": true }
+	]
+}
+```
+
+| `nested` shape | `reversedNested` | Result |
+|---|---|---|
+| `[...]` or `"rpc://..."` | absent / false | nested shown when value is `true` |
+| `[...]` or `"rpc://..."` | `true` | nested shown when value is `false` |
+| `{ "true": [...], "false": [...] }` | ignored | both branches, each independently an array or RPC URL string |
+
+```json
+{
+	"name": "notify",
+	"type": "boolean",
+	"nested": {
+		"true":  [ { "name": "email", "type": "email", "required": true } ],
+		"false": [ { "name": "reason", "type": "text" } ]
+	}
+}
+```
+
+`text` (and aliases) also accept `nested`, shown whenever the field has any non-empty value.
+
+> The single-branch boolean `nested` (true-trigger) is widely used in custom apps. `reversedNested` and the object `nested: { true, false }` form are imt-forman-documented but uncommon in current custom apps — verify against a live app before relying on them.
+
+## Date / Time Type Extras
+
+- `time: false` → date-only picker (no time component).
+- `validate: { "past": false }` → reject dates in the past.
+- `mappable: false` → lock to the picker (disable IML mapping).
+
+## Type Aliases & Boolean Rendering
+
+| Alias | Resolves to | Notes |
+|---|---|---|
+| `checkbox` | `boolean` | Always a 2-state single checkbox (unchecked = `false`). |
+| `uuid` | `text` | No built-in UUID format check — add `validate.pattern` if you need it. |
+| `path` | `text` | No built-in path validation; intent-only alias. |
+
+`boolean` rendering depends on `required`:
+
+- `required: false` → 3-state control (true / false / empty).
+- `required: true` → 2-state control.
+
+Use the `checkbox` alias when you always want a single 2-state checkbox.
 
 ## Interface Structure
 
