@@ -26,16 +26,38 @@ Rule: `{slug}-v{version}.md` (summary), `{slug}-v{version}/` (source code)
 
 ## Workflow (Auto-Execute — No User Confirmation Needed)
 
-If **either of the two conditions below** is met, execute the workflow **automatically without asking**:
+If **any of the conditions below** is met, execute the workflow **automatically without asking**:
 
 - **Condition 1**: When the user asks about a **specific Make app** (e.g., "Tell me the structure of the Google Docs app", "How does error handling work in the Slack app?")
 - **Condition 2**: When the open file path belongs to `var/folders/*/apps-sdk-internal/sdk/apps/{app-slug}/{app-version}/`
+- **Condition 3**: When the user provides **only a Jira ticket link** (no app name/version) — resolve the app from the ticket's **App HQ URL** (`customfield_10268`). See "App Slug + Version from Jira App HQ URL" below.
 
 **1. App Detection**: Determine app info from the conditions above.
 
 - Condition 1: From the app name/version mentioned by the user
 - Condition 2: Extract `sdk/apps/{app-slug}/{app-version}` from the open file path
+- Condition 3: Extract `{slug}` + `{version}` from the ticket's App HQ URL (`customfield_10268`) — see "App Slug + Version from Jira App HQ URL" below
 - **If version is not provided**: Auto-detect via IPME (see "App Version Auto-Detection" below)
+
+### App Slug + Version from Jira App HQ URL (preferred when a Jira ticket is the entry point)
+
+When the user sends **only a Jira ticket link** (no inline app name/version), do **not** ask for the app or guess it — resolve both the slug and the version from the ticket itself:
+
+1. Fetch the ticket via `getJiraIssue` including the **App HQ URL** field `customfield_10268` (already part of the standard `common_jira_fetch` field list). If the full ticket read has not happened yet at this point, a minimal `getJiraIssue` for just `customfield_10268` is enough to resolve the app.
+2. Read `customfield_10268`. It holds a URL in one of these shapes:
+    - `https://{zone}/apps/{slug}/{version}`
+    - `https://{zone}/admin/apps/{slug}/{version}`
+
+    (e.g., `https://eu1.make.com/admin/apps/reddit/1` → slug `reddit`, version `1`, zone `eu1.make.com`.)
+3. Extract:
+    - **slug** = the path segment immediately after `/apps/`
+    - **version** = the next path segment (numeric major version)
+    - **zone** (optional hint) = the URL host, e.g. `eu1.make.com`
+
+    Strip any trailing slash or query string, and ignore the optional `/admin` prefix.
+4. Use the extracted `{slug}` + `{version}` for all subsequent operations (context load, `download-app.js`, review, etc.). This is **more precise than IPME** (which only yields the latest major version), so prefer it whenever a Jira ticket is attached.
+
+If `customfield_10268` is empty or absent, fall back in order: inline app name from the user → IPME version auto-detection → ask the user.
 
 ### App Version Auto-Detection (IPME)
 
@@ -186,4 +208,4 @@ If changes are detected, auto-execute the download command to sync.
 - {date}: {work description}
 ```
 
-**Important**: If either of the two conditions above is met, always execute this workflow **automatically**. Do not ask the user whether to save context. Do not execute for general Make platform questions (not related to a specific app).
+**Important**: If any of the conditions above is met, always execute this workflow **automatically**. Do not ask the user whether to save context. Do not execute for general Make platform questions (not related to a specific app).

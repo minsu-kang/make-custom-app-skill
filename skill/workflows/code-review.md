@@ -50,10 +50,11 @@ Do NOT skip this step. Missing context leads to incomplete reviews (e.g., not ca
 
 ### 3. Fetch Jira ticket details (mandatory when ticket attached)
 
-Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "issuetype", "customfield_10483", "customfield_10283"]`.
+Call `getJiraIssue` with **all required fields in a single call**: `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "issuetype", "customfield_10483", "customfield_10283", "customfield_10268"]`.
 
 - `customfield_10483` = **Developer Notes** — the developer's own explanation of what they changed and why. Read before forming any verdict. Misreading or ignoring leads to flagging intentional decisions as bugs.
 - `customfield_10283` = **API Docs URL** — link to the app's API documentation. If present, fetch and cross-reference against code changes.
+- `customfield_10268` = **App HQ URL** — `https://{zone}/[admin/]apps/{slug}/{version}` (e.g. `https://eu1.make.com/admin/apps/reddit/1`). Use it to resolve the app slug + version when the user provided only a Jira link — extract the two path segments after `/apps/`. See [app-context.md](app-context.md).
 - `attachment` = **Attachments** — auto-download via `download-jira-ticket-attachment.js` (see `rules/make-app-workflow.mdc` § During Work) and analyze images via the Read tool.
 
 If the ticket has subtasks → fetch them all with the same fields and **filter by status**:

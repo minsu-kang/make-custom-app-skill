@@ -61,7 +61,7 @@ If a Jira link is attached but MCP tools (`getJiraIssue`, `createJiraIssue`, etc
 
 ### 1. Fetch Ticket + Attachments
 
-Call `getJiraIssue` with `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "issuetype", "customfield_10483", "customfield_10283", "parent", "labels", "priority"]`.
+Call `getJiraIssue` with `fields: ["summary", "description", "subtasks", "comment", "status", "attachment", "issuetype", "customfield_10483", "customfield_10283", "customfield_10268", "parent", "labels", "priority"]`.
 
 Read every field:
 
@@ -70,6 +70,7 @@ Read every field:
 - **issuetype** — `Feature` / `Bug` / `Task` / `App` informs the scope of the plan
 - **customfield_10283** (API Docs URL) — primary source for endpoint research
 - **customfield_10483** (Developer Notes) — read in case a previous investigation already exists
+- **customfield_10268** (App HQ URL) — `https://{zone}/[admin/]apps/{slug}/{version}`; resolves app slug + version when the user sent only the Jira link (extract the segments after `/apps/`)
 - **subtasks** — existing subtasks (avoid creating duplicate `Investigation`)
 - **comment** — clarifications, scope notes, prior discussion
 - **attachment** — screenshots / mockups / UI references
