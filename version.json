@@ -1,5 +1,5 @@
 {
-  "version": "1.17.1",
+  "version": "1.17.2",
   "released": "2026-07-02",
   "min_version": "1.0.0",
   "update_command_cursor": "curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash -s -- --update",
