@@ -218,6 +218,13 @@ When `help` properties are added, removed, or modified, evaluate their **actual 
   - Example: help `"Comma-separated list of IDs (max 100)"` — constraints and format
 - **Missing `help` on complex fields**: When a field requires non-obvious input (format, constraints, examples), suggest adding meaningful `help` as an improvement — but do NOT flag the absence of trivial `help` as an issue.
 
+### `validate.pattern` Behavior (for expect/parameters changes)
+
+Two facts to apply before flagging anything about a field's `validate` — see `parameters-reference.md` § Validation for the source detail:
+
+- **`validate` (incl. `pattern`) IS enforced at runtime, on resolved mapped values — NOT UI-only.** Make core validates each resolved parameter through the shared `@integromat/forman` type validators (`lib/types/*.ts`, *"used by both front-end and back-end"*) at execution. So **do NOT flag** "a mapped value like `{{1.x}}` bypasses `validate.pattern` at runtime" — that is a **false positive**. (`imt-app-runtime` has no param validation, but the layer above it does. Real mistake: IEN-15781 review, make-ai-web-scraper.)
+- **`validate.pattern` is case-sensitive** — the platform compiles it as `new RegExp(pattern, 'u')` (no `i` flag; `@integromat/forman` `lib/types/text.ts`). **DO flag** a lowercase-only pattern used for a security/compliance rule (e.g. a domain deny-list) as a **Bug**: mixed-case input (`https://Facebook.com`) bypasses it, and `^https://` rejects an uppercase `HTTPS://` scheme. Recommend baking case into the pattern (char classes) or enforcing in a custom IML function (`toLowerCase()`), which is case-robust for typed + mapped values.
+
 ---
 
 ## ES6+ Enforcement (Mandatory for `functions/*/code.js`)

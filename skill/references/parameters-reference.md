@@ -98,6 +98,20 @@ Add a `validate` object with type-specific keys. Set `validate: false` to disabl
 { "name": "referenceImages", "type": "array", "validate": { "minItems": 1, "maxItems": 3 }, "spec": { "type": "text" } }
 ```
 
+#### Enforcement — `validate` runs at runtime, on resolved (mapped) values too
+
+`validate` is **NOT** a design-time / UI-only check. The type validators live in `@integromat/forman` (`lib/types/{text,url,number,...}.ts`, each headed *"This file is used by both front-end and back-end."*; central entry `lib/types.ts` → `validate()`). At scenario **execution**, Make core first resolves every mapping, then **casts + validates each resolved parameter** through the same forman `validate()`, which runs `min` / `max` / `pattern` / etc. and throws `ValidationError` on mismatch. So a **mapped** value like `{{1.url}}` that resolves to a disallowed string is rejected at runtime exactly like a typed literal — `validate.pattern` is a real **runtime** gate, not just editor UX.
+
+- `imt-app-runtime` (the HTTP-exec layer) has **no** parameter-spec validation. **Do not conclude "validation is UI-only" from its absence** — the validation layer sits *above* it, in Make core, using forman. (This mistake produced a false-positive "mapped value bypasses `validate.pattern`" bug in a review — IEN-15781, make-ai-web-scraper.)
+- At *design time*, a field in `map` mode only has its IML **parse errors** checked (the editor can't know the resolved value); the **value** check against the spec happens at **execution**.
+- Exception: **nested / array-child** fields — child-level validation is skipped by the platform (see the array `required`/`spec` note later in this file). Enforce those in `api.imljson` (`valid` directive / custom error) instead.
+
+#### `validate.pattern` is CASE-SENSITIVE (`u` flag only)
+
+Make compiles the pattern as `new RegExp(pattern, 'u')` — the `u` flag only, **no `i`** (`@integromat/forman` `lib/types/text.ts`). A lowercase-only pattern therefore lets mixed-case values through. Real bug (IEN-15781): `"pattern": "^https://(?!…(?:facebook|linkedin|instagram|tiktok)\\.com…)"` blocks `https://facebook.com` but **not** `https://Facebook.com` / `FACEBOOK.COM` — host names are case-insensitive, so the domain restriction is bypassed. Likewise the literal `^https://` rejects an uppercase `HTTPS://` scheme as "invalid."
+
+For case-insensitive matching you must **bake it into the pattern** (character classes, e.g. `[Ff][Aa][Cc][Ee]…`) — the app cannot pass an `i` flag — **or** normalize inside a **custom IML function** (`host.toLowerCase()` then compare) called from `api.imljson`. For security / compliance blocks (domain deny-lists, SSRF guards, etc.), prefer the function: it is case-robust and covers typed + mapped values. Treat `validate.pattern` as a design-time fail-fast on top, not the sole enforcement of a security rule.
+
 ### Select Type
 
 ```json
