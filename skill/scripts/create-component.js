@@ -19,12 +19,17 @@
  *   webhook <label> <webhook-type> [connection]
  *     webhook-type: web, web-shared
  *
+ *   endpoint <name> <label> [connection] [description] [initMode]
+ *     initMode: example (default — clones the `model` app endpoint scaffold), blank
+ *     connection is stored as attachedAccounts: [connection]
+ *
  * Examples:
  *   node create-component.js monday 2 module aggregateTableV2 "Aggregate Table (beta)" 4 monday
  *   node create-component.js monday 2 rpc RpcAggregateColumns "Aggregate-compatible columns" monday
  *   node create-component.js monday 2 function buildAggregateSelect
  *   node create-component.js monday 2 connection "Monday v3" oAuth
  *   node create-component.js monday 2 webhook "Monday Events" web monday
+ *   node create-component.js google-docs 1 endpoint listFiles "List Files" google-docs "Lists Drive files" blank
  *
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
@@ -214,9 +219,27 @@ function buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args) {
 			return { url: `${appBase}/${appSlug}/webhooks`, body, display: `Webhook "${label}" (${webhookType})` };
 		}
 
+		case 'endpoint': {
+			const [name, label, connection, description, initMode] = args;
+			if (!name || !label) {
+				console.error('Usage: create-component.js <slug> <version> endpoint <name> <label> [connection] [description] [initMode]');
+				console.error('  initMode: example (default — clones the model app endpoint scaffold), blank');
+				process.exit(1);
+			}
+			if (initMode && !['example', 'blank'].includes(initMode)) {
+				console.error(`ERROR: Invalid initMode "${initMode}". Valid: example, blank`);
+				process.exit(1);
+			}
+			const body = { name, label };
+			if (description) body.description = description;
+			if (connection) body.attachedAccounts = [connection];
+			if (initMode) body.endpointInitMode = initMode;
+			return { url: `${verBase}/endpoints`, body, display: `Endpoint "${label}"` };
+		}
+
 		default:
 			console.error(`ERROR: Unknown component type "${type}"`);
-			console.error('Supported types: module, rpc, function, connection, webhook');
+			console.error('Supported types: module, rpc, function, connection, webhook, endpoint');
 			process.exit(1);
 	}
 }
@@ -240,7 +263,7 @@ async function createComponent(appSlug, appVersion, type, args) {
 	if (result.ok) {
 		console.log(`  ✓ Created successfully (HTTP ${result.status})`);
 		if (result.data) {
-			const created = result.data.appModule || result.data.appRpc || result.data.appFunction || result.data.appConnection || result.data.appWebhook || result.data;
+			const created = result.data.appModule || result.data.appRpc || result.data.appFunction || result.data.appConnection || result.data.appWebhook || result.data.appEndpoint || result.data;
 			if (created?.name) console.log(`  → Name: ${created.name}`);
 			if (created?.label) console.log(`  → Label: ${created.label}`);
 		}
@@ -270,12 +293,16 @@ if (!appSlug || !appVersion || !type) {
 	console.log('  webhook <label> <webhook-type> [connection]');
 	console.log('    webhook-type: web, web-shared');
 	console.log('');
+	console.log('  endpoint <name> <label> [connection] [description] [initMode]');
+	console.log('    initMode: example (default — clones the model app endpoint scaffold), blank');
+	console.log('');
 	console.log('Examples:');
 	console.log('  node create-component.js monday 2 module aggregateTableV2 "Aggregate Table (beta)" 4 monday');
 	console.log('  node create-component.js monday 2 rpc RpcAggregateColumns "Aggregate columns" monday');
 	console.log('  node create-component.js monday 2 function buildAggregateSelect');
 	console.log('  node create-component.js monday 2 connection "Monday v3" oAuth');
 	console.log('  node create-component.js monday 2 webhook "Monday Events" web monday');
+	console.log('  node create-component.js google-docs 1 endpoint listFiles "List Files" google-docs');
 	process.exit(1);
 }
 

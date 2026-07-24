@@ -143,6 +143,7 @@ Component path format:
 | `rpc/<name>/<section>` | RPC section (api, parameters) |
 | `webhook/<name>/<section>` | Webhook section (api, parameters, attach, detach) |
 | `function/<name>/<section>` | Function file (code, test) |
+| `endpoint/<name>/<section>` | SDK Endpoint section (api, input_parameters, output_parameters, scope, context — context PATCHes metadata from a .md file; see [endpoints-reference.md](../references/endpoints-reference.md)) |
 | `base` | App base |
 | `common` | App common data |
 | `groups` | App groups |

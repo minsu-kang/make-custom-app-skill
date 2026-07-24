@@ -41,6 +41,16 @@ const CONNECTION_FILES = ['api', 'common', 'scopes', 'scope', 'parameters', 'ins
 const WEBHOOK_FILES = ['api', 'parameters', 'attach', 'detach', 'update', 'scope'];
 const RPC_FILES = ['api', 'parameters'];
 const FUNCTION_FILES = ['code', 'test'];
+// SDK Endpoints (Endpoints RFC, compiled as IMTRPC).
+// API code paths are camelCase; apps.change rows use snake_case codes
+// (input_parameters / output_parameters) — local filenames follow the
+// change codes so review diffs map 1:1 to files.
+const ENDPOINT_FILES = [
+	{ apiPath: 'api', file: 'api.imljson' },
+	{ apiPath: 'inputParameters', file: 'input_parameters.imljson' },
+	{ apiPath: 'outputParameters', file: 'output_parameters.imljson' },
+	{ apiPath: 'scope', file: 'scope.imljson' },
+];
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -252,6 +262,40 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	);
 	await runBatch(rpcTasks);
 
+	// --- Endpoints (SDK Endpoints, IMTRPC) ---
+	console.log('\n=== Endpoints ===');
+	const epResp = await apiGetJson(`${verBase}/endpoints`, auth);
+	const endpoints = epResp?.appEndpoints || [];
+	console.log(`  ${endpoints.length} endpoint(s) found`);
+
+	const endpointDetails = new Map();
+	const epTasks = endpoints.flatMap((ep) => {
+		const codeTasks = ENDPOINT_FILES.map(({ apiPath, file }) => async () => {
+			const content = await apiGetText(`${verBase}/endpoints/${ep.name}/${apiPath}`, auth);
+			if (saveFile(outputDir, `endpoints/${ep.name}/${file}`, content)) {
+				console.log(`  ✓ endpoints/${ep.name}/${file}`);
+				stats.saved++;
+			} else {
+				stats.skipped++;
+			}
+		});
+		// context (markdown with frontmatter) + annotations only exist on the
+		// endpoint detail JSON — there is no /context code path (404).
+		const detailTask = async () => {
+			const detail = await apiGetJson(`${verBase}/endpoints/${ep.name}`, auth);
+			const epObj = detail?.appEndpoint || {};
+			endpointDetails.set(ep.name, epObj);
+			if (saveFile(outputDir, `endpoints/${ep.name}/context.md`, epObj.context || null)) {
+				console.log(`  ✓ endpoints/${ep.name}/context.md`);
+				stats.saved++;
+			} else {
+				stats.skipped++;
+			}
+		};
+		return [...codeTasks, detailTask];
+	});
+	await runBatch(epTasks);
+
 	// --- Functions ---
 	console.log('\n=== Functions ===');
 	const funcResp = await apiGetJson(`${verBase}/functions`, auth);
@@ -368,6 +412,20 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		webhooks: webhooks.map((w) => ({ name: w.name, label: w.label })),
 		rpcs: rpcs.map((r) => ({ name: r.name, label: r.label })),
 		functions: functions.map((f) => ({ name: f.name })),
+		endpoints: endpoints.map((e) => {
+			const d = endpointDetails.get(e.name) || {};
+			return {
+				name: e.name,
+				label: e.label ?? d.label ?? null,
+				description: e.description ?? d.description ?? null,
+				annotations: d.annotations ?? null,
+				attachedAccounts: d.attachedAccounts ?? null,
+				public: d.public ?? null,
+				approved: d.approved ?? null,
+				deprecated: d.deprecated ?? null,
+				archived: d.archived ?? null,
+			};
+		}),
 	};
 	saveFile(outputDir, 'metadata.json', JSON.stringify(metadata, null, 2));
 	console.log('\n  ✓ metadata.json');

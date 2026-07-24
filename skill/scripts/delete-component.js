@@ -12,7 +12,7 @@
  *   node delete-component.js <app-slug> <app-version> <type> <name> [--force]
  *
  * Types:
- *   module, rpc, function, connection, webhook
+ *   module, rpc, function, connection, webhook, endpoint
  *
  * Options:
  *   --force    Skip confirmation prompt
@@ -23,6 +23,7 @@
  *   node delete-component.js monday 2 module aggregateTableV2 --force
  *   node delete-component.js monday 2 connection myConnection
  *   node delete-component.js monday 2 webhook myWebhook
+ *   node delete-component.js google-docs 1 endpoint listFiles
  *
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
@@ -136,8 +137,10 @@ function buildUrl(baseUrl, appSlug, appVersion, type, name) {
 			return `${appBase}/connections/${name}`;
 		case 'webhook':
 			return `${appBase}/webhooks/${name}`;
+		case 'endpoint':
+			return `${appBase}/${appSlug}/${appVersion}/endpoints/${name}`;
 		default:
-			console.error(`ERROR: Unknown type "${type}". Supported: module, rpc, function, connection, webhook`);
+			console.error(`ERROR: Unknown type "${type}". Supported: module, rpc, function, connection, webhook, endpoint`);
 			process.exit(1);
 	}
 }
@@ -163,7 +166,9 @@ async function checkAppPublicStatus(baseUrl, auth, appSlug, appVersion) {
 }
 
 async function deleteComponent(appSlug, appVersion, type, name, force) {
-	const validTypes = ['module', 'rpc', 'function', 'connection', 'webhook'];
+	// 'endpoint' is not in PRIVATE_ONLY_DELETABLE — deletability on public/approved
+	// apps is left to the server (no client-side pre-block).
+	const validTypes = ['module', 'rpc', 'function', 'connection', 'webhook', 'endpoint'];
 	if (!validTypes.includes(type)) {
 		console.error(`ERROR: Unknown type "${type}". Supported: ${validTypes.join(', ')}`);
 		process.exit(1);
@@ -225,7 +230,7 @@ if (!appSlug || !appVersion || !type || !name) {
 	console.log('  Private apps → all types can be deleted');
 	console.log('  Public apps  → only rpc and function can be deleted');
 	console.log('');
-	console.log('Types: module, rpc, function, connection, webhook');
+	console.log('Types: module, rpc, function, connection, webhook, endpoint');
 	console.log('');
 	console.log('Options:');
 	console.log('  --force    Skip confirmation prompt');

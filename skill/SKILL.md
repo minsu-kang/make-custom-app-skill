@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.17.2
+version: 1.18.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -99,6 +99,7 @@ A Make app consists of the following components:
 | **Module**     | `api.imljson`, `parameters.imljson`, `expect.imljson`, `interface.imljson`, `samples.imljson` | Functional execution unit                                                              |
 | **RPC**        | `api.imljson`, `parameters.imljson`                                                           | Remote procedure call for dynamic options/fields                                       |
 | **Webhook**    | `api.imljson`                                                                                 | Webhook configuration for instant triggers                                             |
+| **Endpoint**   | `api.imljson`, `input_parameters.imljson`, `output_parameters.imljson`, `scope.imljson`, `context.md` | SDK Endpoint (Endpoints RFC) — one atomic third-party API call exposed for AI callers. Compiles as `IMTRPC`; runnable only via MCP `endpoint_execute` or platform "Run Endpoint" (not in scenarios). See [endpoints-reference.md](references/endpoints-reference.md). |
 
 ## Module Types
 
@@ -350,6 +351,7 @@ For Developer Notes templates (Bug Fix and Feature), see [developer-notes-templa
 - Code smells & quality thresholds (JS metrics, IMLJSON smells, cross-file smells): [code-smells-reference.md](references/code-smells-reference.md)
 - App compilation & deployment (SDK/DB → compiled PKR package, IPM registry, per-zone install, runtime resolve, `approved`/`compile`/`changes` semantics): [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md)
 - Component scaffold templates (default SDK boilerplate from the `model` app — match a change's `old_value` against these to detect new components during review: scaffold match → new component → skip old→new diff + Breaking Changes): [component-scaffold-templates.md](references/component-scaffold-templates.md)
+- SDK Endpoints (entity structure, admin API surface, Forman input/output schemas, context.md, annotations, runtime validation caveats, review guidance): [endpoints-reference.md](references/endpoints-reference.md)
 
 ## Make API Key Setup (Claude Code only — required)
 

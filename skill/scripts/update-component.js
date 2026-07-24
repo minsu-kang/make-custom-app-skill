@@ -13,10 +13,13 @@
  *   rpc        label, connection, altConnection
  *   connection label
  *   webhook    label, connection, altConnection
+ *   endpoint   label, description, public, deprecated, archived
+ *              (context is markdown — update it via update-app.js endpoint/<name>/context)
  *   function   (not supported — functions have no patchable metadata)
  *
- * The "public" field for modules uses a separate API endpoint (POST .../public or .../private)
- * and can be combined with other fields in a single command.
+ * The "public" field (modules, endpoints) uses a separate API endpoint (POST .../public or
+ * .../private); endpoint "deprecated"/"archived" use POST .../deprecate|undeprecate /
+ * .../archive|unarchive. All can be combined with other fields in a single command.
  *
  * Examples:
  *   node update-component.js monday 2 module aggregateTableV2 label="Aggregate Table"
@@ -167,10 +170,11 @@ const ALLOWED_FIELDS = {
 	rpc: ['label', 'connection', 'altConnection'],
 	connection: ['label'],
 	webhook: ['label', 'connection', 'altConnection'],
+	endpoint: ['label', 'description', 'public', 'deprecated', 'archived'],
 };
 
 const INTEGER_FIELDS = new Set(['typeId']);
-const BOOLEAN_FIELDS = new Set(['public']);
+const BOOLEAN_FIELDS = new Set(['public', 'deprecated', 'archived']);
 
 function parseKeyValues(args) {
 	const result = {};
@@ -204,6 +208,8 @@ function buildUrl(baseUrl, appSlug, appVersion, type, name) {
 			return `${appBase}/connections/${name}`;
 		case 'webhook':
 			return `${appBase}/webhooks/${name}`;
+		case 'endpoint':
+			return `${appBase}/${appSlug}/${appVersion}/endpoints/${name}`;
 		default:
 			console.error(`ERROR: Unsupported type "${type}" for update.`);
 			process.exit(1);
@@ -218,7 +224,7 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 
 	const allowed = ALLOWED_FIELDS[type];
 	if (!allowed) {
-		console.error(`ERROR: Unknown type "${type}". Supported: module, rpc, connection, webhook`);
+		console.error(`ERROR: Unknown type "${type}". Supported: module, rpc, connection, webhook, endpoint`);
 		process.exit(1);
 	}
 
@@ -245,21 +251,33 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 	const url = buildUrl(baseUrl, appSlug, appVersion, type, name);
 	let hasError = false;
 
-	if ('public' in body && type === 'module') {
-		const makePublic = body.public;
+	// Flag flips that use dedicated POST routes instead of PATCH fields.
+	const flagActions = [];
+	if ('public' in body && (type === 'module' || type === 'endpoint')) {
+		flagActions.push({ verb: body.public ? 'Publish' : 'Unpublish', path: body.public ? 'public' : 'private' });
 		delete body.public;
+	}
+	if ('deprecated' in body && type === 'endpoint') {
+		flagActions.push({ verb: body.deprecated ? 'Deprecate' : 'Undeprecate', path: body.deprecated ? 'deprecate' : 'undeprecate' });
+		delete body.deprecated;
+	}
+	if ('archived' in body && type === 'endpoint') {
+		flagActions.push({ verb: body.archived ? 'Archive' : 'Unarchive', path: body.archived ? 'archive' : 'unarchive' });
+		delete body.archived;
+	}
 
-		const visibilityUrl = `${url}/${makePublic ? 'public' : 'private'}`;
+	for (const action of flagActions) {
+		const actionUrl = `${url}/${action.path}`;
 
-		console.log(`  ${makePublic ? 'Publishing' : 'Unpublishing'}: ${type} "${name}"`);
-		console.log(`  POST ${visibilityUrl}\n`);
+		console.log(`  ${action.verb}: ${type} "${name}"`);
+		console.log(`  POST ${actionUrl}\n`);
 
-		const result = await apiPost(visibilityUrl, auth);
+		const result = await apiPost(actionUrl, auth);
 
 		if (result.ok) {
-			console.log(`  ✓ ${makePublic ? 'Published' : 'Unpublished'} successfully (HTTP ${result.status})`);
+			console.log(`  ✓ ${action.verb} succeeded (HTTP ${result.status})`);
 		} else {
-			console.error(`  ✗ ${makePublic ? 'Publish' : 'Unpublish'} failed (HTTP ${result.status})`);
+			console.error(`  ✗ ${action.verb} failed (HTTP ${result.status})`);
 			console.error(`    ${result.message}`);
 			hasError = true;
 		}
@@ -296,6 +314,7 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	console.log('  rpc        label, connection, altConnection');
 	console.log('  connection label');
 	console.log('  webhook    label, connection, altConnection');
+	console.log('  endpoint   label, description, public, deprecated, archived (context → update-app.js)');
 	console.log('  function   (not supported)');
 	console.log('');
 	console.log('Examples:');
@@ -304,6 +323,8 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	console.log('  node update-component.js monday 2 module oldModule public=false');
 	console.log('  node update-component.js monday 2 rpc RpcBoards label="List Boards" connection=monday');
 	console.log('  node update-component.js monday 2 connection monday label="Monday v2 Updated"');
+	console.log('  node update-component.js google-docs 1 endpoint getDocument label="Get a Document" public=true');
+	console.log('  node update-component.js google-docs 1 endpoint oldEndpoint deprecated=true');
 	process.exit(1);
 }
 

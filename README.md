@@ -168,6 +168,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
 | `references/app-compilation-and-deployment-reference.md` | How SDK/DB code becomes a compiled PKR file package — compile pipeline, IPM registry, per-zone install, runtime resolution, and why `review-changes` is 0 for non-approved apps |
 | `references/component-scaffold-templates.md` | Default SDK component scaffolds (from the `model` app) — match a change's `old_value` against these to detect new components (then skip the old→new diff + Breaking Changes) |
+| `references/endpoints-reference.md` | SDK Endpoints (Endpoints RFC) — entity structure, admin API surface, Forman input/output schemas, `context.md`, annotations, runtime validation caveats, review guidance |
 
 ### Script Files (`skill/scripts/` → `…/make-custom-app/scripts/`)
 

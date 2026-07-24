@@ -153,11 +153,13 @@ After filtering: flag any AC items with no corresponding code change. If ALL cha
 
 ### 7. Review each related change
 
-**Skip Breaking Changes** in three cases — evaluate before the review:
+**Skip Breaking Changes** in four cases — evaluate before the review:
 
 1. **App-level skip** — if the Jira ticket's `issuetype.name === "App"`, skip Breaking Changes for the entire app (a new app has never been deployed, no user scenarios exist).
 2. **Per-change skip (no `old_value`)** — if a change reported by `review-changes.js` is a **pure new-component creation** (files have `new_value` only, no `old_value`), skip Breaking Changes for that component (it has never been placed in any scenario).
 3. **Per-change skip (`old_value` is the default scaffold template)** — when the SDK creates a new module/RPC, its files are pre-filled with Make's **default scaffold boilerplate** (placeholder `"url": "/users"`, `"iterate": "{{body.users}}"`, the standard scaffold comments like `// Relative to base URL` / `// Query string` / `// Splits array from API response into bundles`, and — for triggers — a default `response.trigger`). `review-changes.js` then reports this boilerplate as the `old_value`, but it is **not a real prior implementation**, so the component is effectively new → skip Breaking Changes. First decide from the **ticket** whether the work is new-component implementation, then confirm by checking whether the `old_value` is the untouched scaffold. The canonical scaffolds are the `model` template app (slug `model`, version 1 — run `download-app.js model 1` to see the current per-type templates under `modules/{Action,ActionCreate,ActionUpdate,ActionDelete,Search,Trigger,InstantTrigger,Responder,Universal,UniversalGraphQL,blank}/`). Recognize a scaffold by markers such as `"url": "/users"` (Search/Trigger) or `"url": "/users/{{parameters.id}}"` (Action), `"iterate": "{{body.users}}"`, `"qs": { "pageSize": 100 }`, the default `response.trigger` (`"id": "{{item.id}}"`, `"date": "{{item.created}}"`, `"order": "desc"`), and the boilerplate comments (`// Relative to base URL`, `// Splits array from API response into bundles`). `blank` is simply `{}`.
+
+4. **Endpoint skip (always)** — changes whose `group` is `endpoint` (`endpoint/{name}/{api|input_parameters|output_parameters|context|scope}`) are SDK Endpoints: not scenario-runnable (MCP `endpoint_execute` / platform Run Endpoint only), so no existing scenario mappings can break. Always skip Breaking Changes for endpoint changes. ⚠️ A shared custom IML function edited for an endpoint CAN still break modules that reuse it — evaluate that under the `function/{name}/code` change. Full review guidance: [`endpoints-reference.md`](../references/endpoints-reference.md) § "Code Review Guidance for Endpoint Changes" (incl. the runtime validation caveat: missing `required`/`default` enforcement via MCP is a known platform gap — never a Bug).
 
 **How to verify `old_value` is the scaffold (deterministic):** compare the change's `old_value`, whitespace-/comment-insensitive, against the matching template in [`component-scaffold-templates.md`](../references/component-scaffold-templates.md). A match → untouched template → **new component** (skip the `old_value` diff + skip Breaking). That reference carries every per-type scaffold (module by `typeId`, RPC, webhook, connection) plus the full compare procedure; refresh it with `download-app.js model 1`. If `old_value` keeps scaffold markers with only minor edits and no real logic, still treat it as new. Only when `old_value` is a **genuine implementation** (real endpoints/fields, no scaffold markers) do the full diff + Breaking eval. If genuinely ambiguous, default to running the Breaking eval.
 
@@ -199,6 +201,7 @@ Index of must-read sections by directive:
 | `pagination` | § "Pagination" |
 | `trigger` (id / date / order / type) | § "Polling Triggers" + [`polling-trigger-guide.md`](../references/polling-trigger-guide.md) |
 | IML path syntax (`foo[]`, `foo[1]`, `body.results[].field`) | § "IML Variable Path Syntax" (1-based indices, single-item unwrap idiom) |
+| `endpoint`, `input`, `pagination.endpoint` / `pagination.input`, `response.unwrap` | § "Inline Endpoint Calls (`api.endpoint`)" (delegation rules, guards, unwrap, validation reality) + [`endpoints-reference.md`](../references/endpoints-reference.md) |
 
 If `runtime-reference.md` does not cover the directive in question, fall back to the `imt-app-runtime` source per `make-app-workflow.md` § During Work. Never flag based on memory alone.
 

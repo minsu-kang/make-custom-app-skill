@@ -915,6 +915,71 @@ The `model` app ships one connection per auth type. Match a connection change's 
 
 ---
 
+## Endpoint scaffold — `endpoints/Endpoint`
+
+New SDK Endpoints created with `endpointInitMode: 'example'` (the default — `POST /sdk/apps/{slug}/{ver}/endpoints`) clone these sections from the `model` app. Captured 2026-07-24 (`download-app.js model 1`). Entity docs: [endpoints-reference.md](endpoints-reference.md).
+
+`api.imljson`:
+
+```json
+{
+	// Request to API endpoint with parameter "id" defined in Input Parameters.
+	"url": "/users/{{parameters.id}}/action",     // Relative to base URL
+	"method": "POST",
+	"headers": {},                                // Additional HTTP headers
+	"qs": {},                                     // Query string
+	"body": "{{omit(parameters, 'id')}}",         // Request body omitting the ID that is already being sent in URL.
+
+	// Response handling
+	"response": {
+		"output": "{{body}}"                      // Return JSON response body to the Output.
+	}
+}
+```
+
+`input_parameters.imljson`:
+
+```json
+// Defines "id", "email" and "name" as Input Parameters.
+[
+	{
+		"name": "id",        // Makes value accessible via "{{parameters.id}}".
+		"type": "uinteger",  // Sends the value as unsigned integer.
+		"label": "User ID",  // Sets the user friendly label visible in the interface.
+		"required": true     // Sets the parameter as mandatory.
+	},
+	{
+		"name": "email",
+		"type": "email",
+		"label": "Email address"
+	},
+	{
+		"name": "name",
+		"type": "text",
+		"label": "Name"
+	}
+]
+```
+
+`output_parameters.imljson`:
+
+```json
+// Defines JSON object with "id" parameter as expected API response body.
+[
+    {
+        "name": "id",
+        "type": "uinteger",
+        "label": "User ID"
+    }
+]
+```
+
+`scope.imljson` → `[]`; `context.md` → the boilerplate `# Context for the Endpoint` markdown ("Here you can provide additional context for the Endpoint...").
+
+Recognition markers: `"url": "/users/{{parameters.id}}/action"`, `"body": "{{omit(parameters, 'id')}}"`, the `id`/`email`/`name` input trio, single-`id` output, and the boilerplate context heading. An `old_value` matching these = untouched scaffold = new endpoint (skip the `old_value` diff; Breaking Changes are always skipped for endpoints anyway — see `code-review-criteria.md`).
+
+---
+
 ## Other scaffolded files
 
 The non-`api` files of a freshly created module also come scaffolded — typically empty arrays/objects — and count as scaffold too:
