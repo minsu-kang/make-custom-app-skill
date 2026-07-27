@@ -85,6 +85,25 @@ Two **different** endpoints expose two **different** visibility controls for a m
 
 **Why `metadata.json` can mislead about hiding**: `download-app.js` reads the `/admin/apps` (deployed) view, so a module hidden via a *pending, uncompiled* `public: false` still shows `private: false` / `deprecated: false` there. To see the real pending visibility state, query the SDK `/modules` endpoint and read the `public` flag per module. Also note: **relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
 
+### Module metadata surface — SDK `/modules` returns more than `public` (field-verified, IEN-15502)
+
+`GET {zone}/api/v2/admin/sdk/apps/{slug}/{version}/modules` → `{ appModules: [...] }` carries the **full module entity**, not just the visibility flag:
+
+| Field | Notes |
+|---|---|
+| `name` / `label` / `description` | `description` is the scenario-builder module description. **It is NOT part of the `download-app.js` payload and never appears in `review-changes.js` diffs** — this endpoint is the only code-side way to read it. |
+| `typeId` | Module type (1 trigger, 4 action, 9 search, 10 instant trigger, 11 responder, 12 universal). |
+| `public` / `approved` / `archived` | `public` = hard-disable flag (see table above); `approved` = per-module compile state. |
+| `connection` / `altConnection` / `attachedAccounts` | Connection binding — the entity-side counterpart of the `account_name` / `attached_accounts` change codes. |
+| `crud`, `centicreditsFormula*` | CRUD hint and Consumables config (`null` when unset). |
+
+> **Correction to a previously recorded claim.** A prior review (google-calendar IEN-15506 / sub-task IEN-15720) recorded that a module **description** is "metadata, not in the SDK download or the change diff — unverifiable from code, confirm in the SDK UI." The first half is right, the conclusion is not: the description **is** readable from this endpoint. Do not close a description-related AC as "unverifiable."
+
+**Pending-vs-baseline asymmetry on an approved app** (observed IEN-15502, mechanism not source-verified): on an `approved: true` app with uncommitted work, the **file sections** (`api`, `expect`, `interface`, `scope`, …) served by the SDK API already return the developer's pending values, but the **module entity fields** on `/modules` still return the committed baseline. A newly created module whose `account_name` / `attached_accounts` change rows are pending therefore shows `connection: null` / `attachedAccounts: null` here, while `review-changes.js` shows the change rows with the correct `new_value`.
+
+- **Review consequence**: do **not** read that `null` as "the developer forgot to attach the connection." Cross-check `review-changes.js` for `account_name` / `attached_accounts` change rows first; if they carry the right connection name, the binding is correct and simply pending commit.
+- Sibling modules on the same app (already committed) show their `connection` populated, which makes the new module's `null` look anomalous by comparison. It is not.
+
 ## 4. make-apps-processor — DB snapshot → PKR file package
 
 **Input**: `imt-web-api` `enqueueCompile` runs `apps.app_compile` to build an **`AppToCompile`** JSON snapshot and `POST`s it to `make-apps-processor /compile` (JSON, `202`, queued in RabbitMQ). The processor does **not** read the DB itself.

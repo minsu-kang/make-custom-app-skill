@@ -517,6 +517,33 @@ All ISC failures are marked `imtExternalError = false` (platform errors, never s
 - **`flags.allowISC` + the `INTEGROMAT_ISC_*` env vars are out of code-review scope** — they are deployment config, not in the SDK download. Note them as a pre-production verification item rather than a code finding.
 - **Do not false-flag** `isc`, `getFieldMapping`, or `safeSerialize` as unknown directives/functions — all are runtime-provided and verified.
 
+### AI Module Builder rollout — the canonical 9-change component set
+
+Epic IEN-15500 ports the same "AI Module Builder" (Polymorph) module into every Make-owned app one ticket at a time (google-sheets IEN-15502, google-forms IEN-15505, google-calendar IEN-15506, slack IEN-15987, …). Every one of those tickets produces the **same 9 changes**. Use this as the review checklist; anything missing is a gap, anything extra needs a reason.
+
+| # | `group/item/code` | Expected content |
+|---|---|---|
+| 1 | `app//groups` | New `AI` group containing only the new module. Existing groups must be untouched → pure addition, never a Breaking Change. |
+| 2 | `module/aiModuleBuilder/api` | ISC `POST /v1/request` to `ai-module-builder-api`. Body: `organizationId={{scenario.organizationId}}`, `scenarioId={{scenario.id}}`, `instanceId={{scenarioModuleId}}`, `targetService="<app-slug>"`, `parameters.mappings={{safeSerialize(getFieldMapping('task'))}}` plus `forceRegenerate`/`safetyMode`/`executionMode`, `auth.accessToken={{connection.accessToken}}`. |
+| 3 | `module/aiModuleBuilder/expect` | `[ "rpc://parametersAiModuleBuilder" ]` — fields are owned by the backend, so field names cannot be verified from app code. |
+| 4 | `module/aiModuleBuilder/interface` | `[ "rpc://interfaceAiModuleBuilder" ]` |
+| 5 | `module/aiModuleBuilder/scope` | **Must not stay `[]`.** Union of the scopes the backend needs to act on the user's behalf, matching the app's other modules. |
+| 6–7 | `module/aiModuleBuilder/account_name` + `attached_accounts` | The parent app's existing connection — the module never declares its own connection parameter. |
+| 8–9 | `rpc/{interfaceAiModuleBuilder,parametersAiModuleBuilder}/api` | ISC `GET /v1/rpc/interface` / `/v1/rpc/parameters` + `qs.targetService=<app-slug>`, `response.iterate = {{body}}`, `output = {{item}}`, empty `parameters.imljson`. |
+
+Two items are **not** in the ticket's reference snippet but belong in every implementation — both were added to earlier apps only after a production incident, so treat their absence as an Improvement:
+
+- **`log.sanitize: ["request.headers.authorization", "request.body.auth"]`** on the module `api`. Without it the OAuth access token is written in cleartext to run/debug logs, because the token is deliberately placed in `body.auth.accessToken`. (Root of google-calendar IEN-15714.)
+- **A non-empty module `scope`.** An empty `scope.imljson` means the connection token is minted without the permissions the backend needs → the backend's first call fails with the vendor's insufficient-scope error (google-calendar hit `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
+
+Recurring non-findings on these tickets — do not flag:
+
+- `api.timeout` (typically `300000`) on the module. ISC honors `api.timeout`; 300 s is the platform maximum.
+- `base.imljson` `baseUrl` pointing at the vendor API. ISC resolves its base from `INTEGROMAT_ISC_<SERVICE>_URN`, so there is no conflict.
+- A module `scope` entry that is absent from the connection's `scopes.imljson`. That file is the *additional-scope picker catalog*; the active scope set is a union that includes module scopes (see `component-patterns-reference.md` § "OAuth Scope Files").
+- `(beta)` in the module label — the lowercase parenthetical is the documented tag format (`app-ux-best-practices.md`).
+- Missing `make-apps-mockup` fixture for the new module. It is an AC gap worth reporting, but a mocked test cannot validate ISC anyway (see above), so it is never a blocker.
+
 ## Inline Endpoint Calls (`api.endpoint`)
 
 Source: `imt-app-runtime` master `lib/core/chainMiddleware/endpoint.ts` + `lib/api/rpc.js` + `lib/types.ts` (verified 2026-07-24). SDK Endpoint entity itself: [endpoints-reference.md](endpoints-reference.md).
