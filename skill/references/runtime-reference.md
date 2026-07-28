@@ -32,6 +32,7 @@ communication()
 ### Trigger Chain
 
 Same as Action, plus:
+
 - Epoch tracking (`lastId`, `lastDate`, `sameDateIds`)
 - Sorting: date triggers sort by `[date, id]`, id triggers sort by `id`
 - Deduplication of already-processed items via `dropWhile`
@@ -39,6 +40,7 @@ Same as Action, plus:
 ### Search Chain
 
 Same as Action, plus:
+
 - Adds `__IMTLENGTH__` and `__IMTINDEX__` to results
 - Deduplicates results (`_.uniq`)
 - `continueWhenNoRes: false` → empty array; otherwise `[{ __IMTLENGTH__: 0 }]`
@@ -80,7 +82,7 @@ communication()
 
 **URL-less RPCs**: When there is no `url` in `api.imljson`, the `getRequestOptions()` function returns without `requestOptions`. The `request()` middleware then skips the HTTP call and calls `next()`, allowing the rest of the chain — including `temp('response.temp')` and `output()` — to execute normally. This makes it possible to build pure data RPCs that use only `temp` + `response.temp` + `response.output` without any API call.
 
-> **⚠️ This URL-less fallback does NOT apply when the `isc` directive is present.** `isc.initialize()` runs *before* `prepareRequestOptions()` and hard-requires `url` — a url-less ISC component throws `RuntimeError: ISC directive requires a url field to specify the request path.` instead of silently skipping the call. See [§ ISC (Internal Service Communication)](#isc-internal-service-communication).
+> **⚠️ This URL-less fallback does NOT apply when the `isc` directive is present.** `isc.initialize()` runs _before_ `prepareRequestOptions()` and hard-requires `url` — a url-less ISC component throws `RuntimeError: ISC directive requires a url field to specify the request path.` instead of silently skipping the call. See [§ ISC (Internal Service Communication)](#isc-internal-service-communication).
 
 Supports epoch data (`response.trigger.id/date/type`). Final output sorted by epoch type.
 
@@ -93,10 +95,11 @@ Supports epoch data (`response.trigger.id/date/type`). Final output sorted by ep
 ```
 
 Object form with default:
+
 ```json
 {
-    "condition": "{{parameters.hasData}}",
-    "default": { "status": "skipped" }
+	"condition": "{{parameters.hasData}}",
+	"default": { "status": "skipped" }
 }
 ```
 
@@ -105,6 +108,7 @@ If condition is `false`, returns `default` (or `false` if no default). Entire re
 ### temp
 
 Merges values into `context.iml.context.temp`. Two phases:
+
 1. `api.temp` — before request
 2. `api.response.temp` — after response
 
@@ -152,19 +156,20 @@ _.merge result:
 ```
 
 This causes three problems:
+
 1. **Index-shifted contamination** — when an array shrinks (filter/remove), elements at mismatched indices get deep-merged with the wrong element
 2. **Ghost properties** — `_.merge` never deletes properties from the destination. Old properties persist even after "replacement"
 3. **Cascading reference contamination** — when `sort()` reorders elements, the new array shares object references with the old one. `_.merge` mutates objects in-place at each index, and since the same object exists at different indices in old vs new arrays, mutations cascade through the entire array
 
 **Safe vs dangerous patterns:**
 
-| Pattern | Safety |
-|---|---|
-| Array grows monotonically (concat + distinct) | Safe — same refs at same indices, `_.merge` is no-op |
+| Pattern                                               | Safety                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------ |
+| Array grows monotonically (concat + distinct)         | Safe — same refs at same indices, `_.merge` is no-op   |
 | Array shrinks (filter/remove) written to **same key** | **Dangerous** — index shift causes cross-element merge |
-| Array reorders (sort) written to **same key** | **Dangerous** — shared refs cause cascading mutation |
-| Write filtered/sorted result to a **new key** | Safe — no previous value to merge against |
-| Inline filter/sort in consuming expression | Safe — result never passes through `_.merge` |
+| Array reorders (sort) written to **same key**         | **Dangerous** — shared refs cause cascading mutation   |
+| Write filtered/sorted result to a **new key**         | Safe — no previous value to merge against              |
+| Inline filter/sort in consuming expression            | Safe — result never passes through `_.merge`           |
 
 **Rule: treat temp array keys as append-only.** Never write a shorter or reordered array back to the same temp key. Use a new key or inline the operation.
 
@@ -174,15 +179,15 @@ See IEN-14758 (google-email v4) for a real-world case where this caused 92.5% cr
 
 ```json
 {
-    "temp": {
-        "mappedFields": {
-            "name": "{{parameters.name}}",
-            "description": "{{parameters.description}}"
-        }
-    },
-    "body": {
-        "feature": "{{temp.mappedFields}}"
-    }
+	"temp": {
+		"mappedFields": {
+			"name": "{{parameters.name}}",
+			"description": "{{parameters.description}}"
+		}
+	},
+	"body": {
+		"feature": "{{temp.mappedFields}}"
+	}
 }
 ```
 
@@ -200,6 +205,7 @@ If the user only fills `name`, `temp.mappedFields` = `{name: "user value"}` — 
 If only `name` is set → HTTP body = `{"name":"user value"}` (no `assigned_to_user` key).
 
 **Important distinction**: `null` vs `undefined`:
+
 - `undefined` → key omitted by `JSON.stringify` and by `_.merge`
 - `null` → key **included** by `JSON.stringify` as `null`, and included by `_.merge`
 - Empty string `""` → key **included** by both
@@ -253,6 +259,7 @@ Compatibility mode: when `response.output` exists alongside `iterate`, output is
 ### error
 
 Default status code mapping:
+
 - `429` → `RateLimitError`
 - `500-599` → `ConnectionError`
 
@@ -267,6 +274,7 @@ Custom error directives from `api.response.error` or `api.error`. Status-code-sp
 ```
 
 Network error code mapping:
+
 - `ESOCKETTIMEDOUT`, `ECONNABORTED`, `ETIMEDOUT` → timeout errors
 - `ECONNRESET`, `ECONNREFUSED`, `ENOTFOUND` → connection errors
 
@@ -307,10 +315,10 @@ If validation fails and no custom error → default message: `"Response marked a
 ### Initial Values
 
 | Property | Default |
-|----------|---------|
-| `page` | 1 |
-| `offset` | 0 |
-| `limit` | 20 |
+| -------- | ------- |
+| `page`   | 1       |
+| `offset` | 0       |
+| `limit`  | 20      |
 
 ### Auto-Scaling
 
@@ -319,6 +327,7 @@ On each pagination cycle: `limit = Math.min(limit * 5, 500)`
 ### Stop Conditions
 
 Pagination stops when **any** of these is true:
+
 1. `condition` evaluates to `false`
 2. `maxPaginationRequestCount` exceeded (default: 50)
 3. `maxRequestCount` exceeded (default: 100)
@@ -335,14 +344,14 @@ When `pagination.mergeWithParent` is `true`, pagination config is deep-merged wi
 `api.pagination.condition` is **not** a single after-response check. The runtime evaluates it at **two different points**, with **different `pagination.page` values**:
 
 1. **After the response** — in the `pagination` middleware (`lib/core/chainMiddleware/requester/middleware.ts`).
-   - Evaluated with `pagination.page = N` (the page that was just fetched).
-   - If `false` → `disablePagination()` → `mode = DISABLED` → loop exits.
-   - If `true` → `enablePagination()` → `mode = PAGINATION` and **`pagination.page++`** (to `N+1`).
+    - Evaluated with `pagination.page = N` (the page that was just fetched).
+    - If `false` → `disablePagination()` → `mode = DISABLED` → loop exits.
+    - If `true` → `enablePagination()` → `mode = PAGINATION` and **`pagination.page++`** (to `N+1`).
 
 2. **Before the next request** — in `getPaginationRequestOptions()` (`lib/core/chainMiddleware/fetcher/request-options.ts` line 122–130, `lib/core/chainMiddleware/requester/_request.js` line 194–197).
-   - Evaluated with `pagination.page = N+1` (already incremented above).
-   - If `false` → `ctx.request.options = undefined`, response deleted, `request` middleware skips the HTTP call (`if (!requestOptions) return next();` in `fetcher/middleware.ts:35-38`), the chain bails on `!batch` (`init.ts` callback), and the loop exits cleanly. **No extra HTTP request is made.**
-   - If `true` → request is built with the new page and sent.
+    - Evaluated with `pagination.page = N+1` (already incremented above).
+    - If `false` → `ctx.request.options = undefined`, response deleted, `request` middleware skips the HTTP call (`if (!requestOptions) return next();` in `fetcher/middleware.ts:35-38`), the chain bails on `!batch` (`init.ts` callback), and the loop exits cleanly. **No extra HTTP request is made.**
+    - If `true` → request is built with the new page and sent.
 
 This dual check is intentional (the second check is the actual stop gate; the first check just decides whether to enter the next iteration at all), but it produces **non-obvious off-by-one behavior** when the condition expression references `pagination.page` directly.
 
@@ -350,10 +359,10 @@ This dual check is intentional (the second check is the actual stop gate; the fi
 
 For a `total_pages`-style API (e.g. Aha!, where `body.pagination.total_pages` is the count of existing pages and `pagination.page` is used as the request's `qs.page`):
 
-| Condition | After response of page N (page=N) | Before request of page N+1 (page=N+1) | Effect on total_pages=3 |
-|---|---|---|---|
-| `total_pages > pagination.page` | `3 > 3` → false on last page → stops *after* fetching page 3. **But** the second check fires next iteration with page=N+1, and `total_pages > N+1` becomes false **one page early**, skipping the actual last page. | `3 > 3` → false on the LAST request → **request skipped → page 3 data NEVER fetched** | **❌ Loses last page** (2 HTTP requests, only pages 1–2 returned) |
-| `total_pages >= pagination.page` | `3 >= 3` → true on last page → enable, increment to 4 | `3 >= 4` → false → request skipped, loop exits | **✅ Correct** (3 HTTP requests for 3 pages, then one chain iteration with no HTTP call to terminate) |
+| Condition                        | After response of page N (page=N)                                                                                                                                                                                   | Before request of page N+1 (page=N+1)                                                 | Effect on total_pages=3                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `total_pages > pagination.page`  | `3 > 3` → false on last page → stops _after_ fetching page 3. **But** the second check fires next iteration with page=N+1, and `total_pages > N+1` becomes false **one page early**, skipping the actual last page. | `3 > 3` → false on the LAST request → **request skipped → page 3 data NEVER fetched** | **❌ Loses last page** (2 HTTP requests, only pages 1–2 returned)                                     |
+| `total_pages >= pagination.page` | `3 >= 3` → true on last page → enable, increment to 4                                                                                                                                                               | `3 >= 4` → false → request skipped, loop exits                                        | **✅ Correct** (3 HTTP requests for 3 pages, then one chain iteration with no HTTP call to terminate) |
 
 **Rule**: when the condition expression is built around `pagination.page` (the runtime-incremented variable), use `>=`, not `>`. Using `>` produces a silent off-by-one — the **last page is never fetched** because the second condition check sees the post-increment page number.
 
@@ -367,18 +376,18 @@ Source: `lib/core/chainMiddleware/requester/middleware.ts` (pagination middlewar
 
 ### Epoch Types
 
-| Type | Tracked State | Sort Key |
-|------|--------------|----------|
-| `id` | `lastId` | `__itemId` |
-| `date` | `lastDate`, `sameDateIds` | `[__itemDate, __itemId]` |
-| `select` | selected items only | — |
+| Type     | Tracked State             | Sort Key                 |
+| -------- | ------------------------- | ------------------------ |
+| `id`     | `lastId`                  | `__itemId`               |
+| `date`   | `lastDate`, `sameDateIds` | `[__itemDate, __itemId]` |
+| `select` | selected items only       | —                        |
 
 ### Order Behavior
 
-| Order | Behavior |
-|-------|----------|
-| `asc` | Fetches past items, stops at known boundary |
-| `desc` | Fetches future items, continues until known boundary |
+| Order       | Behavior                                                                   |
+| ----------- | -------------------------------------------------------------------------- |
+| `asc`       | Fetches past items, stops at known boundary                                |
+| `desc`      | Fetches future items, continues until known boundary                       |
 | `unordered` | Keeps all items in memory (max `maxPastRecords` or 5000), always paginates |
 
 ### Same-Date Deduplication
@@ -409,15 +418,15 @@ On `EPROTO SSL alert number 40`, retries **once** automatically.
 
 Every outbound request URL is normalized **after** IML evaluation and **before** the HTTP call, via `lib/core/utils/normalizeUrl.js` (composed with `lib/core/utils/joinBaseUrlAndUrl.ts`). Key behaviors the app author should rely on — or work around — are:
 
-| Behavior | Detail |
-|---|---|
-| **Consecutive slashes in `pathname` are collapsed** | `/foo//bar///baz` → `/foo/bar/baz` via `pathname.replace(/\/{2,}/g, '/')`. Users can safely supply a leading `/` in a mapped path param even if the URL template already adds one — the runtime will de-dup it. |
-| **Trailing slash on non-root paths is PRESERVED** | `replace(/\/$/, '')` runs only when `pathname === '/'` (root). `/v0/apps/{id}/collections/{id}/` stays as-is. → **The app must prevent app-level trailing slashes** on APIs that treat `.../x` and `.../x/` as different resources (e.g., Adalo returns 400 on the `/` variant — see IEN-15136). Use `{{if(parameters.url, '/' + parameters.url, '')}}` instead of hardcoding `/` before an optional path segment. |
-| **baseUrl + url join** | `joinBaseUrlAndUrl(baseUrl, url)` joins with a literal `/` when `url` is relative (`!/^https?:\/\//.test(url)`). Absolute `url` bypasses `baseUrl` entirely. |
-| **Path encoding** | If `encodeUrl: true` (default in most apps), the pre-query portion is run through `encodeURI()`. |
-| **Query string** | `legacy` mode: `encodeUrl: false` decodes the QS (except reserved `%20 %23 %26 %3F %3A`); the second `?` is rewritten to `&`; `?` with empty QS is dropped. `uniform` mode: QS is encoded iff `encodeUrl: true`, no `?→&` rewrite. |
-| **Default ports stripped** | 80/443/21 are stripped under `legacy` mode only. |
-| **Hostname** | Trailing dot removed; IDN→Unicode conversion currently disabled (2025-07-03 flag). |
+| Behavior                                            | Detail                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Consecutive slashes in `pathname` are collapsed** | `/foo//bar///baz` → `/foo/bar/baz` via `pathname.replace(/\/{2,}/g, '/')`. Users can safely supply a leading `/` in a mapped path param even if the URL template already adds one — the runtime will de-dup it.                                                                                                                                                                                                    |
+| **Trailing slash on non-root paths is PRESERVED**   | `replace(/\/$/, '')` runs only when `pathname === '/'` (root). `/v0/apps/{id}/collections/{id}/` stays as-is. → **The app must prevent app-level trailing slashes** on APIs that treat `.../x` and `.../x/` as different resources (e.g., Adalo returns 400 on the `/` variant — see IEN-15136). Use `{{if(parameters.url, '/' + parameters.url, '')}}` instead of hardcoding `/` before an optional path segment. |
+| **baseUrl + url join**                              | `joinBaseUrlAndUrl(baseUrl, url)` joins with a literal `/` when `url` is relative (`!/^https?:\/\//.test(url)`). Absolute `url` bypasses `baseUrl` entirely.                                                                                                                                                                                                                                                       |
+| **Path encoding**                                   | If `encodeUrl: true` (default in most apps), the pre-query portion is run through `encodeURI()`.                                                                                                                                                                                                                                                                                                                   |
+| **Query string**                                    | `legacy` mode: `encodeUrl: false` decodes the QS (except reserved `%20 %23 %26 %3F %3A`); the second `?` is rewritten to `&`; `?` with empty QS is dropped. `uniform` mode: QS is encoded iff `encodeUrl: true`, no `?→&` rewrite.                                                                                                                                                                                 |
+| **Default ports stripped**                          | 80/443/21 are stripped under `legacy` mode only.                                                                                                                                                                                                                                                                                                                                                                   |
+| **Hostname**                                        | Trailing dot removed; IDN→Unicode conversion currently disabled (2025-07-03 flag).                                                                                                                                                                                                                                                                                                                                 |
 
 **Quick rule for path templates**: the runtime fixes internal double-slashes but will NOT fix a trailing slash. Any optional trailing path segment must be emitted conditionally from the app.
 
@@ -425,14 +434,14 @@ Every outbound request URL is normalized **after** IML evaluation and **before**
 
 Determined by `response.type`:
 
-| Type | Behavior |
-|------|----------|
-| `json` | `JSON.parse()` |
-| `xml` | XML parser |
-| `urlencoded` | Query string parser |
-| `text` | Raw text |
-| `binary` | Buffer |
-| `automatic` | Auto-detect from Content-Type |
+| Type         | Behavior                      |
+| ------------ | ----------------------------- |
+| `json`       | `JSON.parse()`                |
+| `xml`        | XML parser                    |
+| `urlencoded` | Query string parser           |
+| `text`       | Raw text                      |
+| `binary`     | Buffer                        |
+| `automatic`  | Auto-detect from Content-Type |
 
 Wildcard matching: `"type": { "*": "json", "200-299": "json" }`
 
@@ -493,12 +502,12 @@ Validated in this order inside `isc.initialize()`:
 
 All ISC failures are marked `imtExternalError = false` (platform errors, never surfaced as "external API error"):
 
-| Situation | Result |
-|---|---|
-| HTTP 4xx | Error carrying service name + status; routable through `response.error` (e.g. `error.404`) |
-| HTTP 429 | `RateLimitError` (default mapping) |
-| HTTP 5xx | `ConnectionError` — `"Service is temporarily unavailable."` |
-| Network / connection failure | `RuntimeError` (`ISC call to "<service>" failed: <msg>`) |
+| Situation                    | Result                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| HTTP 4xx                     | Error carrying service name + status; routable through `response.error` (e.g. `error.404`) |
+| HTTP 429                     | `RateLimitError` (default mapping)                                                         |
+| HTTP 5xx                     | `ConnectionError` — `"Service is temporarily unavailable."`                                |
+| Network / connection failure | `RuntimeError` (`ISC call to "<service>" failed: <msg>`)                                   |
 
 ### Security model (defense in depth)
 
@@ -521,15 +530,15 @@ All ISC failures are marked `imtExternalError = false` (platform errors, never s
 
 Epic IEN-15500 ports the same "AI Module Builder" (Polymorph) module into every Make-owned app one ticket at a time (google-sheets IEN-15502, google-forms IEN-15505, google-calendar IEN-15506, slack IEN-15987, …). Every one of those tickets produces the **same 9 changes**. Use this as the review checklist; anything missing is a gap, anything extra needs a reason.
 
-| # | `group/item/code` | Expected content |
-|---|---|---|
-| 1 | `app//groups` | New `AI` group containing only the new module. Existing groups must be untouched → pure addition, never a Breaking Change. |
-| 2 | `module/aiModuleBuilder/api` | ISC `POST /v1/request` to `ai-module-builder-api`. Body: `organizationId={{scenario.organizationId}}`, `scenarioId={{scenario.id}}`, `instanceId={{scenarioModuleId}}`, `targetService="<app-slug>"`, `parameters.mappings={{safeSerialize(getFieldMapping('task'))}}` plus `forceRegenerate`/`safetyMode`/`executionMode`, `auth.accessToken={{connection.accessToken}}`. |
-| 3 | `module/aiModuleBuilder/expect` | `[ "rpc://parametersAiModuleBuilder" ]` — fields are owned by the backend, so field names cannot be verified from app code. |
-| 4 | `module/aiModuleBuilder/interface` | `[ "rpc://interfaceAiModuleBuilder" ]` |
-| 5 | `module/aiModuleBuilder/scope` | **Must not stay `[]`.** Union of the scopes the backend needs to act on the user's behalf, matching the app's other modules. |
-| 6–7 | `module/aiModuleBuilder/account_name` + `attached_accounts` | The parent app's existing connection — the module never declares its own connection parameter. |
-| 8–9 | `rpc/{interfaceAiModuleBuilder,parametersAiModuleBuilder}/api` | ISC `GET /v1/rpc/interface` / `/v1/rpc/parameters` + `qs.targetService=<app-slug>`, `response.iterate = {{body}}`, `output = {{item}}`, empty `parameters.imljson`. |
+| #   | `group/item/code`                                              | Expected content                                                                                                                                                                                                                                                                                                                                                           |
+| --- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `app//groups`                                                  | New `AI` group containing only the new module. Existing groups must be untouched → pure addition, never a Breaking Change.                                                                                                                                                                                                                                                 |
+| 2   | `module/aiModuleBuilder/api`                                   | ISC `POST /v1/request` to `ai-module-builder-api`. Body: `organizationId={{scenario.organizationId}}`, `scenarioId={{scenario.id}}`, `instanceId={{scenarioModuleId}}`, `targetService="<app-slug>"`, `parameters.mappings={{safeSerialize(getFieldMapping('task'))}}` plus `forceRegenerate`/`safetyMode`/`executionMode`, `auth.accessToken={{connection.accessToken}}`. |
+| 3   | `module/aiModuleBuilder/expect`                                | `[ "rpc://parametersAiModuleBuilder" ]` — fields are owned by the backend, so field names cannot be verified from app code.                                                                                                                                                                                                                                                |
+| 4   | `module/aiModuleBuilder/interface`                             | `[ "rpc://interfaceAiModuleBuilder" ]`                                                                                                                                                                                                                                                                                                                                     |
+| 5   | `module/aiModuleBuilder/scope`                                 | **Must not stay `[]`.** Union of the scopes the backend needs to act on the user's behalf, matching the app's other modules.                                                                                                                                                                                                                                               |
+| 6–7 | `module/aiModuleBuilder/account_name` + `attached_accounts`    | The parent app's existing connection — the module never declares its own connection parameter.                                                                                                                                                                                                                                                                             |
+| 8–9 | `rpc/{interfaceAiModuleBuilder,parametersAiModuleBuilder}/api` | ISC `GET /v1/rpc/interface` / `/v1/rpc/parameters` + `qs.targetService=<app-slug>`, `response.iterate = {{body}}`, `output = {{item}}`, empty `parameters.imljson`.                                                                                                                                                                                                        |
 
 Two items are **not** in the ticket's reference snippet but belong in every implementation — both were added to earlier apps only after a production incident, so treat their absence as an Improvement:
 
@@ -540,7 +549,7 @@ Recurring non-findings on these tickets — do not flag:
 
 - `api.timeout` (typically `300000`) on the module. ISC honors `api.timeout`; 300 s is the platform maximum.
 - `base.imljson` `baseUrl` pointing at the vendor API. ISC resolves its base from `INTEGROMAT_ISC_<SERVICE>_URN`, so there is no conflict.
-- A module `scope` entry that is absent from the connection's `scopes.imljson`. That file is the *additional-scope picker catalog*; the active scope set is a union that includes module scopes (see `component-patterns-reference.md` § "OAuth Scope Files").
+- A module `scope` entry that is absent from the connection's `scopes.imljson`. That file is the _additional-scope picker catalog_; the active scope set is a union that includes module scopes (see `component-patterns-reference.md` § "OAuth Scope Files").
 - `(beta)` in the module label — the lowercase parenthetical is the documented tag format (`app-ux-best-practices.md`).
 - Missing `make-apps-mockup` fixture for the new module. It is an AC gap worth reporting, but a mocked test cannot validate ISC anyway (see above), so it is never a blocker.
 
@@ -552,7 +561,7 @@ A module or RPC `api.imljson` can delegate its HTTP request to a **named sibling
 
 ```json
 {
-	"endpoint": "getDocument",                        // or { "name": "...", "connection": "{{...}}" }; bare string = { name }
+	"endpoint": "getDocument", // or { "name": "...", "connection": "{{...}}" }; bare string = { name }
 	"input": { "documentId": "{{parameters.docId}}" }, // IML-evaluated against the CALLER's context → becomes the Endpoint's parameters
 	"response": { "output": "{{body}}" }
 }
@@ -562,15 +571,15 @@ The `endpoint()` middleware wraps the HTTP request cluster in every action/searc
 
 ### Rules (each violation throws `InvalidConfigurationError` / `RuntimeError`)
 
-| Rule | Detail |
-|---|---|
-| `endpoint` + `url` forbidden | Ambiguous (which path makes the request?) |
-| `endpoint` + `agency` forbidden | The agency call has already fired by then — error surfaces instead of a silently discarded result |
-| Single object only | Arrays of endpoint calls rejected — orchestrate multi-call at the module level |
-| No nesting | An Endpoint may not itself use `api.endpoint` (`endpointExecution` marker guard) |
-| Not in triggers/webhook modules | `rejectUnsupported()` raises a typed error |
-| Fan-out cap | Max **100** inline endpoint calls per top-level execution (`executionFlags.endpointBudget`) |
-| `endpoint.name` is IML-evaluated | Like `connection`, may be a template string |
+| Rule                             | Detail                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `endpoint` + `url` forbidden     | Ambiguous (which path makes the request?)                                                         |
+| `endpoint` + `agency` forbidden  | The agency call has already fired by then — error surfaces instead of a silently discarded result |
+| Single object only               | Arrays of endpoint calls rejected — orchestrate multi-call at the module level                    |
+| No nesting                       | An Endpoint may not itself use `api.endpoint` (`endpointExecution` marker guard)                  |
+| Not in triggers/webhook modules  | `rejectUnsupported()` raises a typed error                                                        |
+| Fan-out cap                      | Max **100** inline endpoint calls per top-level execution (`executionFlags.endpointBudget`)       |
+| `endpoint.name` is IML-evaluated | Like `connection`, may be a template string                                                       |
 
 ### Pagination interplay
 
@@ -585,7 +594,7 @@ Own `input` as `parameters` (+ caller's connection as `__IMTCONN__`, overridable
 
 ### Endpoint result unwrap (`response.unwrap`)
 
-An Endpoint's `.execute()` runs the RPC chain, which naturally returns an **array**. When executing *as an Endpoint* (embedded or standalone — gated by the `endpointExecution` marker), the result is unwrapped: single-element array → that object; empty array → `{}`. Opt out with `"response": { "unwrap": false }` or by declaring `response.iterate` (list output keeps the array). Plain RPCs never unwrap.
+An Endpoint's `.execute()` runs the RPC chain, which naturally returns an **array**. When executing _as an Endpoint_ (embedded or standalone — gated by the `endpointExecution` marker), the result is unwrapped: single-element array → that object; empty array → `{}`. Opt out with `"response": { "unwrap": false }` or by declaring `response.iterate` (list output keeps the array). Plain RPCs never unwrap.
 
 ### Endpoint execution chain & validation reality
 
@@ -642,13 +651,13 @@ if (Array.isArray(data)) data = data[k - 1]; // 1-based
 if (n != null && Array.isArray(data)) data = data[n - 1]; // 1-based
 ```
 
-| IML path | Resolves to (JS) | Notes |
-|---|---|---|
-| `foo[]` | `foo[0]` (first element) | Empty brackets default to `n = 1` → `arr[n - 1]` = `arr[0]` |
-| `foo[1]` | `foo[0]` (first element) | |
-| `foo[2]` | `foo[1]` (second element) | |
-| `foo[3].bar` | `foo[2].bar` | |
-| `foo[0]` | **`foo[-1]` → `undefined`** | **Common bug.** `[0]` is never what you want. |
+| IML path     | Resolves to (JS)            | Notes                                                       |
+| ------------ | --------------------------- | ----------------------------------------------------------- |
+| `foo[]`      | `foo[0]` (first element)    | Empty brackets default to `n = 1` → `arr[n - 1]` = `arr[0]` |
+| `foo[1]`     | `foo[0]` (first element)    |                                                             |
+| `foo[2]`     | `foo[1]` (second element)   |                                                             |
+| `foo[3].bar` | `foo[2].bar`                |                                                             |
+| `foo[0]`     | **`foo[-1]` → `undefined`** | **Common bug.** `[0]` is never what you want.               |
 
 ### Implications for `response.output`, `response.iterate`, etc.
 
@@ -673,21 +682,21 @@ Internally the engine stringifies `foo[]` as `` foo.`1` `` (the backtick-wrapped
 
 ## Limits & Constants
 
-| Limit | Default | Overridable via |
-|-------|---------|----------------|
-| `maxRequestCount` | 100 | `common.imljson` |
-| `maxPaginationRequestCount` | 50 | `common.imljson` |
-| `maxPastRecords` | 3200 | `common.imljson` |
-| Request timeout | 40,000ms | `common.timeout` (max 300s) |
-| Repeat max iterations | 1000 | `repeat.limit` (capped at 1000) |
-| Pagination initial limit | 20 | — |
-| Pagination max limit (auto-scale) | 500 | — |
-| Unordered trigger memory | max(`maxPastRecords`, 5000) | — |
-| Data collection max size | 65,536 bytes (64KB) | — |
-| Sandbox timeout | 10,000ms (prod) / 50ms (dev) | — |
-| Sandbox memory | 2,048MB | — |
-| Max redirects | 21 | — |
-| Default trigger limit | 1 | `parameters.limit` |
+| Limit                             | Default                      | Overridable via                 |
+| --------------------------------- | ---------------------------- | ------------------------------- |
+| `maxRequestCount`                 | 100                          | `common.imljson`                |
+| `maxPaginationRequestCount`       | 50                           | `common.imljson`                |
+| `maxPastRecords`                  | 3200                         | `common.imljson`                |
+| Request timeout                   | 40,000ms                     | `common.timeout` (max 300s)     |
+| Repeat max iterations             | 1000                         | `repeat.limit` (capped at 1000) |
+| Pagination initial limit          | 20                           | —                               |
+| Pagination max limit (auto-scale) | 500                          | —                               |
+| Unordered trigger memory          | max(`maxPastRecords`, 5000)  | —                               |
+| Data collection max size          | 65,536 bytes (64KB)          | —                               |
+| Sandbox timeout                   | 10,000ms (prod) / 50ms (dev) | —                               |
+| Sandbox memory                    | 2,048MB                      | —                               |
+| Max redirects                     | 21                           | —                               |
+| Default trigger limit             | 1                            | `parameters.limit`              |
 
 ## Environment Variables
 
@@ -698,33 +707,36 @@ Two separate `environment`-related features exist in the runtime. Do NOT confuse
 The user's Make scenario runtime environment. Passed directly to the IML context — **always available without any flags**.
 
 Source: `buildContext()` in `runtime.js`:
+
 ```js
 environment: instance.environment || {},
 ```
 
 Available in IML as `{{environment.xxx}}`:
 
-| Property | Description |
-|----------|-------------|
+| Property               | Description                                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `environment.timezone` | Scenario timezone (from org settings). Also injected into IML function sandbox for `formatDate()`/`parseDate()` |
-| `environment.debug` | Debug mode flag |
-| `environment.audit` | Audit logging flag |
-| `environment.verifier` | Verifier mode flag |
+| `environment.debug`    | Debug mode flag                                                                                                 |
+| `environment.audit`    | Audit logging flag                                                                                              |
+| `environment.verifier` | Verifier mode flag                                                                                              |
 
 Usage example in `api.imljson`:
+
 ```json
 {
-    "temp": {
-        "tz": "{{environment.timezone}}"
-    }
+	"temp": {
+		"tz": "{{environment.timezone}}"
+	}
 }
 ```
 
 `environment.timezone` is also passed to the custom IML function sandbox context, so built-in IML functions (`formatDate`, `parseDate`, etc.) automatically use the scenario's timezone:
+
 ```js
 const imlFunctionContext = {
-    timezone: (functionSandbox.environment || {}).timezone,
-    passthrough: manifestVersion >= 2
+	timezone: (functionSandbox.environment || {}).timezone,
+	passthrough: manifestVersion >= 2,
 };
 ```
 
@@ -733,24 +745,29 @@ const imlFunctionContext = {
 A **separate, unrelated** feature for accessing **server-side `process.env` variables** via a frozen proxy object at `environment.system`.
 
 Source: `runtime()` in `runtime.js`:
+
 ```js
 if (module.flags && module.flags.environmentAccess) {
-    // Must be an array — accessing the whole environment at once is a security risk
-    if (!Array.isArray(module.flags.environmentAccess))
-        throw new Error('Variables for the Environment Access should always be enumerated as an array of strings.');
+	// Must be an array — accessing the whole environment at once is a security risk
+	if (!Array.isArray(module.flags.environmentAccess))
+		throw new Error('Variables for the Environment Access should always be enumerated as an array of strings.');
 
-    const envProxyProperties = module.flags.environmentAccess;
-    const envProxyBase = {};
-    Object.defineProperties(envProxyBase, envProxyProperties.reduce((acc, property) => {
-        acc[property] = {
-            configurable: false, enumerable: false,
-            get: () => process.env[property],
-            set: undefined
-        };
-        return acc;
-    }, {}));
-    Object.freeze(envProxyBase);
-    module.environment.system = envProxyBase;
+	const envProxyProperties = module.flags.environmentAccess;
+	const envProxyBase = {};
+	Object.defineProperties(
+		envProxyBase,
+		envProxyProperties.reduce((acc, property) => {
+			acc[property] = {
+				configurable: false,
+				enumerable: false,
+				get: () => process.env[property],
+				set: undefined,
+			};
+			return acc;
+		}, {}),
+	);
+	Object.freeze(envProxyBase);
+	module.environment.system = envProxyBase;
 }
 ```
 
@@ -761,27 +778,54 @@ if (module.flags && module.flags.environmentAccess) {
 
 ### Quick Reference
 
-| What you need | IML expression | Flags required? |
-|---|---|---|
-| Scenario timezone | `{{environment.timezone}}` | No |
-| Scenario debug mode | `{{environment.debug}}` | No |
+| What you need        | IML expression               | Flags required?                                    |
+| -------------------- | ---------------------------- | -------------------------------------------------- |
+| Scenario timezone    | `{{environment.timezone}}`   | No                                                 |
+| Scenario debug mode  | `{{environment.debug}}`      | No                                                 |
 | Server env var `FOO` | `{{environment.system.FOO}}` | Yes — `flags.environmentAccess: ["FOO"]` in common |
 
 ## OAuth Connection Variables
 
 Available inside `connections/{name}/api.imljson` (`authorize`, `token`, etc.). Sourced from `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` (and the OAuth1 equivalent at `accounts/app-runtime-oauth1/lib/account.js`).
 
-| Variable | Resolves to | When to use |
-|---|---|---|
-| `{{oauth.localRedirectUri}}` | `https://<environment.host>/oauth/cb/{connection-name}` — the **current instance's host** | **Default for new connections.** Host-aware, works on Make-hosted **and** self-hosted instances. |
-| `{{oauth.redirectUri}}` | `https://<environment.redirects.integromat>/oauth/cb/{connection-name}` — **always `integromat.com`** | **Legacy.** Pre-Make-rebrand callback. Avoid in new code; migrate when touched. |
-| `{{oauth.makeRedirectUri}}` | `https://<environment.redirects.make>/oauth/cb/{connection-name}` — **always `make.com`** | Make-only deployment (breaks self-host). Use only when the upstream provider has a hard `make.com`-only redirect registered AND self-host support is explicitly out of scope. |
-| `{{oauth.scope}}` | Array of scope strings declared in `scope.imljson` / `scopes.imljson` | Joined into the authorize URL via `join(oauth.scope, ' ')` (Google) or `','` (others). |
-| `{{oauth.state}}` | Runtime-injected CSRF-safe state token, validated automatically on callback | Always set `"state": "{{oauth.state}}"` in `authorize.qs`. |
+| Variable                     | Resolves to                                                                                           | When to use                                                                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{{oauth.localRedirectUri}}` | `https://<environment.host>/oauth/cb/{connection-name}` — the **current instance's host**             | **Default for new connections.** Host-aware, works on Make-hosted **and** self-hosted instances.                                                                              |
+| `{{oauth.redirectUri}}`      | `https://<environment.redirects.integromat>/oauth/cb/{connection-name}` — **always `integromat.com`** | **Legacy.** Pre-Make-rebrand callback. Avoid in new code; migrate when touched.                                                                                               |
+| `{{oauth.makeRedirectUri}}`  | `https://<environment.redirects.make>/oauth/cb/{connection-name}` — **always `make.com`**             | Make-only deployment (breaks self-host). Use only when the upstream provider has a hard `make.com`-only redirect registered AND self-host support is explicitly out of scope. |
+| `{{oauth.scope}}`            | Array of scope strings declared in `scope.imljson` / `scopes.imljson`                                 | Joined into the authorize URL via `join(oauth.scope, ' ')` (Google) or `','` (others).                                                                                        |
+| `{{oauth.state}}`            | Runtime-injected CSRF-safe state token, validated automatically on callback                           | Always set `"state": "{{oauth.state}}"` in `authorize.qs`.                                                                                                                    |
 
 When `environment.redirects` is unset (legacy environment configuration), all three redirect-URI variables collapse to the same host-based URI, so `localRedirectUri` is also the safest backward-compatible choice.
 
 **Cross-reference**: full convention + code-review checklist live in `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" and `code-review-criteria.md` § "OAuth `redirect_uri` Convention".
+
+### `token.response.scope` — record the scope the provider actually granted
+
+Added in imt-app-runtime **v1.101.0** (2026-07-18, PR #693); follow-up fix **v1.101.1** (2026-07-20, PR #709). Source: `accounts/app-runtime-oauth2/lib/account.js` (`token()`, `saveScope()`, `_setScope()`, `_normalizeScope()`); tests: `test/account.spec.js` § "directive `token.response.scope`" + `test/account-set-scope.spec.ts`.
+
+```json
+"token": {
+	"url": "https://provider.example/oauth/token",
+	"method": "POST",
+	"response": {
+		"data": { "accessToken": "{{body.access_token}}" },
+		"scope": "{{body.scope}}"
+	}
+}
+```
+
+Before this directive the platform only knew the scopes it **requested**; if the user granted a subset, that was invisible (the source calls it out as a known limitation). `token.response.scope` lets the token endpoint report what was actually granted, per RFC 6749 § 3.3.
+
+| Aspect              | Behavior                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Value               | IML-evaluated. Accepts a string array, a space-delimited string (RFC 6749 § 3.3), a comma-delimited string, or a mix — `_normalizeScope()` splits on `/[\s,]+/` and drops empties. Any other type → `[]` (treated as "not reported"). |
+| Precedence          | A non-empty result **overrides** the stored scope — it does **not** merge. The token response is authoritative, so a revoked scope drops off on the next exchange.                                                                    |
+| Fallback            | Empty / absent → previous behavior: `acceptedScope` (the scopes sent to the authorization server) is merged into the stored scope and deduplicated.                                                                                   |
+| `token` as an array | Each communication item is checked; the **last** item reporting a non-empty scope wins. A scope-less follow-up item (e.g. a long-token request) cannot erase an earlier item's scope.                                                 |
+| Client Credentials  | With no authorize/callback step there is no `acceptedScope`, so this directive is the **only** way to record scope for that flow.                                                                                                     |
+
+**Not supported under `refresh` — by design.** `saveScope()` is wired into `token()` only. A refresh renews the access token; it is not an authorization event, so it must not change the recorded grant. Changing scope requires re-authorizing the connection. `refresh.response.scope` is silently ignored — flag it in review.
 
 ## Security
 

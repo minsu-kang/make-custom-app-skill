@@ -392,6 +392,33 @@ The active set sent to the OAuth provider at `authorize` time is the union of:
 - If you see `scopes.imljson` declared as `[]` (an array) — **that** is the bug. The runtime expects an object/dictionary, not an array, and the picker UI will fail to render.
 - Conversely, `scope.imljson` declared as `{}` (an object) is also a bug — the runtime expects an array of scope strings.
 
+### Recording the granted scope — `token.response.scope`
+
+The three sources above are what the connection **requests**. Until imt-app-runtime **v1.101.0** (2026-07-18) nothing recorded what the provider actually **granted** — if a user ticked only some of the consent boxes, Make stored the requested list anyway. The `token.response.scope` directive closes that gap:
+
+```json
+// connections/{name}/api.imljson
+"token": {
+	"url": "https://provider.example/oauth/token",
+	"method": "POST",
+	"response": {
+		"data": { "accessToken": "{{body.access_token}}" },
+		"scope": "{{body.scope}}"
+	}
+}
+```
+
+Most OAuth2 providers return a `scope` field in the token response, so this is usually a one-line addition. The value may be an array, a space-delimited string (the RFC 6749 § 3.3 standard form), or a comma-delimited string — the runtime normalizes all three.
+
+**Two behaviors worth knowing before adding it:**
+
+- **It overrides, it does not merge.** A non-empty reported scope replaces the stored list, so a scope the user revoked disappears on the next token exchange. When the response reports nothing, the old merge-the-requested-scopes behavior applies unchanged.
+- **It only works under `token`, never `refresh`.** Scope grants come from an authorization event; a refresh just renews the access token. `refresh.response.scope` is ignored.
+
+For Client Credentials connections (no authorize/callback step) this is the **only** way to record scope at all.
+
+**Code-review notes**: adding the directive to an existing connection is low-risk and generally an improvement, but the stored list starts reflecting the provider's own notation — some providers echo short names where the app requested full URLs. `refresh.response.scope` is always a finding (silently ignored). Full directive semantics, normalization rules, and array-`token` precedence: [runtime-reference.md § `token.response.scope`](runtime-reference.md#tokenresponsescope--record-the-scope-the-provider-actually-granted).
+
 ### Key Fields
 
 | Field                     | Purpose                                                                                                                                           |

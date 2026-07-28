@@ -72,8 +72,6 @@ The API's `app.compile` is no longer the primary DB boolean — `imt-web-api` ov
 
 ### Module visibility & hiding — `deprecated`/`private` vs SDK `public` (field-verified, IEN-15262)
 
-> Sourced from team knowledge + direct endpoint observation (IEN-15262, TimeCamp v1) — **not** yet cross-checked against the five source repos above. Treat the deploy-side blast radius below as the operational rule; verify in `imt-web-api` before relying on internals.
-
 Two **different** endpoints expose two **different** visibility controls for a module. They are not the same field and do not have the same blast radius:
 
 | Endpoint | Field (per module) | Effect on deploy |
@@ -97,9 +95,9 @@ Two **different** endpoints expose two **different** visibility controls for a m
 | `connection` / `altConnection` / `attachedAccounts` | Connection binding — the entity-side counterpart of the `account_name` / `attached_accounts` change codes. |
 | `crud`, `centicreditsFormula*` | CRUD hint and Consumables config (`null` when unset). |
 
-> **Correction to a previously recorded claim.** A prior review (google-calendar IEN-15506 / sub-task IEN-15720) recorded that a module **description** is "metadata, not in the SDK download or the change diff — unverifiable from code, confirm in the SDK UI." The first half is right, the conclusion is not: the description **is** readable from this endpoint. Do not close a description-related AC as "unverifiable."
+A module `description` is therefore reviewable from code even though it is absent from both the `download-app.js` payload and the `review-changes.js` diff — never close a description-related AC as "unverifiable, check the SDK UI."
 
-**Pending-vs-baseline asymmetry on an approved app** (observed IEN-15502, mechanism not source-verified): on an `approved: true` app with uncommitted work, the **file sections** (`api`, `expect`, `interface`, `scope`, …) served by the SDK API already return the developer's pending values, but the **module entity fields** on `/modules` still return the committed baseline. A newly created module whose `account_name` / `attached_accounts` change rows are pending therefore shows `connection: null` / `attachedAccounts: null` here, while `review-changes.js` shows the change rows with the correct `new_value`.
+**Pending-vs-baseline asymmetry on an approved app**: on an `approved: true` app with uncommitted work, the **file sections** (`api`, `expect`, `interface`, `scope`, …) served by the SDK API already return the developer's pending values, but the **module entity fields** on `/modules` still return the committed baseline. A newly created module whose `account_name` / `attached_accounts` change rows are pending therefore shows `connection: null` / `attachedAccounts: null` here, while `review-changes.js` shows the change rows with the correct `new_value`.
 
 - **Review consequence**: do **not** read that `null` as "the developer forgot to attach the connection." Cross-check `review-changes.js` for `account_name` / `attached_accounts` change rows first; if they carry the right connection name, the binding is correct and simply pending commit.
 - Sibling modules on the same app (already committed) show their `connection` populated, which makes the new module's `null` look anomalous by comparison. It is not.
