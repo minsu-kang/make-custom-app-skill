@@ -177,6 +177,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
 | `review-changes.js` | Fetches uncommitted changes for code review |
+| `commit-changes.js` | Commits pending changes (`commit`), discards them (`rollback --confirm`), or enqueues a compile (`compile`). `--issue=KEY` chains the Jira transition. |
 | `create-component.js` | Creates new components (module, rpc, function, connection, webhook) via POST |
 | `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |

@@ -157,7 +157,33 @@ node ${SKILL_ROOT}/scripts/update-app.js zoom 2 module/listWebinarRegistrants/ap
 - Uses the same SDK Admin API credentials as `download-app.js`
 - Resolves app origin automatically (routes to correct zone)
 - Works with all apps accessible via the SDK (including internal/compiled apps)
-- Changes are saved as **uncommitted** — user must still commit and deploy via SDK
+- On an **approved** app, changes are saved as **uncommitted** change rows — commit them with `commit-changes.js` (see below) or let the user commit in the SDK UI. On a non-approved app the write lands directly and the forward action is `compile`.
+
+## App Commit / Rollback / Compile
+
+`commit-changes.js` wraps the three SDK change-lifecycle endpoints (`POST /sdk/apps/{slug}/{version}/{commit,rollback,compile}`).
+
+**User approval required** for every action — these are write scripts. Show the pending change list (from `review-changes.js`) and the commit message, then wait for explicit confirmation.
+
+```bash
+node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {version} commit --message="{message}" [--change-ids=1,2] [--notify] [--issue=KEY]
+node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {version} rollback --confirm
+node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {version} compile [--issue=KEY]
+```
+
+| Option | Behavior |
+|---|---|
+| `--message="..."` | Required for `commit`. 1–1000 characters. Use the commit message from the review's Commit Checklist. |
+| `--change-ids=1,2` | Partial commit. Default (omitted) commits **all** pending changes. Ids come from `review-changes.js` output (`latest.json` → `changes[].id`). |
+| `--notify` | Adds the update to the app timeline and notifies users. **Off by default** — only pass it when the user explicitly asks. |
+| `--issue=KEY` | Chains `post-review-transition.js {KEY} committed` after a successful `commit` / `compile`. |
+| `--confirm` | Mandatory for `rollback`. Rollback discards **all** pending changes at once (the endpoint takes no ids) and cannot be undone. |
+
+**⛔ Rollback is never self-initiated.** It discards every pending change on the version at once, cannot be undone, and destroys uncommitted developer work. Never run it on your own reasoning, never offer it as a repair step for a failed commit, and never treat a returned ticket ("돌려줘" / "returned") as authorization — returning a ticket leaves pending changes intact. Run it only after the user explicitly approves a rollback in that many words.
+
+- The commit routine enqueues a compile automatically, so a separate `compile` call is not needed after a commit.
+- Commit requires `approved: true`. On a non-approved app there are no change rows to commit — the script aborts with exit code 2 and points at `compile`.
+- After a `rollback`, re-run `download-app.js` to resync the local snapshot.
 
 ## Individual Component Sync (When Code Folder Already Exists)
 

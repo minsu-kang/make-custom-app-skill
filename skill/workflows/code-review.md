@@ -1,4 +1,5 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
+
 # Code Review Workflow
 
 Workflow for AI to fetch uncommitted changes from a Make app and perform a code review. Pair with the static § R TODO template (`rules/make-app-todo-review.mdc`) and the universal TODO discipline (`rules/make-app-todo-rules.mdc`) — the TODO list is created **first**, then this workflow executes inside the matching items.
@@ -79,21 +80,22 @@ Procedure (all MCP calls — no script):
 
 1. **Resolve `cloudId` once per session** — call `getAccessibleAtlassianResources` if you don't already have it from a prior step. Cache it for the rest of the review.
 2. **Resolve reviewer's `accountId` once per session** — read the `jira-email:` line from `${SKILL_ROOT}/SKILL.md`, then call:
-   ```
-   lookupJiraAccountId({ cloudId, searchString: "<reviewer-email>" })
-   ```
-   Pick the entry whose `emailAddress` exactly matches. Cache the `accountId` for the rest of the review.
+    ```
+    lookupJiraAccountId({ cloudId, searchString: "<reviewer-email>" })
+    ```
+    Pick the entry whose `emailAddress` exactly matches. Cache the `accountId` for the rest of the review.
 3. **Assign the parent ticket only**:
-   ```
-   editJiraIssue({
-     cloudId,
-     issueIdOrKey: "<PARENT-KEY>",
-     fields: { assignee: { accountId: "<reviewer-accountId>" } }
-   })
-   ```
-   - Skip when the parent's `assignee.accountId` (already in the `getJiraIssue` payload) equals the reviewer's accountId — it's already mine, no-op.
-   - Skip when `common_jira_fetch` was cancelled (`[CANCELLED: review without Jira ticket ...]`).
-   - Do NOT call `editJiraIssue` with an `assignee` field on any sub-task — even reviewable ones.
+    ```
+    editJiraIssue({
+      cloudId,
+      issueIdOrKey: "<PARENT-KEY>",
+      fields: { assignee: { accountId: "<reviewer-accountId>" } }
+    })
+    ```
+
+    - Skip when the parent's `assignee.accountId` (already in the `getJiraIssue` payload) equals the reviewer's accountId — it's already mine, no-op.
+    - Skip when `common_jira_fetch` was cancelled (`[CANCELLED: review without Jira ticket ...]`).
+    - Do NOT call `editJiraIssue` with an `assignee` field on any sub-task — even reviewable ones.
 4. This is a pre-review action: it touches **only the parent assignee**, never the status, never sub-tasks. The status transition still happens later via `post-review-transition.js` after the user gives their disposition.
 5. Execute every step as sub-actions **inside** the `common_jira_fetch` TODO item (per Universal Rule 2: no new todos for sub-actions). Do NOT split assignment off into its own todo.
 
@@ -133,12 +135,12 @@ ${CONTEXTS_DIR}/{slug}-v{version}/reviews/latest.json
 
 This makes the meaning of "0 changes" depend entirely on the app's `approved` state. **Before concluding anything from a 0-change result, read `metadata.json` (`approved`) for the app:**
 
-| `metadata.json` state | What `review-changes.js` returns | Correct interpretation |
-|---|---|---|
+| `metadata.json` state                                                                                                  | What `review-changes.js` returns                                                                                              | Correct interpretation                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Non-approved** — `approved: false` (typical for a brand-new `issuetype: "App"` ticket; usually `compile: false` too) | **Structurally always 0** — edits write straight to `apps.*`, no change rows are ever created, no matter how much was changed | **NOT "nothing to review."** Review the **full app code** (base, connection, every module/RPC/webhook/function, install/installSpec, groups, common) against the ticket AC. On re-reviews, re-read the full current code each round — the developer's fixes ARE the current full state; there is no diff to show. |
-| **Approved** — `approved: true` | Real uncommitted changes (delta vs the committed baseline), or 0 if the developer genuinely saved nothing new | Diff-based review on `old_value → new_value`. If 0 here, it genuinely means "No uncommitted changes found." |
+| **Approved** — `approved: true`                                                                                        | Real uncommitted changes (delta vs the committed baseline), or 0 if the developer genuinely saved nothing new                 | Diff-based review on `old_value → new_value`. If 0 here, it genuinely means "No uncommitted changes found."                                                                                                                                                                                                       |
 
-**Do not describe a non-approved app's 0-change result as "all committed via SDK" or "no changes to review."** The accurate phrasing is: *"App is not approved (`approved: false`) → SDK edits write directly to the DB, no change rows → reviewing full app code."*
+**Do not describe a non-approved app's 0-change result as "all committed via SDK" or "no changes to review."** The accurate phrasing is: _"App is not approved (`approved: false`) → SDK edits write directly to the DB, no change rows → reviewing full app code."_
 
 **Jira status nuance**: the canonical pre-review status is **Compilation**; some developers colloquially set **Commit** instead. Both mean "ready for review," and `post-review-transition.js` accepts either (see § "Post-Review Disposition Gate").
 
@@ -191,16 +193,16 @@ Before flagging **any** Bug / Breaking Change / Improvement on a change whose `c
 
 Index of must-read sections by directive:
 
-| Directive being flagged | Required reading in `runtime-reference.md` |
-|---|---|
-| `url`, `baseUrl`, path templates, trailing/leading slash | § "URL Normalization" (slash collapse, trailing slash, baseUrl join, encodeUrl) |
-| `qs` / query string | § "URL Normalization" (legacy vs uniform QS encoding, `?→&` rewrite) |
-| `headers`, `body`, `type`, `condition` | § "Communication directives" |
-| `temp` (request-level or response-level) | § "temp" (two-phase evaluation: `temp` → `response.temp`) |
-| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | § "Response Parsing" + § "Response directives" |
-| `pagination` | § "Pagination" |
-| `trigger` (id / date / order / type) | § "Polling Triggers" + [`polling-trigger-guide.md`](../references/polling-trigger-guide.md) |
-| IML path syntax (`foo[]`, `foo[1]`, `body.results[].field`) | § "IML Variable Path Syntax" (1-based indices, single-item unwrap idiom) |
+| Directive being flagged                                                            | Required reading in `runtime-reference.md`                                                                                                                           |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`, `baseUrl`, path templates, trailing/leading slash                           | § "URL Normalization" (slash collapse, trailing slash, baseUrl join, encodeUrl)                                                                                      |
+| `qs` / query string                                                                | § "URL Normalization" (legacy vs uniform QS encoding, `?→&` rewrite)                                                                                                 |
+| `headers`, `body`, `type`, `condition`                                             | § "Communication directives"                                                                                                                                         |
+| `temp` (request-level or response-level)                                           | § "temp" (two-phase evaluation: `temp` → `response.temp`)                                                                                                            |
+| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error`            | § "Response Parsing" + § "Response directives"                                                                                                                       |
+| `pagination`                                                                       | § "Pagination"                                                                                                                                                       |
+| `trigger` (id / date / order / type)                                               | § "Polling Triggers" + [`polling-trigger-guide.md`](../references/polling-trigger-guide.md)                                                                          |
+| IML path syntax (`foo[]`, `foo[1]`, `body.results[].field`)                        | § "IML Variable Path Syntax" (1-based indices, single-item unwrap idiom)                                                                                             |
 | `endpoint`, `input`, `pagination.endpoint` / `pagination.input`, `response.unwrap` | § "Inline Endpoint Calls (`api.endpoint`)" (delegation rules, guards, unwrap, validation reality) + [`endpoints-reference.md`](../references/endpoints-reference.md) |
 
 If `runtime-reference.md` does not cover the directive in question, fall back to the `imt-app-runtime` source per `make-app-workflow.md` § During Work. Never flag based on memory alone.
@@ -215,17 +217,17 @@ Failing this gate produces false-positive Bug verdicts and wastes the developer'
 
 #### Hard Gate — External API Reference Verification (mandatory before flagging any vendor-API issue)
 
-`runtime-reference.md` covers Make's runtime; it does NOT cover the third-party vendor's contract. Before flagging **any** Bug / Breaking Change / Improvement that depends on a claim about the external API (e.g. *"Endpoint X supports `includes`"*, *"`updateListingInventory` body accepts `readiness_state_on_property`"*, *"this module is missing parameter Y that the vendor exposes"*), you MUST first verify the claim in the vendor's official documentation.
+`runtime-reference.md` covers Make's runtime; it does NOT cover the third-party vendor's contract. Before flagging **any** Bug / Breaking Change / Improvement that depends on a claim about the external API (e.g. _"Endpoint X supports `includes`"_, _"`updateListingInventory` body accepts `readiness_state_on_property`"_, _"this module is missing parameter Y that the vendor exposes"_), you MUST first verify the claim in the vendor's official documentation.
 
 Verification procedure:
 
 1. **Identify the exact endpoint and field/parameter** in question — full path (`GET /v3/application/listings/active` vs `GET /v3/application/shops/{shop_id}/listings/active` are different endpoints with different parameter sets, never assume symmetry).
 2. **Fetch the vendor's docs** via `WebFetch` / `WebSearch` against:
-   - The vendor's official API reference page (e.g. `https://developer.etsy.com/documentation/reference/...`).
-   - The vendor's official tutorials (often the only place new fields are documented before the reference catches up).
-   - As secondary sources when the docs page is JS-rendered and unfetchable: published OpenAPI / Swagger spec mirrors on GitHub (e.g. `gordonturner/etsy-open-api-client`, `trusty-codes/etsy-openapi-php`). The most recent vendor tutorial wins on conflict.
-3. **Quote the source.** When flagging the issue in the review output (or "To Developer" message), include the doc URL and a short example/quote that proves the claim. Example: *"Etsy [Listings Tutorial](URL) — body sample includes `\"readiness_state_on_property\": [47626760362]` (line 1690 of the rendered page)."*
-4. **When the docs cannot be fetched or the claim cannot be confirmed**, do NOT flag it. State to the user instead: *"I couldn't verify {claim} in {vendor}'s docs — please confirm or share the relevant section."*
+    - The vendor's official API reference page (e.g. `https://developer.etsy.com/documentation/reference/...`).
+    - The vendor's official tutorials (often the only place new fields are documented before the reference catches up).
+    - As secondary sources when the docs page is JS-rendered and unfetchable: published OpenAPI / Swagger spec mirrors on GitHub (e.g. `gordonturner/etsy-open-api-client`, `trusty-codes/etsy-openapi-php`). The most recent vendor tutorial wins on conflict.
+3. **Quote the source.** When flagging the issue in the review output (or "To Developer" message), include the doc URL and a short example/quote that proves the claim. Example: _"Etsy [Listings Tutorial](URL) — body sample includes `\"readiness_state_on_property\": [47626760362]` (line 1690 of the rendered page)."_
+4. **When the docs cannot be fetched or the claim cannot be confirmed**, do NOT flag it. State to the user instead: _"I couldn't verify {claim} in {vendor}'s docs — please confirm or share the relevant section."_
 5. **Existing app code is not proof.** A field already present in `expect.imljson` doesn't mean it's a vendor field — it may be a legacy artifact. Symmetric-looking endpoints (`/listings/active` vs `/shops/{shop_id}/listings/active`) frequently diverge on `includes`, pagination, sort order. Always verify per-endpoint.
 6. **Withdraw on contradiction.** If verification proves a claim wrong mid-review, retract it explicitly in the next message and downgrade/upgrade the verdict accordingly.
 
@@ -311,19 +313,19 @@ The "To Developer" message is read by developers who **do not use this skill** �
 
 **Forbidden in any "To Developer" message** (and equally in any review output that may be copy-pasted into Jira / Slack / Teams):
 
-- Skill scripts: `update-component.js`, `update-app.js`, `create-component.js`, `delete-component.js`, `download-app.js`, `review-changes.js`, `test-component.js`, `test-function.js`, `post-review-transition.js`, `download-jira-ticket-attachment.js`, etc.
+- Skill scripts: `update-component.js`, `update-app.js`, `create-component.js`, `delete-component.js`, `download-app.js`, `review-changes.js`, `commit-changes.js`, `test-component.js`, `test-function.js`, `post-review-transition.js`, `download-jira-ticket-attachment.js`, etc.
 - Skill paths: `~/.cursor/skills/make-custom-app/...`, `~/.claude/skills/make-custom-app/...`, `${SKILL_ROOT}`, `${CONTEXTS_DIR}`, `~/.cursor/make-app-contexts/...`, `~/.claude/make-app-contexts/...`.
 - Skill-internal references: `Pinecone`, `upsert_app_context`, `upsert_jira_ticket`, `search_app_knowledge`, the `make-app-context` MCP server, `make-apps-mockup`, `${slug}-v${version}.md`.
 - Skill-internal flags / invocations: `node {script} ... public=true`, `--debug`, `--format=json`, `--update`, etc.
 
-**Speak in the developer's language instead** — describe the *change* in IMLJSON / SDK terms:
+**Speak in the developer's language instead** — describe the _change_ in IMLJSON / SDK terms:
 
-- Don't say *"Run `update-component.js timebuzzer 1 module SearchTiles public=true` to publish."*
-  Say *"Set the module to public in the SDK (Module → Visibility → Public)."*
-- Don't say *"Add to `expect.imljson`..."* with a path like `~/.cursor/skills/make-custom-app/...`.
-  Say *"In `modules/SearchTiles/expect.imljson`, add the following field..."* with the in-app relative path.
+- Don't say _"Run `update-component.js timebuzzer 1 module SearchTiles public=true` to publish."_
+  Say _"Set the module to public in the SDK (Module → Visibility → Public)."_
+- Don't say _"Add to `expect.imljson`..."_ with a path like `~/.cursor/skills/make-custom-app/...`.
+  Say _"In `modules/SearchTiles/expect.imljson`, add the following field..."_ with the in-app relative path.
 - Don't reference `test-component.js` runs.
-  Say *"Verify the module returns the expected output for the new parameter."* The developer will use whatever workflow they prefer.
+  Say _"Verify the module returns the expected output for the new parameter."_ The developer will use whatever workflow they prefer.
 
 This rule applies to:
 
@@ -341,18 +343,34 @@ It does NOT apply to:
 After delivering the review output (and Developer Message if applicable), ask the disposition question — **the verb depends on the app's compilation state** (`metadata.json` `approved`/`compile`, see § 5a):
 
 - **Uncompiled app** (`approved: false` / `compile: false` — e.g. a brand-new `issuetype: "App"`): the forward action is **compile**, not commit. Ask:
-  > Did you **compile** the app, or return it to the developer?
+    > Did you **compile** the app, or return it to the developer?
 - **Compiled app** (`approved: true`): the forward action is **commit**. Ask:
-  > Did you return the ticket to the developer, or **commit** the changes?
+    > Did you return the ticket to the developer, or **commit** the changes?
 
 The two LGTM-path verbs (compile / commit) map to the **same** `post-review-transition.js {key} committed` call — the script transitions `Commit`/`Compilation` → `In Testing` either way. Only the question wording changes, to match what the user actually does (you don't "commit" an app that has never been compiled).
 
 **Until the user explicitly confirms one of the following, do NOT touch the context file, do NOT call `upsert_app_context` / `upsert_jira_ticket`, do NOT run `post-review-transition.js`:**
 
 - LGTM / forward path → `post-review-transition.js {key} committed`. Accepted phrases:
-  - Compiled app: "committed" / "커밋했어" / "커밋완료"
-  - Uncompiled app: "compiled" / "컴파일했어" / "컴파일완료" / "컴파일할게" / "내가 컴파일할게"
+    - Compiled app: "committed" / "커밋했어" / "커밋완료"
+    - Uncompiled app: "compiled" / "컴파일했어" / "컴파일완료" / "컴파일할게" / "내가 컴파일할게"
 - "returned" / "돌려줬어" / "돌려줌" / "개발자한테 보냈어" — the ticket was returned to the developer (Changes Requested path) → `post-review-transition.js {key} returned`
+
+### The user can also delegate the forward action
+
+**Tense decides who acts.** Past tense — "커밋했어" / "커밋완료" / "컴파일했어" / "committed" / "compiled" — means the user already did it in the SDK: do **not** run `commit-changes.js`, just follow the standard path above (`post-review-transition.js {key} committed` → context file → Pinecone). Running a commit there would either find nothing pending or commit change rows the user deliberately left out.
+
+If instead the user asks **you** to do it ("커밋해줘" / "커밋해" / "commit it" / "컴파일해줘" / "compile it"), that request **is** the forward disposition — the gate is satisfied. Run `commit-changes.js` yourself instead of `post-review-transition.js` directly:
+
+```bash
+# compiled app (approved: true) — commit message comes from the review's Commit Checklist
+node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {version} commit --message="{key} {summary}" --issue={key}
+
+# uncompiled app (approved: false) — nothing to commit, compile instead
+node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {version} compile --issue={key}
+```
+
+Run this **first**, before the context file and Pinecone sync, so both record what actually happened (committed change ids, commit message, or a failure). `--issue={key}` chains `post-review-transition.js {key} committed` on success, so the Jira side is handled in the same run — do **not** call `post-review-transition.js` again for that key. Sub-tasks still need their own transition call, subject to the QA-territory hard rule below. Show the pending change list and the exact commit message before running, per the write-script confirmation rule. Never pass `--notify` unless the user asked for it, and never run `rollback` on a review disposition.
 
 These are **post-disposition** actions, not post-review actions. Updating context files mid-review pollutes the knowledge base with results the user has not yet acted on.
 
@@ -360,14 +378,14 @@ Once the user confirms, immediately execute (do NOT wait for the user to ask aga
 
 1. **Context file**: create or update `${CONTEXTS_DIR}/{slug}-v{version}.md` with verdict + changed files + issues + caveats discovered.
 2. **Pinecone sync**: `upsert_app_context` (sync the updated context file) + `upsert_jira_ticket` (for each Jira ticket reviewed, store the review result).
-3. **Jira assign + transition** via `post-review-transition.js`:
-   - `committed` → assigns to authenticated user (`/myself`) and transitions to "In Testing" (from "Commit" or "Compilation")
-   - `returned` → assigns to authenticated user and transitions:
-     - "Commit" → "In Progress"
-     - "Compilation" → "To Do" (the "Compilation" workflow has no direct "In Progress" transition)
-   - The script aborts with a clear message if the ticket's current status is not in the allowed list ("Commit" or "Compilation" by default). Use `--from-status=<name1,name2>` to customize, or `--force` only when the user explicitly opts in.
-   - Run for **every** reviewed ticket (parent + reviewed subtasks).
-   - **⛔ Hard Rule — Sub-task "Test" status is QA territory.** If a reviewable sub-task is in `Test` status (not `Commit` / `Compilation`), the script will abort. **Do NOT bypass this** — do not pass `--force`, do not directly call MCP `transitionJiraIssue` to push it to `Done`. The `Test → Done` transition belongs to QA; they will mark it `Done` themselves once verified (or return it to the developer). Skip the sub-task transition silently and move on; report the abort to the user as "skipped (QA territory)". Only override if the user explicitly says "force it" or names the target status.
+3. **Jira assign + transition** via `post-review-transition.js` (skip the parent here when `commit-changes.js --issue={key}` already chained it — see § "The user can also delegate the forward action"):
+    - `committed` → assigns to authenticated user (`/myself`) and transitions to "In Testing" (from "Commit" or "Compilation")
+    - `returned` → assigns to authenticated user and transitions:
+        - "Commit" → "In Progress"
+        - "Compilation" → "To Do" (the "Compilation" workflow has no direct "In Progress" transition)
+    - The script aborts with a clear message if the ticket's current status is not in the allowed list ("Commit" or "Compilation" by default). Use `--from-status=<name1,name2>` to customize, or `--force` only when the user explicitly opts in.
+    - Run for **every** reviewed ticket (parent + reviewed subtasks).
+    - **⛔ Hard Rule — Sub-task "Test" status is QA territory.** If a reviewable sub-task is in `Test` status (not `Commit` / `Compilation`), the script will abort. **Do NOT bypass this** — do not pass `--force`, do not directly call MCP `transitionJiraIssue` to push it to `Done`. The `Test → Done` transition belongs to QA; they will mark it `Done` themselves once verified (or return it to the developer). Skip the sub-task transition silently and move on; report the abort to the user as "skipped (QA territory)". Only override if the user explicitly says "force it" or names the target status.
 
 These map to `common_context_update`, `common_upsert_app_context`, `common_upsert_jira_ticket`, `review_transition` in the § R TODO template — they stay `pending` until the disposition `[GATE]` (`review_wait_disposition`) is `completed`.
 
@@ -379,9 +397,9 @@ When the developer submits fixes and the user requests a re-review:
 
 1. **Fresh fetch** — re-run `download-app.js` + `review-changes.js`. Never reuse previous `latest.json`.
 2. **Previous issues checklist** — load prior issues (from context file or prior conversation) and verify each one:
-   - **Fixed** → mark resolved
-   - **Not fixed** → flag again with reference to the previous review
-   - **Partially fixed** → note what remains
+    - **Fixed** → mark resolved
+    - **Not fixed** → flag again with reference to the previous review
+    - **Partially fixed** → note what remains
 3. **New changes** — check if new changes were introduced beyond the previous review's scope. Review with the same criteria.
 4. **Output** — same Review Output Format plus a "Previous Issues Resolution" table:
 

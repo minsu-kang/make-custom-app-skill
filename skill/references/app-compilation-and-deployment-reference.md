@@ -60,6 +60,8 @@ A brand-new app (`issuetype: "App"`) is almost always `approved: false` / `compi
 
 - `POST /sdk/apps/{slug}/{version}/commit` → `apps.changes_commit`: **requires `approved`**; on the first commit of each field it captures an `'initial state'` baseline into history; applies the pending change values to the real `apps.*` tables; deletes the `apps.change` rows; then calls `enqueueCompile`.
 - `POST /admin/sdk/apps/{slug}/{version}/compile` (admin) and the approve action both also call `enqueueCompile`.
+- `POST /sdk/apps/{slug}/{version}/rollback` discards **all** pending change rows at once — no id selection, not undoable.
+- All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [app-context.md § App Commit / Rollback / Compile](../workflows/app-context.md).
 - The **Jira** workflow status for "ready for review" is canonically **`Compilation`**; some developers colloquially set **`Commit`** instead. Both mean the same thing and `post-review-transition.js` accepts either.
 
 ### `compile` flag is legacy / in-progress signal
