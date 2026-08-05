@@ -50,32 +50,69 @@ function loadImlFunctions(runtimePath, tz) {
 		imlFunctions[name] = fn.bind({ timezone: tz });
 	}
 
-	const runtimeImlDir = path.join(runtimePath, 'lib', 'iml');
-	const runtimeFnMap = {
-		mime: 'mime.js',
-		jwt: 'jwt.js',
-		cryptoSign: 'sign.js',
-		errorFactory: 'errorFactory.js',
-	};
+	// Sources are progressively migrating from lib/iml/*.js to TypeScript, whose
+	// compiled output lands in dist/lib/iml. Plain `require` cannot read the .ts
+	// source, so probe both locations and take whichever resolves.
+	const runtimeImlDirs = [
+		path.join(runtimePath, 'lib', 'iml'),
+		path.join(runtimePath, 'dist', 'lib', 'iml'),
+	];
+
+	function requireRuntimeIml(baseName) {
+		for (const dir of runtimeImlDirs) {
+			const filePath = path.join(dir, `${baseName}.js`);
+			if (!fs.existsSync(filePath)) continue;
+			try {
+				return require(filePath);
+			} catch (_) { /* try the next location */ }
+		}
+		return null;
+	}
+
+	function pickCallable(mod, exportName) {
+		if (typeof mod === 'function') return mod;
+		if (mod && typeof mod[exportName] === 'function') return mod[exportName];
+		if (mod && typeof mod.default === 'function') return mod.default;
+		return null;
+	}
+
+	const runtimeFnNames = ['jwt', 'cryptoSign', 'errorFactory'];
+	const runtimeFnFiles = { cryptoSign: 'sign' };
+	const missingRuntimeFns = [];
 
 	let runtimeFnCount = 0;
-	for (const [fnName, fileName] of Object.entries(runtimeFnMap)) {
-		const filePath = path.join(runtimeImlDir, fileName);
-		if (fs.existsSync(filePath)) {
-			try {
-				imlFunctions[fnName] = require(filePath);
-				runtimeFnCount++;
-			} catch (_) { /* skip if dependency missing */ }
+	for (const fnName of runtimeFnNames) {
+		const fn = pickCallable(requireRuntimeIml(runtimeFnFiles[fnName] || fnName), fnName);
+		if (fn) {
+			imlFunctions[fnName] = fn;
+			runtimeFnCount++;
+		} else {
+			missingRuntimeFns.push(fnName);
 		}
 	}
 
-	const jwkPath = path.join(runtimeImlDir, 'jwk.js');
-	if (fs.existsSync(jwkPath)) {
-		try {
-			const jwk = require(jwkPath);
-			imlFunctions.generateJwtWithKeyId = jwk.generateJwtWithKeyId;
+	const generateJwtWithKeyId = pickCallable(requireRuntimeIml('jwk'), 'generateJwtWithKeyId');
+	if (generateJwtWithKeyId) {
+		imlFunctions.generateJwtWithKeyId = generateJwtWithKeyId;
+		runtimeFnCount++;
+	} else {
+		missingRuntimeFns.push('generateJwtWithKeyId');
+	}
+
+	// Mirrors lib/iml/mime.ts (`m.getType(file) || undefined`). Implemented here
+	// rather than loaded from the runtime because that module now only ships as
+	// TypeScript, and its checked-in dist build predates mime v4's default export.
+	try {
+		const mimePkg = require(path.join(runtimePath, 'node_modules', 'mime'));
+		const mimeApi = mimePkg && typeof mimePkg.getType === 'function' ? mimePkg : mimePkg.default;
+		if (mimeApi && typeof mimeApi.getType === 'function') {
+			imlFunctions.mime = (file) => mimeApi.getType(file) || undefined;
 			runtimeFnCount++;
-		} catch (_) { /* skip if dependency missing */ }
+		} else {
+			missingRuntimeFns.push('mime');
+		}
+	} catch (_) {
+		missingRuntimeFns.push('mime');
 	}
 
 	imlFunctions.pop = (arr) => Array.isArray(arr) ? arr.pop() : undefined;
@@ -99,6 +136,9 @@ function loadImlFunctions(runtimePath, tz) {
 
 	if (runtimeFnCount > 0) {
 		console.log(`IML: ${runtimeFnCount} runtime-provided functions loaded (mime, jwt, cryptoSign, etc.)`);
+	}
+	if (missingRuntimeFns.length > 0) {
+		console.log(`IML: ⚠ ${missingRuntimeFns.join(', ')} unavailable in imt-app-runtime — tests calling them will fail`);
 	}
 
 	return imlFunctions;

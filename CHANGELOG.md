@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.19.1 — 2026-08-05
+
+- **`skill/scripts/test-function.js` — `iml.mime` is injected again, and a missing runtime function can no longer disappear silently.** The runtime IML loader resolved each function from a hardcoded `lib/iml/{file}.js` path. `mime` has since migrated to TypeScript in imt-app-runtime (`lib/iml/mime.ts`), so `fs.existsSync` returned false, the entry was skipped by the surrounding `catch (_) {}`, and every `test.js` calling `iml.mime(...)` failed with `iml.mime is not a function`. Because the skip printed nothing, the failure read as an unfixable local-harness quirk — it was recorded as "pre-existing, passes in CI, ignore it" in an app context file and carried across several reviews (openai-gpt-3 `prepareInputForResponseCall › should handle file prompt input`).
+  - **Loader probes `lib/iml` then `dist/lib/iml`** and normalizes the export shape (bare function, named export, or `default`), so a function that migrates to TypeScript keeps resolving through its compiled output.
+  - **`mime` is implemented in the harness instead of loaded**, mirroring `lib/iml/mime.ts` (`m.getType(file) || undefined`) with `mime` resolved from the runtime's `node_modules`. The checked-in `dist/lib/iml/mime.js` is a stale build that calls `require('mime').getType` directly, which throws `m.getType is not a function` against mime v4's default export — so the dist fallback alone would not have fixed this one.
+  - **Unresolved runtime functions are now reported** (`? {names} unavailable in imt-app-runtime — tests calling them will fail`) rather than swallowed.
+  - Verified: openai-gpt-3 v1 goes 207 pass / 1 fail ? **208 pass / 0 fail**, runtime functions loaded 11 ? 12; anthropic-claude, amazon-bedrock, and aircall stay green.
+
 ## 1.19.0 — 2026-07-30
 
 - **New `skill/scripts/commit-changes.js` — the app change lifecycle is now scriptable.** The skill could read uncommitted changes (`review-changes.js`) but not act on them: committing meant the user switching to the SDK UI and reporting back "????" before `post-review-transition.js` could run. The script wraps all three lifecycle endpoints, verified against `apps-sdk-internal` `src/commands/ChangesCommands.js`: `POST /sdk/apps/{slug}/{version}/commit` (body `{ notify, message, changeIds }`, message 1–1000 chars per `Validator.commitMessage`), `POST .../rollback` (no body, all-or-nothing), `POST .../compile` (polls `compilationError`, since the compile is async in make-apps-processor). Commits **all** pending changes by default; `--change-ids=` takes a subset using the ids from `review-changes.js` output. `notify` defaults to off. Reuses the shared origin resolution, 429 backoff, and `version-guard` of the existing scripts.
