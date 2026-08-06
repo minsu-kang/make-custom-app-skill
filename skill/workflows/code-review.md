@@ -203,7 +203,8 @@ Index of must-read sections by directive:
 | `pagination`                                                                       | § "Pagination"                                                                                                                                                       |
 | `trigger` (id / date / order / type)                                               | § "Polling Triggers" + [`polling-trigger-guide.md`](../references/polling-trigger-guide.md)                                                                          |
 | IML path syntax (`foo[]`, `foo[1]`, `body.results[].field`)                        | § "IML Variable Path Syntax" (1-based indices, single-item unwrap idiom)                                                                                             |
-| `endpoint`, `input`, `pagination.endpoint` / `pagination.input`, `response.unwrap` | § "Inline Endpoint Calls (`api.endpoint`)" (delegation rules, guards, unwrap, validation reality) + [`endpoints-reference.md`](../references/endpoints-reference.md) |
+| `endpoint`, `input`, `pagination.endpoint` / `pagination.input`, `response.unwrap` | § "Inline Endpoint Calls (`api.endpoint`)" (delegation rules, guards, unwrap, validation reality, **static references** since v1.102.3) + [`endpoints-reference.md`](../references/endpoints-reference.md) |
+| `{{internal.*}}`, `flags.exposeInternalProperties`                                 | § "Make-Infrastructure Data (`internal` / `flags.exposeInternalProperties`)" (admin-granted allowlist, enumerated-array requirement, silent degradation)              |
 
 If `runtime-reference.md` does not cover the directive in question, fall back to the `imt-app-runtime` source per `make-app-workflow.md` § During Work. Never flag based on memory alone.
 

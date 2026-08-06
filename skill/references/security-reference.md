@@ -81,6 +81,7 @@ Each finding below maps to a verdict — **Critical** (block merge), **High** (c
 |---|---|---|---|---|
 | 7.1 | H | `{{environment.system.*}}` used without `flags.environmentAccess` note | Developer added `flags: { environmentAccess: true }` to read `process.env.*` — this requires explicit Make approval | Flag in review; confirm the flag is requested intentionally (rarely appropriate for customer apps) |
 | 7.2 | M | IML function exceeds 10s sandbox timeout risk | Synchronous loops > 100k iterations, or recursive JSON walking without depth cap | Add length guard; abort early |
+| 7.3 | H | `{{internal.*}}` read, or `flags.exposeInternalProperties` added | Make-infrastructure data (team identity, ISC service URNs) is admin-granted only, never self-granted by a developer. A non-array grant (`true`) is silently degraded to no access — the app breaks with only a server log | Confirm the grant is admin-approved and enumerated as an array of property paths; see [runtime-reference.md § Make-Infrastructure Data](runtime-reference.md#make-infrastructure-data-internal--flagsexposeinternalproperties) |
 
 ---
 

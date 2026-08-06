@@ -555,13 +555,13 @@ Recurring non-findings on these tickets — do not flag:
 
 ## Inline Endpoint Calls (`api.endpoint`)
 
-Source: `imt-app-runtime` master `lib/core/chainMiddleware/endpoint.ts` + `lib/api/rpc.js` + `lib/types.ts` (verified 2026-07-24). SDK Endpoint entity itself: [endpoints-reference.md](endpoints-reference.md).
+Added in imt-app-runtime **v1.102.0** (2026-07-23, PR #694); reference-resolution changed in **v1.102.3** (2026-07-29, PR #713 — see § "Endpoint references are STATIC" below). Source: `imt-app-runtime` master `lib/core/chainMiddleware/endpoint.ts` + `lib/api/rpc.js` + `lib/types.ts` (verified 2026-08-06). SDK Endpoint entity itself: [endpoints-reference.md](endpoints-reference.md).
 
 A module or RPC `api.imljson` can delegate its HTTP request to a **named sibling Endpoint** instead of making the request itself:
 
 ```json
 {
-	"endpoint": "getDocument", // or { "name": "...", "connection": "{{...}}" }; bare string = { name }
+	"endpoint": "getDocument", // or { "name": "getDocument", "connection": { ... } }; bare string = { name }
 	"input": { "documentId": "{{parameters.docId}}" }, // IML-evaluated against the CALLER's context → becomes the Endpoint's parameters
 	"response": { "output": "{{body}}" }
 }
@@ -571,20 +571,32 @@ The `endpoint()` middleware wraps the HTTP request cluster in every action/searc
 
 ### Rules (each violation throws `InvalidConfigurationError` / `RuntimeError`)
 
-| Rule                             | Detail                                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `endpoint` + `url` forbidden     | Ambiguous (which path makes the request?)                                                         |
-| `endpoint` + `agency` forbidden  | The agency call has already fired by then — error surfaces instead of a silently discarded result |
-| Single object only               | Arrays of endpoint calls rejected — orchestrate multi-call at the module level                    |
-| No nesting                       | An Endpoint may not itself use `api.endpoint` (`endpointExecution` marker guard)                  |
-| Not in triggers/webhook modules  | `rejectUnsupported()` raises a typed error                                                        |
-| Fan-out cap                      | Max **100** inline endpoint calls per top-level execution (`executionFlags.endpointBudget`)       |
-| `endpoint.name` is IML-evaluated | Like `connection`, may be a template string                                                       |
+| Rule                                | Detail                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `endpoint` + `url` forbidden        | Ambiguous (which path makes the request?)                                                         |
+| `endpoint` + `agency` forbidden     | The agency call has already fired by then — error surfaces instead of a silently discarded result |
+| Single object only                  | Arrays of endpoint calls rejected — orchestrate multi-call at the module level                    |
+| No nesting                          | An Endpoint may not itself use `api.endpoint` (`endpointExecution` marker guard)                  |
+| Not in triggers/webhook modules     | `rejectUnsupported()` raises a typed error                                                        |
+| Fan-out cap                         | Max **100** inline endpoint calls per top-level execution (`executionFlags.endpointBudget`)       |
+| `endpoint.name` = plain string      | Not IML-evaluated — see § "Endpoint references are STATIC" below                                  |
+| `endpoint.connection` = object only | A string raises `The 'endpoint.connection' directive must be a connection object; string (IML) values are not supported.` |
+
+### Endpoint references are STATIC (v1.102.3, PR #713)
+
+`endpoint.name` and `endpoint.connection` were IML-evaluated in v1.102.0 and **that evaluation is now disabled**: an Endpoint reference is a *component reference*, not runtime data, so evaluating it at execution time would make cross-component dependencies impossible to analyse statically. Both evaluations are commented out in place in `endpoint.ts` (restorable), not deleted.
+
+Consequences to enforce in review:
+
+- A template `"endpoint": "{{parameters.which}}"` is **not** resolved. It is used verbatim, misses the `app.endpoints` Map lookup, and fails with `Endpoint '{{parameters.which}}' not found.` There is no dedicated template guard — the error is the lookup miss.
+- A string `endpoint.connection` (including a template) is rejected with a typed `InvalidConfigurationError`. Pass a connection-shaped **object** instead. `string` deliberately stays in the type union so raw descriptors carrying one are still caught at runtime.
+- `api.input` / `pagination.input` are **untouched** — they carry runtime data and remain fully IML-evaluated every round.
+- Dynamic Endpoint selection therefore does not exist. A module that needs to choose between Endpoints must branch some other way (separate modules, or one Endpoint that branches internally).
 
 ### Pagination interplay
 
 - Module-level `pagination` IS supported — `api.input` is re-evaluated each round (so `{{pagination.page}}` inside `input` advances).
-- `pagination.endpoint` (object or bare-string shorthand) overrides **which** Endpoint is called from round 2+ — whole-value override, never merged.
+- `pagination.endpoint` (object or bare-string shorthand) overrides **which** Endpoint is called from round 2+ — whole-value override, never merged, and **static** like the base name.
 - `pagination.input` is IML-evaluated independently, then merged with the base input per `mergeWithParent` (default `true`) — mirrors `pagination.qs`/`body` semantics.
 - `pagination.endpoint.connection` is **NOT supported** (base `endpoint.connection` reused every round; rejected loudly).
 
@@ -700,7 +712,7 @@ Internally the engine stringifies `foo[]` as `` foo.`1` `` (the backtick-wrapped
 
 ## Environment Variables
 
-Two separate `environment`-related features exist in the runtime. Do NOT confuse them.
+Two separate `environment`-related features exist in the runtime, plus a third flag-gated context root (`internal`) that is unrelated to either. Do NOT confuse them.
 
 ### Scenario Environment (`environment`)
 
@@ -776,13 +788,57 @@ if (module.flags && module.flags.environmentAccess) {
 - Frozen, non-enumerable, read-only — high security design
 - **NOT related to `{{environment.timezone}}`** — that comes from the scenario environment
 
+### Make-Infrastructure Data (`internal` / `flags.exposeInternalProperties`)
+
+Added in imt-app-runtime **v1.103.0** (2026-08-05, PRs #726 + #727). Source: `buildExposedInternal()` + `buildContext()` in `lib/core/runtime.js`, `APPContext.internal` / `flags.exposeInternalProperties` in `lib/types.ts`; tests: `test/expose-internal-properties.spec.ts`. Property catalog: [Environment Context in App](https://make.atlassian.net/wiki/spaces/IEN/pages/776536116/Environment+Context+in+App).
+
+A **third, separate** flag-gated root — not an `environment` feature despite living next to one. The Engine hands Make-infrastructure data (team identity, ISC service URNs) to the module instance as `internal` (generated by scenario finalization as `internalData`, handed over deep-frozen). Before v1.103.0 the runtime never read it — `buildContext()` builds the IML context from an explicit whitelist that omitted it, so `{{internal}}` always resolved to nothing.
+
+```js
+function buildExposedInternal(instance) {
+	const exposedProperties = instance.flags?.exposeInternalProperties;
+	if (exposedProperties === undefined) return undefined;
+	if (!Array.isArray(exposedProperties)) {
+		console.error(`App ${instance.packageName} has app flag 'exposeInternalProperties' that is not an array: ...`);
+		return undefined; // do NOT fail the execution
+	}
+	const exposedInternal = _.pick(instance.internal, exposedProperties);
+	Object.freeze(exposedInternal); // shallow
+	return exposedInternal;
+}
+```
+
+| Aspect                | Behavior                                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Grant                 | `flags.exposeInternalProperties` — **admin-granted**, a real trust boundary for internal Make apps. An app developer cannot self-grant it. No grant → `{{internal}}` is `undefined`, byte-for-byte as before. |
+| Must be enumerated    | Always an array of property paths. Dot paths supported (`'service.trigger'`); a whole key also works (`'service'` grants everything under it). Strings, numbers, booleans and `null` values all project.       |
+| Malformed grant       | A non-array (e.g. `true` — a wholesale grant) is **refused**: `console.error` once per `runtime.run()`, exposure skipped, **execution keeps running**. Contrast `flags.environmentAccess`, which *throws*.    |
+| Empty grant           | `[]` → `{{internal}}` is `{}` (defined but empty), not `undefined`.                                                                                                                                          |
+| Engine sent nothing   | Older blueprints with no `internalData` → empty projection `{}`, never an error.                                                                                                                              |
+| Freeze                | The projection is **shallow**-frozen. Known limitation: when dot paths are granted, `_.pick()` recreates the intermediate containers and those are not frozen, so an app can add properties to them.          |
+| Custom IML functions  | Also a sandbox **global** named `internal`, fed via the `functionSandbox` of `buildImlFunctions()` — exactly like `environment`. Reachable from both IML templates and app function code (#727).               |
+
+Usage in `api.imljson` once granted:
+
+```json
+{
+	"temp": {
+		"triggerUrn": "{{internal.service.trigger.urn}}",
+		"teamId": "{{internal.team.id}}"
+	}
+}
+```
+
+**Code-review notes.** Treat any `flags.exposeInternalProperties` addition as a permission change, not a code change — it needs admin approval, so confirm the ticket carries it. Flag a boolean/non-array grant: it is silently degraded to no access (only a server log), so the app appears broken with no app-visible error. Flag `{{internal.*}}` reads with no matching grant path for the same reason — they resolve to nothing rather than failing loudly.
+
 ### Quick Reference
 
-| What you need        | IML expression               | Flags required?                                    |
-| -------------------- | ---------------------------- | -------------------------------------------------- |
-| Scenario timezone    | `{{environment.timezone}}`   | No                                                 |
-| Scenario debug mode  | `{{environment.debug}}`      | No                                                 |
-| Server env var `FOO` | `{{environment.system.FOO}}` | Yes — `flags.environmentAccess: ["FOO"]` in common |
+| What you need              | IML expression                       | Flags required?                                                      |
+| -------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Scenario timezone          | `{{environment.timezone}}`           | No                                                                   |
+| Scenario debug mode        | `{{environment.debug}}`              | No                                                                   |
+| Server env var `FOO`       | `{{environment.system.FOO}}`         | Yes — `flags.environmentAccess: ["FOO"]` in common                   |
+| Team id / ISC service URNs | `{{internal.service.trigger.urn}}`   | Yes — `flags.exposeInternalProperties: ["service.trigger"]`, **admin-granted** |
 
 ## OAuth Connection Variables
 
