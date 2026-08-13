@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.1 — 2026-08-13
+
+- **New `component-patterns-reference.md` — "Connection Ownership — Instant Trigger Modules Have None (the Webhook Does)" — Instant Trigger modules (type_id 10) were undocumented as having no connection configuration of their own.** A code review on IEN-16374 (greenhouse v2) flagged 5 Watch modules as "missing" the new connection's `attached_accounts`, based on the SDK-entity field alone — but per Make's official docs, an Instant Trigger module has nothing to configure except its interface; the connection lives on the webhook it's linked to. All 5 modules had an empty `api.imljson` (`{}`, no communication, so `{{connection.*}}` is never read), and their paired webhooks already carried the new connection — the module-level flag was a false positive.
+  - Added a matching "Never assume or guess" entry to `code-review-criteria.md`: check the paired webhook's `attached_accounts`, not the typeId-10 module's, before flagging a missing connection rollout — and check the module's `api.imljson` first, since the module-level field only has runtime effect when its optional communication actually references `{{connection.*}}`.
+
 ## 1.20.0 — 2026-08-06
 
 - **New `runtime-reference.md` § "Make-Infrastructure Data (`internal` / `flags.exposeInternalProperties`)" — the `{{internal.*}}` IML root was entirely undocumented.** Added in imt-app-runtime v1.103.0 (PRs #726 + #727), it is a third flag-gated context root alongside `environment` and `environment.system`, carrying Engine-supplied Make-infrastructure data (team identity, ISC service URNs) that `buildContext()` previously never read. Documents the admin-granted `flags.exposeInternalProperties` allowlist (enumerated array of property paths, dot paths supported), the shallow freeze and its `_.pick()` intermediate-container limitation, and that the projection is also a sandbox global reachable from custom IML functions. Verified against `lib/core/runtime.js` `buildExposedInternal()` and `test/expose-internal-properties.spec.ts`.
