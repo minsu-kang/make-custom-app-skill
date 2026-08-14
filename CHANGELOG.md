@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.20.2 — 2026-08-14
+
+- **`runtime-reference.md` + `code-review-criteria.md` — "Verifying the real grant" for `flags.exposeInternalProperties` — a `{{internal.*}}` review flag no longer has to end at "unconfirmed, ask admin."** A code review on IEN-16353 (gemini-ai v1) was about to leave `internal.organization.customApps.enableExpensiveModels` as an unverifiable "needs admin confirmation" item, even though the app's actual grant is one API call away: `GET /sdk/apps/{slug}/{version}?cols[]=flags` with the configured `make-api-key` returns the real `flags` object. Cross-referencing the returned array against the whole-key-grant rule (already documented, now with a concrete worked example) settled the question immediately — `exposeInternalProperties: ["organization"]` already covers `organization.customApps.*`, no new permission needed.
+    - Both references now say: only report "could not verify" when the API call itself fails (e.g. no admin scope) — never as a default fallback when the call was simply not attempted.
+
 ## 1.20.1 — 2026-08-13
 
 - **New `component-patterns-reference.md` — "Connection Ownership — Instant Trigger Modules Have None (the Webhook Does)" — Instant Trigger modules (type_id 10) were undocumented as having no connection configuration of their own.** A code review on IEN-16374 (greenhouse v2) flagged 5 Watch modules as "missing" the new connection's `attached_accounts`, based on the SDK-entity field alone — but per Make's official docs, an Instant Trigger module has nothing to configure except its interface; the connection lives on the webhook it's linked to. All 5 modules had an empty `api.imljson` (`{}`, no communication, so `{{connection.*}}` is never read), and their paired webhooks already carried the new connection — the module-level flag was a false positive.

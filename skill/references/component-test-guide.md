@@ -136,7 +136,24 @@ capture(parameters, communications, output, data, common, metadata, environment,
 | `common` | Shared module data (usually `{}`) |
 | `metadata` | `{ expect: [] }` in current tests |
 | `environment` | Scenario environment (usually `{}`) |
-| `options` | Extra options — e.g., `{ payload: {...} }` for instant trigger gateway simulation |
+| `options` | Extra options — e.g., `{ payload: {...} }` for instant trigger gateway simulation, `{ fixedNow: '...' }` to freeze the clock, or `{ internal: {...}, flags: { exposeInternalProperties: [...] } }` to mock `{{internal.*}}` (see below) |
+
+### Mocking `{{internal.*}}` (Make-Infrastructure Data)
+
+When component code — or a custom IML function it calls — reads `{{internal.*}}` (imt-app-runtime >= 1.103.0, admin-granted allowlist; see [runtime-reference.md § Make-Infrastructure Data](runtime-reference.md#make-infrastructure-data-internal--flagsexposeinternalproperties)), set **both** `options.internal` (the mock data) and `options.flags.exposeInternalProperties` (the mock grant) — `internal` alone has no effect without a matching grant path, exactly mirroring real runtime behavior:
+
+```js
+it('Module: simpleTextPrompt - unrestricted org', () => {
+    const parameters = { __IMTCONN__: {}, model: 'gemini-3-flash-preview', textPrompt: 'Hi' };
+    const options = {
+        internal: { organization: { customApps: { enableExpensiveModels: true } } },
+        flags: { exposeInternalProperties: ['organization'] },
+    };
+    capture(parameters, communications, output, data, common, metadata, environment, options);
+});
+```
+
+Before writing a test that depends on `internal.*`, verify the app's **actual** granted paths via `GET /sdk/apps/{slug}/{version}?cols[]=flags` (see `runtime-reference.md`) so the mock matches production, not a guess.
 
 ### Test Patterns by Component Type
 

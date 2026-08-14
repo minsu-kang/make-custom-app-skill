@@ -831,6 +831,16 @@ Usage in `api.imljson` once granted:
 
 **Code-review notes.** Treat any `flags.exposeInternalProperties` addition as a permission change, not a code change — it needs admin approval, so confirm the ticket carries it. Flag a boolean/non-array grant: it is silently degraded to no access (only a server log), so the app appears broken with no app-visible error. Flag `{{internal.*}}` reads with no matching grant path for the same reason — they resolve to nothing rather than failing loudly.
 
+**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured `make-api-key`:
+
+```bash
+curl -s "{make-api-url}/sdk/apps/{slug}/{version}?cols[]=flags" \
+  -H "Authorization: Token {make-api-key}"
+# → { "app": { "flags": { "exposeInternalProperties": ["organization"], ... } } }
+```
+
+(`{make-api-url}` / `{make-api-key}` come from the last lines of `SKILL.md`; same admin API the skill scripts already use.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
+
 ### Quick Reference
 
 | What you need              | IML expression                       | Flags required?                                                      |
