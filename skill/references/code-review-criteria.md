@@ -131,6 +131,19 @@ See [runtime-reference.md § IML Variable Path Syntax](runtime-reference.md#iml-
 
 Full mechanism, including how the active scope set is composed at OAuth `authorize` time (connection scope ∪ triggering module's scope ∪ user's `additionalScopes`), in [component-patterns-reference.md § "OAuth Scope Files"](component-patterns-reference.md#oauth-scope-files--scopeimljson-vs-scopesimljson).
 
+### OAuth2 `authorize.qs` missing `state` (Do NOT flag)
+
+OAuth2 CSRF `state` is **not** an app-authored IML field. `app-runtime-oauth2` `authorize()` always overwrites `qs.state` with `crypto.randomBytes(12).toString('hex')` after the IML transform, then stores it and validates it on callback. `{{oauth.state}}` does **not** exist on the IML context (`oauth` is the redirects object only).
+
+| Pattern | Verdict | Why |
+|---|---|---|
+| `authorize.qs` has no `state` | **Correct** | Runtime injects and validates `state`. Do not flag. |
+| `"state": "{{oauth.state}}"` in `authorize.qs` | **Dead code** | `oauth.state` is undefined; runtime overwrites `qs.state` anyway. Do not ask the developer to add it. Do not flag as a missing-security bug if it is absent. |
+
+**Do NOT** cite `[SECURITY][2.2]` as a High finding for a missing `state` key. That ID is a documented false-positive trap, not a verdict.
+
+Full mechanism: [runtime-reference.md § OAuth Connection Variables](runtime-reference.md#oauth-connection-variables) and [security-reference.md](security-reference.md) § 2.2.
+
 ---
 
 ## Test Coverage Enforcement (Mandatory for `functions/*/code.js`)

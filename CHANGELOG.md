@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.20.3 — 2026-08-26
+
+- **OAuth2 CSRF `state` is runtime-injected — do not flag a missing `state` key in `authorize.qs`.** `[SECURITY][2.2]` told reviewers to add `"state": "{{oauth.state}}"`. That IML variable does not exist (`oauth` is the redirects object only). After IML transform, `app-runtime-oauth2` `authorize()` always overwrites `qs.state` with `crypto.randomBytes(12)` and validates it on callback. Omitting `state` from the app's authorize qs is correct.
+  - `security-reference.md` 2.2 is now a documented false-positive trap (`—`, not High).
+  - `runtime-reference.md` drops the `{{oauth.state}}` row and describes the runtime injection.
+  - `code-review-criteria.md` Out of Scope: do not flag missing `authorize.qs.state`.
+
 ## 1.20.2 — 2026-08-14
 
 - **`runtime-reference.md` + `code-review-criteria.md` — "Verifying the real grant" for `flags.exposeInternalProperties` — a `{{internal.*}}` review flag no longer has to end at "unconfirmed, ask admin."** A code review on IEN-16353 (gemini-ai v1) was about to leave `internal.organization.customApps.enableExpensiveModels` as an unverifiable "needs admin confirmation" item, even though the app's actual grant is one API call away: `GET /sdk/apps/{slug}/{version}?cols[]=flags` with the configured `make-api-key` returns the real `flags` object. Cross-referencing the returned array against the whole-key-grant rule (already documented, now with a concrete worked example) settled the question immediately — `exposeInternalProperties: ["organization"]` already covers `organization.customApps.*`, no new permission needed.

@@ -2,7 +2,7 @@
 
 Authoritative security checklist for Make custom app code review. This file is the **single source of truth** for security review; `code-review-criteria.md` only links here. Scope covers IMLJSON (`api.imljson`, `parameters.imljson`, `samples.imljson`, `interface.imljson`, connection `install*`/`common`/`scope*`) and `functions/*/code.js`.
 
-Each finding below maps to a verdict — **Critical** (block merge), **High** (changes requested), **Medium** (improvement). Severity column uses `C` / `H` / `M`.
+Each finding below maps to a verdict — **Critical** (block merge), **High** (changes requested), **Medium** (improvement). Severity column uses `C` / `H` / `M`. `—` means **not a finding** — the row exists so reviewers do not raise a documented false positive.
 
 ---
 
@@ -25,7 +25,7 @@ Each finding below maps to a verdict — **Critical** (block merge), **High** (c
 | # | Severity | Check | Red Flag | Fix |
 |---|---|---|---|---|
 | 2.1 | C | `installSpec.imljson` + `install.imljson` missing while `api.imljson` references `common.*` | OAuth2 connection using `{{ifempty(parameters.clientId, common.clientId)}}` but `installSpec.imljson = []` and `install.imljson = {}` | See `component-patterns-reference.md` § "OAuth2 Connection with Common Fallback" and `code-review-criteria.md` § "Connection install + installSpec Verification" |
-| 2.2 | H | Missing `state` parameter in authorize URL | `authorize.imljson` builds `url` without `state` | Add `"state": "{{oauth.state}}"` — runtime injects CSRF-safe state and validates on callback |
+| 2.2 | — | OAuth2 CSRF `state` (runtime-injected) | `authorize.qs` omits `state`, or a reviewer wants `"state": "{{oauth.state}}"` added | **Do not flag. Do not add.** After IML transform, `app-runtime-oauth2` `authorize()` always overwrites `options.qs.state` with `crypto.randomBytes(12).toString('hex')`, stores it via `IMTOAuthAccount.createToken`, and the callback reads `request.query.state`. `{{oauth.state}}` is **not** an IML variable (`oauth` is the redirects object only). Any IML `qs.state` is discarded. See [runtime-reference.md § OAuth Connection Variables](runtime-reference.md#oauth-connection-variables). |
 | 2.3 | H | Wildcard/overbroad scope | Scope string like `admin`, `*`, or one scope union that covers multiple modules regardless of user intent | Request the minimum scope each module needs. For apps with per-module scope, define `scope.imljson` + `scopes.imljson` |
 | 2.4 | H | `refresh_token` logged / echoed | `response.output`, `response.temp`, or error message references `body.refresh_token` outside of `connection.refreshToken` assignment in `token.imljson` / `refresh.imljson` | Keep `refresh_token` strictly inside connection storage; never surface to module output |
 | 2.5 | M | `redirect_uri` hardcoded or pinned to a single host | `authorize.imljson` / `token.imljson` sets `redirect_uri` to a developer-controlled URL, or uses `{{oauth.redirectUri}}` (integromat.com-only legacy) / `{{oauth.makeRedirectUri}}` (make.com-only) instead of the host-aware variant | Use `{{oauth.localRedirectUri}}` in **both** `authorize.qs.redirect_uri` **and** `token.body.redirect_uri` (must match per RFC 6749 § 4.1.3). It resolves to the running instance's host so the connection works on Make-hosted **and** self-hosted deployments. See `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" for the full variable table. |
