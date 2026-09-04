@@ -36,7 +36,17 @@ Markdown document served to AI callers. Frontmatter carries `name` and `descript
 
 ### `annotations`
 
-MCP-style hints on the endpoint entity: `readOnlyHint`, `openWorldHint`, `idempotentHint`, `destructiveHint`. May be an empty object `{}` when the developer hasn't set them (observed on google-docs `batchUpdateDocument`/`createDocument`; only `getDocument` had them set). Missing annotations on a read-only or destructive endpoint are a legitimate review Improvement.
+MCP-style hints on the endpoint entity:
+
+| Annotation | Description |
+|---|---|
+| `readOnlyHint` | If `true`, the endpoint does not modify its environment. |
+| `destructiveHint` | If `true`, the endpoint may perform destructive updates (meaningful only when `readOnlyHint` is `false`). |
+| `idempotentHint` | If `true`, repeated calls with the same arguments have no additional effect. |
+| `openWorldHint` | If `true`, the endpoint may interact with an "open world" of external entities. |
+| `arbitraryCallHint` | If `true`, the endpoint is not scoped to a single route — it accepts an arbitrary call (method, path, query, headers, body) against the app's API. **Mandatory** for every `arbitraryCall` endpoint (platform support live since 2026-09-01). |
+
+May be an empty object `{}` when the developer hasn't set them (observed on google-docs `batchUpdateDocument`/`createDocument`; only `getDocument` had them set). Missing annotations on a read-only or destructive endpoint are a legitimate review Improvement. Missing `arbitraryCallHint` on an `arbitraryCall` endpoint is a review Bug.
 
 ## SDK Admin API Surface
 
@@ -100,10 +110,110 @@ Endpoint-specific response behavior:
 - **`condition` cannot implement validation** — `condition()` IS part of the ExecuteRpc chain, but its falsy path ends the chain returning `condition.default` **as output data** (or `false`); it cannot raise a typed error (source: `lib/core/middleware/condition.js`). IEN-16076 field-tested it as a required-field guard: not viable. Do not suggest `condition` for endpoint-level validation.
 - **No nested endpoint calls** — an Endpoint's own `api` may not use the `api.endpoint` directive (`InvalidConfigurationError`).
 
+## Pure API Wrapper Principle
+
+Endpoints are **atomic wrappers around a third-party API** — they must not apply transformations beyond what is necessary for structural correctness. This is a core design principle that distinguishes endpoints from modules (which may transform, augment, and combine API responses).
+
+### What this means in practice
+
+| Aspect | Correct | Incorrect |
+|---|---|---|
+| **Response output** | `"output": "{{body}}"` or `"output": "{{body.items}}"` — raw API response | Applying IML functions to reshape, rename, or filter output fields |
+| **Input body** | Pass parameters directly to the API body | Adding computed fields, merging data from other calls, reformatting dates |
+| **Input schema** | Match the third-party API's parameter names, types, and structure | Renaming API parameters, adding convenience aliases, splitting/combining fields |
+| **Output schema** | Document the full API resource as the third-party API returns it | Omitting fields, renaming fields, flattening nested structures |
+
+### Allowed minimal transformations
+
+Some structural transformations are acceptable to ensure clean API requests:
+
+- **`stripEmpty()`** — a custom IML function that recursively removes `null`, `undefined`, empty strings, empty objects `{}`, and empty arrays `[]` from the request body. Required for PATCH endpoints and complex POST bodies where empty optional collections would cause `400 Bad Request` errors. Example: `"body": "{{stripEmpty(omit(parameters, 'calendarId', 'sendUpdates'))}}"` (Google Calendar `createEvent`/`updateEvent`).
+- **`omit()`** — to remove URL path parameters and query-string-only parameters from the body: `omit(parameters, 'calendarId', 'sendUpdates')`.
+- **`encodeURL()`** — for path parameters: `"/calendars/{{encodeURL(parameters.calendarId)}}/events"` with `"encodeUrl": false` on the api block to prevent double encoding.
+- **`ifempty()` / `if(length())`** — for simple PATCH bodies where `stripEmpty` is overkill: wrap optional scalar fields with `{{ifempty(parameters.field, undefined)}}` and optional arrays with `{{if(length(parameters.field), parameters.field, undefined)}}` (because `ifempty` does not treat `[]` as empty).
+
+### What is NOT allowed
+
+- Custom IML functions that reshape output (e.g., `sortEventFields()`, `formatResponse()`)
+- Extra API calls to augment the response (e.g., fetching text content via Drive API for a Docs endpoint — IEN-16077)
+- Date formatting functions (e.g., `dateParameter()`, `formatDate()`) — use the Make `date` type and let the platform handle serialization, or pass raw strings
+- Field renaming or aliasing between input parameters and API body keys
+
 ## Input/Output Schemas (Forman)
 
 - Same parameter spec format as module `expect.imljson` (name/type/label/required/default/help/options/nested/spec). Deeply nested `select` + `nested` structures work (observed: `batchUpdateDocument` request-type picker).
 - **`output_parameters` must document the full actual output.** When `response.output` is `{{body}}` passthrough, the declared schema must cover the whole API resource (IEN-16078 — createDocument was expanded from 3 fields to the full ~288 KB Document resource schema). AI callers rely on the declared schema, not the raw response.
+
+### Mandatory `help` Text
+
+**Every** input and output parameter must have a descriptive `help` text — no parameter may be left without `help`. This applies to:
+
+- Top-level parameters
+- Nested fields inside `collection` specs
+- Array item specs (the `spec` object itself and its nested fields)
+- Fields at any nesting depth
+
+**Exceptions** where `help` is not required:
+- `select` `options` entries (the `label` is self-explanatory)
+- The `labels` object (e.g., `"labels": { "add": "Add header" }`)
+
+### Parameter Type Accuracy
+
+Use the most specific type available — do not default to `text` for everything:
+
+| Data | Correct type | Wrong |
+|---|---|---|
+| Email address | `email` | `text` |
+| Date/datetime (RFC3339, ISO 8601) | `date` | `text` |
+| URL / link | `url` | `text` |
+| True/false flag | `boolean` | `text` |
+| Numeric value | `number` or `uinteger` | `text` |
+| Fixed set of values (enum) | `select` (with `options`) | `text` |
+| Fixed set, multiple allowed | `select` with `multiple: true` | `text` or `array` of `text` |
+
+### Array and Collection Spec Structure
+
+Arrays of **objects** (key-value items) must use the nested collection wrapper:
+
+```json
+{
+    "name": "attendees",
+    "type": "array",
+    "label": "Attendees",
+    "help": "The attendees of the event.",
+    "spec": {
+        "type": "collection",
+        "label": "Attendee",
+        "help": "An event attendee.",
+        "spec": [
+            { "name": "email", "type": "email", "label": "Email", "help": "The attendee's email address." },
+            { "name": "optional", "type": "boolean", "label": "Optional", "help": "Whether this is an optional attendee." }
+        ]
+    }
+}
+```
+
+Arrays of **primitives** (strings, numbers) use a flat spec object:
+
+```json
+{
+    "name": "recurrence",
+    "type": "array",
+    "label": "Recurrence",
+    "help": "List of RRULE, EXRULE, RDATE, and EXDATE lines for a recurring event, as specified in RFC5545.",
+    "spec": { "type": "text", "label": "Value" }
+}
+```
+
+⚠️ Do **not** nest `spec` inside `spec` for primitive arrays — `spec: { type: "text", spec: [...] }` is invalid.
+
+### Other Schema Conventions
+
+- **`required: false`** is the default — do not include it. Only specify `required: true` where the API genuinely requires the field.
+- **`validate`** directive for min/max constraints: `"validate": { "min": 0, "max": 1 }`.
+- **List endpoint parameter order**: place filtering/search parameters first, followed by ordering/pagination/sync parameters (e.g., `pageToken`, `maxResults`, `orderBy`, `syncToken`) at the end.
+- **Nested `required` in optional collections**: if a parent collection is optional but its child field is required *when the collection is present*, prefer removing `required` from the child and adding a help note like `"Required when {parent} is provided."` — otherwise the UI forces users to fill in the child even when they don't want the parent at all.
+- **PATCH endpoint context**: always include a note advising AI callers to perform a GET first to retrieve current values, since omitted fields may be cleared.
 
 ## Runtime Validation Caveats (critical — verified IEN-16076 / IEN-16082)
 
@@ -132,11 +242,207 @@ All skill scripts handle endpoints:
 | `delete-component.js` | `endpoint` type — `DELETE .../endpoints/{name}` (public-app deletability left to the server) |
 | `test-component.js` | ❌ Not supported — endpoints run only via MCP `endpoint_execute` or platform Run Endpoint |
 
+## Arbitrary Call Endpoint
+
+The **Arbitrary Call** endpoint is a standardized passthrough that reproduces an app's _Make an API Call_ module at the Endpoint component level. It is **not** decomposed into per-operation Endpoints; it is a single generic endpoint that accepts an arbitrary path, HTTP method, headers, query string, and body against the app's API.
+
+### When to Create
+
+Every app that has a "Make an API Call" (or similarly named) module should also have an `arbitraryCall` endpoint. This is mandated by [IEN-15910](https://make.atlassian.net/browse/IEN-15910) § Acceptance — Arbitrary call endpoint.
+
+### Naming & Annotations
+
+| Field | Value |
+|---|---|
+| `name` | `arbitraryCall` |
+| `label` | `Arbitrary call` |
+| `description` | `Performs an arbitrary authorized API call.` |
+| `annotations` | `{ "readOnlyHint": false, "openWorldHint": false, "idempotentHint": false, "destructiveHint": false, "arbitraryCallHint": true }` |
+
+The `arbitraryCallHint` annotation is **mandatory** (platform support live since 2026-09-01). It signals that the endpoint is not scoped to a single route.
+
+### Derivation Steps (from Source Module)
+
+To create an `arbitraryCall` endpoint for an app, derive everything from its existing _Make an API Call_ module:
+
+1. **Fetch the source module** — typically named `makeAnApiCall` or `makeApiCall`. Read its `api.imljson`, `expect.imljson`, and `scope.imljson`.
+2. **Extract the base URL** — from the module's `api.url` pattern. Examples:
+   - `"url": "https://gmail.googleapis.com/gmail/{{parameters.url}}"` → base is `https://gmail.googleapis.com/gmail/`
+   - `"url": "https://slides.googleapis.com/{{parameters.url}}"` → base is `https://slides.googleapis.com/`
+   - `"url": "https://www.googleapis.com/calendar/{{parameters.url}}"` → base is `https://www.googleapis.com/calendar/`
+3. **Extract the connection** — from `attachedAccounts` or `connection` on the module. This becomes the endpoint's `attachedAccounts` array.
+4. **Extract the scope** — from the module's `scope.imljson`. Often empty `[]` but some apps require specific scopes. **Must be transferred as-is.**
+5. **Check `base.imljson`** — the app's base config may inject additional auth (e.g., Gemini adds `qs.key` and `headers.x-goog-api-key` from the base). These are merged automatically at runtime — no need to duplicate them in the endpoint, but worth noting in the context.
+6. **Check for extra `api.imljson` logic** — the source module's `api.imljson` may contain additional directives beyond the standard passthrough:
+   - Custom error handling (`response.error`)
+   - Additional query string params (e.g., API versioning)
+   - `type` overrides (e.g., `"type": "text"`)
+   - **Transfer any non-standard logic** that affects the API call behavior.
+
+### Standard Template
+
+#### `api.imljson`
+
+```json
+{
+    "url": "<BASE_URL>{{parameters.url}}",
+    "method": "{{parameters.method}}",
+    "headers": {
+        "{{...}}": "{{toCollection(parameters.headers, 'key', 'value')}}"
+    },
+    "qs": {
+        "{{...}}": "{{toCollection(parameters.qs, 'key', 'value')}}"
+    },
+    "body": "{{parameters.body}}",
+    "type": "text",
+    "response": {
+        "output": {
+            "body": "{{body}}",
+            "headers": "{{headers}}",
+            "statusCode": "{{statusCode}}"
+        }
+    }
+}
+```
+
+#### `input_parameters.imljson`
+
+```json
+[
+    {
+        "name": "url",
+        "type": "text",
+        "label": "URL",
+        "help": "Enter the part of the URL that comes after `<BASE_URL>`. For example, `<EXAMPLE_PATH>`.",
+        "required": true
+    },
+    {
+        "name": "method",
+        "type": "select",
+        "label": "Method",
+        "required": true,
+        "default": "GET",
+        "help": "The HTTP request method.",
+        "options": [
+            { "label": "GET", "value": "GET" },
+            { "label": "POST", "value": "POST" },
+            { "label": "PUT", "value": "PUT" },
+            { "label": "PATCH", "value": "PATCH" },
+            { "label": "DELETE", "value": "DELETE" }
+        ]
+    },
+    {
+        "name": "headers",
+        "label": "Headers",
+        "help": "The HTTP request headers. You don't have to add authorization headers; we already did that for you.",
+        "type": "array",
+        "spec": {
+            "type": "collection",
+            "label": "Header",
+            "help": "The HTTP request header.",
+            "spec": [
+                { "name": "key", "label": "Key", "type": "text", "help": "The HTTP request header key." },
+                { "name": "value", "label": "Value", "type": "text", "help": "The HTTP request header value." }
+            ]
+        },
+        "default": [{ "key": "Content-Type", "value": "application/json" }],
+        "labels": { "add": "Add header" }
+    },
+    {
+        "name": "qs",
+        "label": "Query String",
+        "type": "array",
+        "help": "The HTTP request query parameters.",
+        "spec": {
+            "type": "collection",
+            "label": "Query Parameter",
+            "help": "The HTTP request query parameter.",
+            "spec": [
+                { "name": "key", "label": "Key", "type": "text", "help": "The HTTP request query parameter's key." },
+                { "name": "value", "label": "Value", "type": "text", "help": "The HTTP request query parameter's value." }
+            ]
+        },
+        "labels": { "add": "Add query parameter" }
+    },
+    {
+        "name": "body",
+        "label": "Body",
+        "type": "any",
+        "help": "The HTTP request body. This input will be ignored if the HTTP request method is `GET`."
+    }
+]
+```
+
+#### `output_parameters.imljson`
+
+```json
+[
+    { "name": "body", "type": "any", "label": "Body", "help": "The HTTP response body." },
+    { "name": "headers", "type": "collection", "label": "Headers", "help": "The HTTP response headers." },
+    { "name": "statusCode", "type": "number", "label": "Status code", "help": "The HTTP response status code." }
+]
+```
+
+#### `context.md`
+
+```markdown
+---
+name: arbitraryCall
+description: Performs an arbitrary authorized API call.
+---
+
+This Endpoint is not scoped to a single route — it forwards an arbitrary call (method, path, query string,
+headers and body) to the <APP_NAME> API, mirroring the "Make an API Call" module.
+
+The base URL is `<BASE_URL>`. Provide the remaining path in the URL parameter
+(e.g. `<EXAMPLE_PATH>`). Authentication is handled automatically via the app's connection.
+
+Refer to the [<APP_NAME> API reference](<API_DOCS_URL>) for available
+endpoints, required parameters, and response schemas.
+```
+
+### Mandatory Checklist
+
+- [ ] `arbitraryCallHint: true` annotation set
+- [ ] `help` on **every** input and output parameter (no parameter without `help`)
+- [ ] `scope` transferred from the source module's `scope.imljson`
+- [ ] `attachedAccounts` set to the app's connection
+- [ ] `context` set with YAML frontmatter (`name`, `description`) and descriptive body
+- [ ] URL example in both `help` text and `context` uses a simple GET path (ideally parameter-free, e.g., `/v1/models`, `/v1/users/me/calendarList`)
+- [ ] API docs URL included in `context`
+- [ ] Endpoint toggled **public** (visible) after creation
+
+### Known Gotchas
+
+| Issue | Detail |
+|---|---|
+| **CREATE doesn't apply `context` or `annotations`** | The `POST /endpoints` (or MCP `custom-apps_endpoints-configure` with `mode: CREATE`) ignores `context` and `annotations` fields. Always follow up with a separate `UPDATE` call to set them. |
+| **Module `expect` vs endpoint `inputParameters` format** | Source modules may use a flat `spec: [...]` array for headers/qs items. Endpoints must use the nested `{ type: "collection", spec: [...] }` wrapper with `help` on every nested field. |
+| **RPC references stripped** | Module `expect` may include `"rpc://someRpc"` entries (e.g., hint messages). These do not apply to endpoints — omit them entirely. |
+| **Base auth merging** | Apps that inject auth via `base.imljson` `qs` or `headers` (e.g., Gemini's `qs.key`) — these merge automatically at runtime. Do not duplicate them in the endpoint's `api.imljson`. |
+| **`public: false` after creation** | New endpoints are created with `public: false` (not visible). Must be toggled to `public: true` manually or via `POST .../endpoints/{name}/public`. |
+
+### Reference Implementations
+
+| App | Slug / Version | Base URL | Jira |
+|---|---|---|---|
+| Google Calendar | `google-calendar` v5 | `https://www.googleapis.com/calendar/` | [IEN-16255](https://make.atlassian.net/browse/IEN-16255) |
+| Gmail | `google-email` v4 | `https://gmail.googleapis.com/gmail/` | [IEN-16458](https://make.atlassian.net/browse/IEN-16458) |
+| Google Gemini AI | `gemini-ai` v1 | `https://generativelanguage.googleapis.com` | [IEN-16471](https://make.atlassian.net/browse/IEN-16471) |
+| Google Slides | `google-slides` v1 | `https://slides.googleapis.com/` | [IEN-16483](https://make.atlassian.net/browse/IEN-16483) |
+
 ## Code Review Guidance for Endpoint Changes
 
 - Changes surface as `endpoint/{name}/{code}` with codes `api`, `input_parameters`, `output_parameters`, `context` (and potentially `scope`).
 - **Breaking Changes: skip.** Endpoints cannot run in scenarios, so no existing scenario mappings can break. State the skip reason as usual. (A shared custom IML function edited for an endpoint CAN still break modules that reuse it — evaluate that under the function change, e.g. IEN-16083 `getDocumentResponse`.)
 - The Runtime Reference hard gate applies to endpoint `api` changes the same as module/RPC `api` changes.
+- **Pure API wrapper check**: verify the endpoint does not apply output transformations or unnecessary input transformations (see § Pure API Wrapper Principle). Structural cleanups like `stripEmpty()` and `omit()` are acceptable; data transformations are not.
 - Verify `output_parameters` ↔ `response.output` shape consistency (IEN-16078 class).
+- **Mandatory `help` check**: every input and output parameter — including nested fields inside collections and array specs — must have a `help` text. Missing `help` is a review Bug.
 - Verify `context.md` accuracy against actual behavior — it is AI-caller documentation.
-- Check `annotations` on new endpoints (read-only/destructive hints) and `scope` matches the API call's minimal OAuth scope.
+- Check `annotations` on new endpoints:
+  - Read-only/destructive/idempotent hints should accurately reflect the API operation.
+  - `arbitraryCallHint: true` is **mandatory** on every `arbitraryCall` endpoint — missing is a review Bug.
+  - All non-`arbitraryCall` endpoints should have `arbitraryCallHint: false` (or absent).
+- `scope` matches the API call's minimal OAuth scope.
+- **Parameter type accuracy**: check that `email`, `date`, `url`, `select` types are used where appropriate instead of generic `text` (see § Parameter Type Accuracy).
