@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 1.20.3
+version: 1.21.0
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -84,6 +84,7 @@ When one of the following triggers is detected, read the corresponding workflow 
 | User reports a bug or asks to investigate an error | [bug-investigation.md](workflows/bug-investigation.md) | Root cause analysis, fix, verify, developer notes |
 | User requests a new feature or new component for a Make app | [feature-request.md](workflows/feature-request.md) | Design, create, implement new components |
 | User requests app maintenance, UX updates, refactoring, or cleanup | [app-task.md](workflows/app-task.md) | Metadata changes, UX fixes, refactoring, deprecation |
+| User asks to create an SDK Endpoint (Arbitrary Call or regular typed endpoint) for a Make app, or Jira ticket describes adding an endpoint | [create-endpoint.md](workflows/create-endpoint.md) | Create Arbitrary Call or regular endpoints, derive from source module, set annotations and context |
 | User shares a `Preparation`-status Jira ticket, or asks for task refinement / investigation / feasibility check. **Mandatory auto-trigger**: message contains Jira URL + inline app slug (± version) + ticket status `Preparation` → always this workflow, no confirmation. | [task-refinement.md](workflows/task-refinement.md) | Read ticket + app + references + API docs, decide feasibility, draft implementation plan, highlight breaking changes, optionally create `Investigation` subtask |
 | After context file create/update, Jira work, or code review | [pinecone-sync.md](workflows/pinecone-sync.md) | Auto-sync context to shared Pinecone vector DB |
 

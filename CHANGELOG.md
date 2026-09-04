@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.21.0 — 2026-09-04
+
+- **New `endpoints-reference.md` § "Pure API Wrapper Principle"** — core design principle for endpoints: no output transformations, minimal input transformations (`stripEmpty()`, `omit()`, `encodeURL()`), input/output schemas must match the third-party API as closely as possible. Documents allowed vs disallowed transformation patterns with concrete examples from Google Calendar (IEN-16255).
+- **New `endpoints-reference.md` § "Arbitrary Call Endpoint"** — full standardized template and derivation workflow for creating `arbitraryCall` endpoints from an app's existing "Make an API Call" module. Includes naming/annotations, 6-step derivation process, standard templates (api, inputParameters, outputParameters, context.md), mandatory checklist, known gotchas (CREATE ignoring context/annotations, module expect vs endpoint inputParameters format, RPC references, base auth merging, public flag). Reference implementations: Google Calendar, Gmail, Gemini AI, Google Slides.
+- **Expanded `endpoints-reference.md` § "annotations"** — full table listing all 5 annotation types including the new `arbitraryCallHint` (mandatory for `arbitraryCall` endpoints, platform support live since 2026-09-01). Missing `arbitraryCallHint` on an `arbitraryCall` endpoint is a review Bug.
+- **New `endpoints-reference.md` § "Mandatory help Text"** — every input and output parameter at any nesting depth must have `help`. Exceptions: `select` options entries and `labels` objects.
+- **New `endpoints-reference.md` § "Parameter Type Accuracy"** — use the most specific Forman type (`email`, `date`, `url`, `select`, `boolean`, `number`) instead of defaulting to `text`.
+- **New `endpoints-reference.md` § "Array and Collection Spec Structure"** — correct patterns for object arrays (nested `collection` wrapper) vs primitive arrays (flat `spec` object), with anti-pattern warning.
+- **New `endpoints-reference.md` § "Other Schema Conventions"** — `required: false` redundancy, `validate` directive, list endpoint parameter ordering, nested required in optional collections, PATCH context notes.
+- **Expanded `endpoints-reference.md` § "Code Review Guidance"** — added checks for: pure API wrapper compliance, mandatory `help`, `arbitraryCallHint`, parameter type accuracy.
+- **New workflow `create-endpoint.md`** — step-by-step workflow for creating both Arbitrary Call and Regular endpoints, with cross-references to reference sections. Includes "Updating Existing Endpoints" guidance.
+- **Updated `SKILL.md` workflows table** — new trigger row for endpoint creation.
+
 ## 1.20.3 — 2026-08-26
 
 - **OAuth2 CSRF `state` is runtime-injected — do not flag a missing `state` key in `authorize.qs`.** `[SECURITY][2.2]` told reviewers to add `"state": "{{oauth.state}}"`. That IML variable does not exist (`oauth` is the redirects object only). After IML transform, `app-runtime-oauth2` `authorize()` always overwrites `qs.state` with `crypto.randomBytes(12)` and validates it on callback. Omitting `state` from the app's authorize qs is correct.
