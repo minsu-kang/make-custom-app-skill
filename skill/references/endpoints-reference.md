@@ -18,6 +18,9 @@ Everything in this document is verified against the live SDK admin API (google-d
 | **Connection binding** | `attachedAccounts` array on the endpoint entity names the app connection(s) the endpoint uses. Managed via `POST/DELETE .../endpoints/{name}/connections`. |
 | **Consumables** | `centicreditsFormula` (+ description/documentation URL/meta) on the endpoint entity — the "Consumables" tab in the SDK UI. `null` when unset. Consumable edits are audited and versioned. |
 | **Feature-flagged** | All endpoint routes in `imt-web-api` are gated by the growthbook flag `IS_SDK_ENDPOINTS_ENABLED` — 404-class error on environments where it's off. |
+| **No endpoint aliasing** | There is no aliasing of endpoints in the current design. The fraction of apps using multiple APIs is small, and aliasing offers little benefit. Future options may enable complex app modules connecting multiple endpoints. |
+| **Binary/multipart uploads not supported** | SDK Endpoints do not yet support `buffer`-typed input parameters (file uploads). The Endpoint Execution API (`endpoint_execute`) always sends the payload as `application/json` — there is no way to pass binary data natively. **Workaround** (if burning): accept a `text` input expecting base64, then use `toBinary()` in the endpoint's `api.imljson` to convert. **Recommended**: skip binary-upload endpoints entirely until proper platform support is in place. If the third-party API also accepts a URL or file ID as an alternative to binary upload (e.g., Telegram media sends), implement only those non-binary paths. ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1789467764790229), [IEN-16615](https://make.atlassian.net/browse/IEN-16615)) |
+| **Full API coverage** | Endpoints should cover **all** parameters from the third-party API docs — not just what the existing app modules implement. Modules may have omitted parameters for various reasons, but endpoints as true API wrappers should expose everything the API supports, excluding parameters flagged as deprecated or legacy in the API docs. |
 
 ## Component Files (local layout from `download-app.js`)
 
@@ -88,6 +91,26 @@ Endpoint name pattern: `^[a-zA-Z][0-9a-zA-Z]{1,126}[0-9a-zA-Z]$` (alphanumeric, 
 
 `endpointInitMode: 'example'` (the default) clones the endpoint sections from the `model` template app (`endpoints/Endpoint/`). Same review rule as module scaffolds: an `old_value` matching the scaffold = effectively new component. Scaffold markers: `"url": "/users/{{parameters.id}}/action"`, `"body": "{{omit(parameters, 'id')}}"`, input params `id`/`email`/`name`, output param `id`, `scope: []`, and the boilerplate `# Context for the Endpoint` markdown. Snapshot lives in [component-scaffold-templates.md](component-scaffold-templates.md) § "Endpoint scaffold".
 
+## UX & Naming Conventions
+
+### Sentence Case Labels
+
+Endpoint names and parameter labels follow the **Sentence case** naming convention (sentence-style capitalization; Verb + Item) — see [Apps UX best practices (Confluence)](https://make.atlassian.net/wiki/x/DAfcyg). Applies to the display `label`; the technical `name` stays camelCase.
+
+Examples: `List files` (not `List Files`), `Get a message` (not `Get A Message`), `File ID` (not `file ID`).
+
+### Endpoint Descriptions
+
+Every endpoint must have a `description` — the same UX requirements apply as for modules. The description should be a concise sentence explaining what the endpoint does (e.g., `"Returns metadata for a file."`, `"Creates a new event in the specified calendar."`).
+
+### Connection Attachment
+
+Only attach connections that are attached to the **real modules** in the app or what is explicitly mentioned in the ticket AC. Some connections in the app may be deprecated, unused, or canonical versions for other apps of the same family. If uncertain which connections should be attached, ask.
+
+### Coverage Completeness
+
+Verify that the suggested/implemented endpoints cover all of the app's functionality as much as possible. Compare the app's modules with the list of endpoints and the third-party API surface. If the app has 15 modules covering 12 distinct API operations, the endpoint list should aim to cover all 12 (minus any that require unsupported features like binary uploads).
+
 ## `api.imljson` Shape
 
 A standard communication block, same directive family as RPCs (endpoint = compiled `IMTRPC`, standard `ExecuteRpc` chain): `url` (relative to `base.imljson` `baseUrl`), `method`, `qs`, `body`, `headers`, `temp`, `response.*` (`output`/`temp`/`valid`/`iterate`/`wrapper`/`limit`), pagination. Custom IML functions are fully usable (observed: `buildBatchRequests()`, `handleTabs()`, `omit()`).
@@ -129,10 +152,26 @@ Endpoints are **atomic wrappers around a third-party API** — they must not app
 
 Some structural transformations are acceptable to ensure clean API requests:
 
-- **`stripEmpty()`** — a custom IML function that recursively removes `null`, `undefined`, empty strings, empty objects `{}`, and empty arrays `[]` from the request body. Required for PATCH endpoints and complex POST bodies where empty optional collections would cause `400 Bad Request` errors. Example: `"body": "{{stripEmpty(omit(parameters, 'calendarId', 'sendUpdates'))}}"` (Google Calendar `createEvent`/`updateEvent`).
+- **`stripEmpty()`** — a **custom** IML function (not built-in) that recursively removes `null`, `undefined`, empty strings, empty objects `{}`, and empty arrays `[]` from the request body. Required for PATCH endpoints and complex POST bodies where empty optional collections would cause `400 Bad Request` errors. Currently implemented in apps like Google Calendar (`google-calendar` v5) and Google Drive (`google-drive` v4) — it must be created as a custom IML function in each app that needs it. Example: `"body": "{{stripEmpty(omit(parameters, 'calendarId', 'sendUpdates'))}}"` (Google Calendar `createEvent`/`updateEvent`).
 - **`omit()`** — to remove URL path parameters and query-string-only parameters from the body: `omit(parameters, 'calendarId', 'sendUpdates')`.
 - **`encodeURL()`** — for path parameters: `"/calendars/{{encodeURL(parameters.calendarId)}}/events"` with `"encodeUrl": false` on the api block to prevent double encoding.
 - **`ifempty()` / `if(length())`** — for simple PATCH bodies where `stripEmpty` is overkill: wrap optional scalar fields with `{{ifempty(parameters.field, undefined)}}` and optional arrays with `{{if(length(parameters.field), parameters.field, undefined)}}` (because `ifempty` does not treat `[]` as empty).
+- **`toCollection()`** — for map/dictionary fields where the API expects a flat `{key: value}` object: define the input as an `array` of `{key, value}` pairs, then transform with `"{{toCollection(parameters.field, 'key', 'value')}}"` in the `api.imljson` body/qs. In output, represent these as `collection` with no spec (open/dynamic keys).
+- **`join()`** — when a `select` with `multiple: true` produces an array but the API expects a comma-separated string: `"{{join(parameters.field, ',')}}"`. Prefer this over free-text input when the set of values is known.
+
+### `stripEmpty()` vs `ifempty()` — when to use which
+
+| Scenario | Use | Why |
+|---|---|---|
+| Complex nested request body (POST/PUT/PATCH) | `stripEmpty()` | Recursively cleans all empty values from deeply nested structures |
+| Simple flat QS parameters on write endpoints (POST/PUT/PATCH) | `ifempty()` | Lightweight — wraps individual params: `"field": "{{ifempty(parameters.field, undefined)}}"` |
+| QS parameters on GET/DELETE endpoints | Neither | GET/DELETE QS params don't need empty-value guards |
+
+⚠️ **QS params on write endpoints also need guards** — not just body fields. A POST endpoint with optional QS params should wrap them with `ifempty()` in the `qs` block.
+
+### Always-true parameters — hardcode, don't expose
+
+When a parameter should logically always be `true` (or a fixed value) for the endpoint to be useful, hardcode it in `api.imljson` rather than exposing it as an input. Parameters that are a genuine user choice should remain exposed. Use the correct JSON type for hardcoded values: `true` (boolean) not `"true"` (string), `1` (number) not `"1"` (string).
 
 ### What is NOT allowed
 
@@ -155,9 +194,40 @@ Some structural transformations are acceptable to ensure clean API requests:
 - Array item specs (the `spec` object itself and its nested fields)
 - Fields at any nesting depth
 
+This includes **primitive array specs** — the `spec` object inside a primitive `array` must also have `help`:
+
+```json
+// ❌ Wrong — missing help in spec
+{
+    "name": "permissionIds",
+    "type": "array",
+    "label": "Permission IDs",
+    "help": "List of permission IDs for users with access to this file.",
+    "spec": {
+        "type": "text",
+        "label": "Permission ID"
+    }
+}
+
+// ✅ Correct — help present in spec
+{
+    "name": "permissionIds",
+    "type": "array",
+    "label": "Permission IDs",
+    "help": "List of permission IDs for users with access to this file.",
+    "spec": {
+        "type": "text",
+        "label": "Permission ID",
+        "help": "The ID of a permission for a user with access to this file."
+    }
+}
+```
+
 **Exceptions** where `help` is not required:
 - `select` `options` entries (the `label` is self-explanatory)
 - The `labels` object (e.g., `"labels": { "add": "Add header" }`)
+
+**Help text formatting**: use markdown in help texts. URLs should use the `[text](url)` markdown link format. Follow the [Apps UX best practices](https://make.atlassian.net/wiki/x/DAfcyg) for wording, tone, and formatting conventions.
 
 ### Parameter Type Accuracy
 
@@ -172,6 +242,10 @@ Use the most specific type available — do not default to `text` for everything
 | Numeric value | `number` or `uinteger` | `text` |
 | Fixed set of values (enum) | `select` (with `options`) | `text` |
 | Fixed set, multiple allowed | `select` with `multiple: true` | `text` or `array` of `text` |
+
+Where defined options are available from the API docs, always use the `select` type and list those options. For parameters that accept multiple values, use `select` with `multiple: true`. The multiselect in Make produces an array of strings — use `join()` in the `api.imljson` to convert when the API expects a comma-separated string (e.g., `"fields": "{{join(parameters.fields, ',')}}"`).
+
+Prefer `select` over a `text` field with options listed only in the help text — it provides better UX and prevents invalid values.
 
 ### Array and Collection Spec Structure
 
@@ -216,6 +290,9 @@ Arrays of **primitives** (strings, numbers) use a flat spec object:
 - **List endpoint parameter order**: place filtering/search parameters first, followed by ordering/pagination/sync parameters (e.g., `pageToken`, `maxResults`, `orderBy`, `syncToken`) at the end.
 - **Nested `required` in optional collections**: if a parent collection is optional but its child field is required *when the collection is present*, prefer removing `required` from the child and adding a help note like `"Required when {parent} is provided."` — otherwise the UI forces users to fill in the child even when they don't want the parent at all.
 - **PATCH endpoint context**: always include a note advising AI callers to perform a GET first to retrieve current values, since omitted fields may be cleared.
+- **`mode: edit` has no effect** in endpoint parameter schemas — this directive is module-specific and does nothing for endpoints.
+- **Standard formatting**: use each property on its own line with 4-space indentation in `api`, `params`, and schema definitions. Do not cram multiple properties onto a single line.
+- **Output parameter completeness**: output definitions must cover **all** fields from the API docs — not just commonly used ones. Include all nested object fields exhaustively. **Write-only fields** ("never populated in responses") must be excluded from output definitions.
 
 ## Runtime Validation Caveats (critical — verified IEN-16076 / IEN-16082)
 
@@ -403,6 +480,8 @@ Refer to the [<APP_NAME> API reference](<API_DOCS_URL>) for available
 endpoints, required parameters, and response schemas.
 ```
 
+**API docs URL versioning**: when the `<API_DOCS_URL>` links to an API reference, prefer the generic (version-less) URL if available and working. For example, use `https://developers.google.com/workspace/drive/api/reference/rest` instead of `https://developers.google.com/workspace/drive/api/reference/rest/v3`, so the reference always points to the latest version. Use a version-specific URL when the generic page is not available, redirects incorrectly, or when it is genuinely relevant to reference the exact API version (e.g., in examples or when the endpoint targets a specific API version).
+
 ### Mandatory Checklist
 
 - [ ] `arbitraryCallHint: true` annotation set
@@ -429,9 +508,13 @@ endpoints, required parameters, and response schemas.
 | App | Slug / Version | Base URL | Jira |
 |---|---|---|---|
 | Google Calendar | `google-calendar` v5 | `https://www.googleapis.com/calendar/` | [IEN-16255](https://make.atlassian.net/browse/IEN-16255) |
-| Gmail | `google-email` v4 | `https://gmail.googleapis.com/gmail/` | [IEN-16458](https://make.atlassian.net/browse/IEN-16458) |
+| Gmail | `google-email` v4 | `https://gmail.googleapis.com/gmail/` | [IEN-15911](https://make.atlassian.net/browse/IEN-15911) |
 | Google Gemini AI | `gemini-ai` v1 | `https://generativelanguage.googleapis.com` | [IEN-16471](https://make.atlassian.net/browse/IEN-16471) |
 | Google Slides | `google-slides` v1 | `https://slides.googleapis.com/` | [IEN-16483](https://make.atlassian.net/browse/IEN-16483) |
+| Google Drive | `google-drive` v4 | `https://www.googleapis.com/` | [IEN-16256](https://make.atlassian.net/browse/IEN-16256) |
+| GitHub | `github` v2 | — (GraphQL example) | [IEN-16254](https://make.atlassian.net/browse/IEN-16254) |
+
+> **Note on GitHub**: serves as an example for apps using GraphQL APIs, where the endpoint wraps a single GraphQL query/mutation rather than a REST path.
 
 ## Code Review Guidance for Endpoint Changes
 
@@ -448,3 +531,10 @@ endpoints, required parameters, and response schemas.
   - All non-`arbitraryCall` endpoints should have `arbitraryCallHint: false` (or absent).
 - `scope` matches the API call's minimal OAuth scope.
 - **Parameter type accuracy**: check that `email`, `date`, `url`, `select` types are used where appropriate instead of generic `text` (see § Parameter Type Accuracy).
+- **Sentence case labels**: verify all endpoint labels and parameter labels follow Sentence case (see § Sentence Case Labels).
+- **Endpoint descriptions**: every endpoint must have a `description` — same UX requirements as modules.
+- **Connection attachment**: only relevant connections should be attached — not deprecated or unused ones (see § Connection Attachment).
+- **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps.
+- **Primitive array `help`**: check that even primitive array specs (e.g., `spec: { type: "text" }`) have `help` text.
+- **Hardcoded value types**: verify hardcoded values use correct JSON types (`true` not `"true"`, `1` not `"1"`).
+- **`stripEmpty()` / `ifempty()` on write endpoints**: POST/PUT/PATCH endpoints must guard optional body and QS params against sending empty values. Complex bodies → `stripEmpty()`, flat QS → `ifempty()`.

@@ -41,6 +41,28 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 ## Checklist
 
 - [ ] Type detected; source module / vendor docs read
+- [ ] Connection identified (only connections used by real modules or mentioned in AC)
+- [ ] Coverage verified (endpoints cover app functionality; gaps flagged)
 - [ ] Endpoint created with confirmation; context + annotations set
+- [ ] All labels in Sentence case; descriptions present
 - [ ] Verified (fetch or execute); public toggle requested
 - [ ] Context + Pinecone updated
+
+## Design conventions (Regular Endpoints)
+
+When designing Regular Endpoints, follow these additional conventions beyond what the reference covers:
+
+- **Coverage check**: compare the vendor API surface and the app's modules against the planned endpoint list. Flag significant gaps to the user — don't just implement what the ticket lists.
+- **Connection**: only attach connections used by real modules or explicitly mentioned in the AC. Skip deprecated or unused connections.
+- **Sentence case**: all `label` values (endpoint and parameter) follow Sentence case per [UX best practices](https://make.atlassian.net/wiki/x/DAfcyg).
+- **Description**: every endpoint must have a `description` — concise sentence explaining what it does.
+- **Write-endpoint guards**: POST/PUT/PATCH bodies → `stripEmpty(omit(parameters, ...))` for complex nested bodies; `ifempty()` for flat QS params. QS params on write endpoints also need guards.
+- **Hardcoded params**: always-true parameters go into `api.imljson`, not exposed as inputs. Use correct JSON types (`true` not `"true"`).
+- **Map/dictionary fields**: input as `array` of `{key, value}` pairs → `toCollection()` in api block; output as `collection` with no spec.
+- **`select` for enums**: use `select` (+ `multiple: true`) for known option sets; `join()` in api block when the API expects a comma-separated string.
+- **Primitive array `help`**: even flat `spec: { type: "text" }` inside arrays must have `help`.
+- **`mode: edit`**: has no effect on endpoint fields — do not use.
+- **Markdown in help**: use `[text](url)` for links in help texts.
+- **Output completeness**: all fields from API docs exhaustively; exclude write-only fields.
+- **API doc URLs**: prefer version-less URLs when the generic page works; keep version-specific when the exact version is relevant.
+- **Standard formatting**: each property on its own line, 4-space indentation for all JSON/JSONC blocks.
