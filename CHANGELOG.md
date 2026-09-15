@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0 — 2026-09-16
+
+- **`endpoints-reference.md` § "UX & Naming Conventions" (new section)** — Sentence case labels (display labels follow sentence-style capitalization per UX best practices), endpoint descriptions (same UX requirements as modules), connection attachment guidance (only attach connections used by real modules or explicitly mentioned in AC), and coverage completeness check (verify endpoints cover all app functionality).
+- **`endpoints-reference.md` § "Core Facts" expanded** — three new rows: no endpoint aliasing in current design, binary/multipart uploads not supported (detailed: `endpoint_execute` is JSON-only, base64 workaround documented, recommended to skip binary endpoints or use URL/file-ID alternatives — sourced from IEN-16615 Telegram discussion), and full API coverage requirement (all non-deprecated parameters from API docs, not just what modules implement).
+- **`endpoints-reference.md` § "Allowed minimal transformations" expanded** — added `toCollection()` for map/dictionary fields, `join()` for multiselect→string conversion. New "stripEmpty vs ifempty" decision table (complex nested bodies → `stripEmpty()`, flat QS on write endpoints → `ifempty()`, GET/DELETE QS → neither). QS params on POST/PUT/PATCH also need `ifempty()` guards. New "Always-true parameters" subsection: hardcode, don't expose; use correct JSON types for hardcoded values (`true` not `"true"`).
+- **`endpoints-reference.md` § "Mandatory help Text" expanded** — explicit correct vs incorrect examples for primitive array specs. New help text formatting guidance: use markdown, `[text](url)` for links.
+- **`endpoints-reference.md` § "Parameter Type Accuracy" expanded** — prefer `select` over text+help for known option sets, use `join()` for multiselect arrays when API expects comma-separated strings.
+- **`endpoints-reference.md` § "Other Schema Conventions" expanded** — `mode: edit` has no effect on endpoint fields, standard formatting (4-space indent, each property on own line), output parameter completeness (all fields from API docs, exclude write-only).
+- **`endpoints-reference.md` § "Arbitrary Call" expanded** — API docs URL versioning guidance (prefer generic/version-less URLs). Added Google Drive, Gmail (typed endpoints), and GitHub (GraphQL) to reference implementations table.
+- **`endpoints-reference.md` § "Code Review Guidance" expanded** — new checks for sentence case labels, endpoint descriptions, connection attachment, coverage completeness, primitive array `help`, hardcoded value types, `stripEmpty`/`ifempty` on write endpoints.
+- **`create-endpoint.md` workflow updated** — expanded Regular Endpoint design guidance with write-endpoint guards, sentence case, coverage check, connection/description requirements, output completeness, and formatting conventions.
+
 ## 2.0.0 — 2026-09-15
 
 **Harness slimming.** The prose the agent loads per session shrinks by roughly 70% while every check that can be enforced in code moves into code. Breaking for installs: the eight 1.x rule files are removed and the installers change mechanism — both handled automatically by `--update` (which `version-guard.js` triggers on the first script run). Restart the editor afterwards so Cursor drops the retired rules. Design and plan: `docs/superpowers/specs/2026-09-15-harness-slimming-design.md`, `docs/superpowers/plans/2026-09-15-harness-slimming.md`.
