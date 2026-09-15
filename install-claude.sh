@@ -56,28 +56,37 @@ echo -e "${BOLD}║   Make Custom App Skill Installer for Claude     ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 
+# ── User config lives in ~/.make-custom-app-skill-secrets (never inside the skill dir) ──
+SECRETS_FILE="$HOME/.make-custom-app-skill-secrets"
+CONFIG_KEYS=("imt-app-runtime-path" "make-api-key" "make-api-url" "make-apps-mockup-path" "jira-email" "jira-api-token" "jira-base-url" "mcp-server-path")
+
+# Pre-2.0 installs appended config to the tail of SKILL.md, which the AI agent reads every
+# session. Move any real values into the secrets file (existing secrets-file keys win).
+migrate_tail_config() {
+    local src="$SKILL_DIR/SKILL.md"
+    [ -f "$src" ] || return 0
+    local key val migrated=0
+    for key in "${CONFIG_KEYS[@]}"; do
+        val=$(grep -v '^[[:space:]]*>' "$src" | grep "^$key:" | tail -1 | sed "s/^$key:[[:space:]]*//" || true)
+        [ -n "$val" ] || continue
+        case "$val" in
+            *your-*|*'<'*|*@example.com*|*ATATT3x...*|*/path/provided/by/user*|*/path/to/*|*'{path-to'*) continue ;;
+        esac
+        if [ -f "$SECRETS_FILE" ] && grep -q "^$key:" "$SECRETS_FILE"; then continue; fi
+        echo "$key: $val" >> "$SECRETS_FILE"
+        migrated=1
+    done
+    if [ "$migrated" = 1 ]; then
+        chmod 600 "$SECRETS_FILE"
+        ok "Moved user config from SKILL.md to $SECRETS_FILE"
+    fi
+}
+
 # ── Preserve User Config ──
-SAVED_RUNTIME_PATH=""
-SAVED_MCP_PATH=""
-SAVED_MOCKUP_PATH=""
-SAVED_JIRA_EMAIL=""
-SAVED_JIRA_TOKEN=""
-SAVED_JIRA_BASE_URL=""
-SAVED_MAKE_API_KEY=""
-SAVED_MAKE_API_URL=""
 SAVED_ENV=""
 
 if [ -d "$SKILL_DIR" ]; then
-    if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        SAVED_RUNTIME_PATH=$(grep '^imt-app-runtime-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/provided' | tail -1 || true)
-        SAVED_MCP_PATH=$(grep '^mcp-server-path:' "$SKILL_DIR/SKILL.md" | grep -v '{path-to' | tail -1 || true)
-        SAVED_MOCKUP_PATH=$(grep '^make-apps-mockup-path:' "$SKILL_DIR/SKILL.md" | grep -v '/path/to' | tail -1 || true)
-        SAVED_JIRA_EMAIL=$(grep '^jira-email:' "$SKILL_DIR/SKILL.md" | grep -v 'your-email' | tail -1 || true)
-        SAVED_JIRA_TOKEN=$(grep '^jira-api-token:' "$SKILL_DIR/SKILL.md" | grep -v 'your-api-token' | tail -1 || true)
-        SAVED_JIRA_BASE_URL=$(grep '^jira-base-url:' "$SKILL_DIR/SKILL.md" | grep -v 'your-instance' | tail -1 || true)
-        SAVED_MAKE_API_KEY=$(grep '^make-api-key:' "$SKILL_DIR/SKILL.md" | grep -v 'your-make-api-token' | tail -1 || true)
-        SAVED_MAKE_API_URL=$(grep '^make-api-url:' "$SKILL_DIR/SKILL.md" | grep -v 'eu1.make.com/api/v2/admin$' | tail -1 || true)
-    fi
+    migrate_tail_config
     if [ -f "$MCP_SERVER_DIR/.env" ]; then
         SAVED_ENV=$(cat "$MCP_SERVER_DIR/.env")
     fi
@@ -373,17 +382,6 @@ else
     ok "make-integration-engineer agent installed to $AGENT_DST"
 fi
 
-# ── Restore User Config ──
-if [ -f "$SKILL_DIR/SKILL.md" ]; then
-    echo "" >> "$SKILL_DIR/SKILL.md"
-    for line in "$SAVED_MCP_PATH" "$SAVED_RUNTIME_PATH" "$SAVED_MOCKUP_PATH" "$SAVED_JIRA_EMAIL" "$SAVED_JIRA_TOKEN" "$SAVED_JIRA_BASE_URL" "$SAVED_MAKE_API_KEY" "$SAVED_MAKE_API_URL"; do
-        if [ -n "$line" ]; then
-            echo "$line" >> "$SKILL_DIR/SKILL.md"
-            ok "Restored user config (${line%%:*})"
-        fi
-    done
-fi
-
 # ── Verify Installation ──
 echo ""
 if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] && [ -f "$SKILL_DIR/scripts/check-setup.js" ]; then
@@ -410,6 +408,7 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] &
     echo -e "  1. Restart Claude Code"
     echo -e "  2. Ask any Make app question — the skill activates automatically"
     echo -e "  3. Check your setup any time: ${CYAN}node $SKILL_DIR/scripts/check-setup.js${NC}"
+    echo -e "     User config (paths, API keys) lives in ${CYAN}$SECRETS_FILE${NC} — never in SKILL.md"
     echo -e "     (it tells you where to add imt-app-runtime-path and make-api-key)"
     echo ""
     if [ "$MCP_CONFIGURED" = true ]; then

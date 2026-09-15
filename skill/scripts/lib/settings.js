@@ -4,25 +4,63 @@ const os = require('os');
 const { getEditorDir, getSkillRoot } = require('./skill-root');
 
 /**
- * Parse the trailing key/value lines of SKILL.md.
+ * User config file — one `key: value` per line.
  *
- * SKILL.md uses a tail-of-file convention for runtime config (similar to
- * `imt-app-runtime-path:`, `make-apps-mockup-path:`, `jira-email:`, etc.).
- * Each line is `key: value`; whitespace and trailing newlines are tolerated.
- * The most recent (last) occurrence wins so that the installer's "Restore
- * preserved user config" step reliably overrides earlier placeholders.
+ * Lives OUTSIDE the skill directory so it is never loaded into the agent's
+ * context (SKILL.md is read by the model every session; this file is read by
+ * scripts only). Shared by the Cursor and Claude Code installs.
+ *
+ *   imt-app-runtime-path: /abs/path       (required)
+ *   make-api-key: <token>                 (Claude Code only)
+ *   make-api-url: https://eu1.make.com/api/v2/admin   (optional)
+ *   make-apps-mockup-path: /abs/path      (optional — test-component.js)
+ *   jira-email: you@example.com           (optional — Jira scripts)
+ *   jira-api-token: <token>
+ *   jira-base-url: https://make.atlassian.net          (optional)
+ *   mcp-server-path: /abs/path            (optional)
  */
-function readSkillConfig(key) {
-	const skillMd = path.join(getSkillRoot(), 'SKILL.md');
-	if (!fs.existsSync(skillMd)) return null;
-	const content = fs.readFileSync(skillMd, 'utf-8');
-	const lines = content.split('\n');
+const SECRETS_PATH = path.join(os.homedir(), '.make-custom-app-skill-secrets');
+
+const PLACEHOLDER_MARKERS = ['your-', '<', '>', '@example.com', 'ATATT3x...', '/path/provided/by/user', '/path/to/', '{path-to'];
+
+function isPlaceholder(value) {
+	if (!value) return true;
+	return PLACEHOLDER_MARKERS.some((m) => value.includes(m));
+}
+
+function lastMatch(lines, key) {
 	const re = new RegExp(`^${key}:\\s*(.+)$`);
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const m = lines[i].match(re);
-		if (m) return m[1].trim();
+		const line = lines[i];
+		if (line.trimStart().startsWith('>')) continue; // markdown blockquote (legacy SKILL.md samples)
+		const m = line.trim().match(re);
+		if (m && !isPlaceholder(m[1].trim())) return m[1].trim();
 	}
 	return null;
+}
+
+/**
+ * Read one config value. Order: ~/.make-custom-app-skill-secrets, then the legacy
+ * SKILL.md tail (pre-2.0 installs) so an un-migrated install keeps working.
+ * Placeholder values are ignored. Returns null when unset.
+ */
+function readSkillConfig(key) {
+	if (fs.existsSync(SECRETS_PATH)) {
+		const v = lastMatch(fs.readFileSync(SECRETS_PATH, 'utf-8').split('\n'), key);
+		if (v) return v;
+	}
+	const skillMd = path.join(getSkillRoot(), 'SKILL.md');
+	if (fs.existsSync(skillMd)) {
+		return lastMatch(fs.readFileSync(skillMd, 'utf-8').split('\n'), key);
+	}
+	return null;
+}
+
+/** True when the legacy SKILL.md tail still carries a value for `key`. */
+function skillMdHasConfig(key) {
+	const skillMd = path.join(getSkillRoot(), 'SKILL.md');
+	if (!fs.existsSync(skillMd)) return false;
+	return lastMatch(fs.readFileSync(skillMd, 'utf-8').split('\n'), key) !== null;
 }
 
 const CURSOR_SETTINGS_PATH = path.join(
@@ -69,8 +107,8 @@ function loadCursorSettings() {
 function failClaudeMissingKey() {
 	console.error('ERROR: Make API key not configured.');
 	console.error('');
-	console.error('Claude Code requires `make-api-key:` in the last lines of SKILL.md.');
-	console.error('Add the following to ~/.claude/skills/make-custom-app/SKILL.md:');
+	console.error(`Claude Code requires \`make-api-key:\` in ${SECRETS_PATH}.`);
+	console.error('Add the following lines to that file (create it with mode 600 if missing):');
 	console.error('');
 	console.error('  make-api-key: <your-make-api-token>');
 	console.error('  # optional, defaults to https://eu1.make.com/api/v2/admin');
@@ -82,22 +120,18 @@ function failClaudeMissingKey() {
 
 function loadClaudeSettings() {
 	const apikey = readSkillConfig('make-api-key');
-	if (!apikey || /^<.*>$/.test(apikey)) failClaudeMissingKey();
+	if (!apikey) failClaudeMissingKey();
 	const baseUrl = readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin';
 	return { baseUrl, auth: `Token ${apikey}`, version: 2, apikey };
 }
 
 /**
- * Load API settings.
+ * Load Make API settings.
  *
- * Cursor → ~/Library/Application Support/Cursor/User/settings.json
- *           (apps-sdk.environments / apps-sdk.environment)
- * Claude Code → SKILL.md last-lines `make-api-key:` (required) +
+ * Cursor      → ~/Library/Application Support/Cursor/User/settings.json
+ *               (apps-sdk.environments / apps-sdk.environment)
+ * Claude Code → ~/.make-custom-app-skill-secrets `make-api-key:` (required) +
  *               `make-api-url:` (optional, default eu1.make.com).
- *
- * The Claude Code path intentionally does NOT fall back to environment
- * variables — SKILL.md is the single source of truth so that scripts
- * behave identically regardless of how the shell was launched.
  */
 function loadSettings() {
 	if (getEditorDir() === '.claude') {
@@ -106,17 +140,37 @@ function loadSettings() {
 	return loadCursorSettings();
 }
 
-/**
- * Return only the raw API key string. Used by test-component.js which
- * forwards the key into a child process via process.env.MAKE_API_KEY.
- */
+/** Raw API key only — test-component.js forwards it via process.env.MAKE_API_KEY. */
 function getMakeApiKey() {
-	const s = loadSettings();
-	return s.apikey;
+	return loadSettings().apikey;
+}
+
+/**
+ * Jira credentials for the attachment / transition scripts. Exits with a setup
+ * message when email or token is missing.
+ */
+function loadJiraConfig() {
+	const email = readSkillConfig('jira-email');
+	const apiToken = readSkillConfig('jira-api-token');
+	const baseUrl = readSkillConfig('jira-base-url') || 'https://make.atlassian.net';
+	if (!email || !apiToken) {
+		console.error('ERROR: Jira credentials not configured.');
+		console.error(`Add the following lines to ${SECRETS_PATH}:\n`);
+		console.error('  jira-email: you@example.com');
+		console.error('  jira-api-token: <token>');
+		console.error('  jira-base-url: https://make.atlassian.net  (optional)\n');
+		console.error('Generate an API token at: https://id.atlassian.com/manage-profile/security/api-tokens');
+		process.exit(1);
+	}
+	return { email, apiToken, baseUrl };
 }
 
 module.exports = {
+	SECRETS_PATH,
+	isPlaceholder,
 	readSkillConfig,
+	skillMdHasConfig,
 	loadSettings,
 	getMakeApiKey,
+	loadJiraConfig,
 };

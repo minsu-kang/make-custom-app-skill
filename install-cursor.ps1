@@ -53,27 +53,47 @@ Write-Host "    Make Custom App Skill Installer for Cursor   " -ForegroundColor 
 Write-Host "  ==============================================" -ForegroundColor White
 Write-Host ""
 
+# ── User config lives in ~/.make-custom-app-skill-secrets (never inside the skill dir) ──
+$SECRETS_FILE = Join-Path $env:USERPROFILE ".make-custom-app-skill-secrets"
+$CONFIG_KEYS = @("imt-app-runtime-path", "make-api-key", "make-api-url", "make-apps-mockup-path", "jira-email", "jira-api-token", "jira-base-url", "mcp-server-path")
+
+# Pre-2.0 installs appended config to the tail of SKILL.md, which the AI agent reads every
+# session. Move any real values into the secrets file (existing secrets-file keys win).
+function Move-TailConfig {
+    $src = Join-Path $SKILL_DIR "SKILL.md"
+    if (-not (Test-Path $src)) { return }
+    $lines = Get-Content $src | Where-Object { $_ -notmatch '^\s*>' }
+    $existing = @()
+    if (Test-Path $SECRETS_FILE) { $existing = Get-Content $SECRETS_FILE }
+    $migrated = $false
+    foreach ($key in $CONFIG_KEYS) {
+        $line = ($lines | Where-Object { $_ -match "^$key\s*:" } | Select-Object -Last 1) -join ""
+        if (-not $line) { continue }
+        $val = ($line -replace "^$key\s*:\s*", "").Trim()
+        if (-not $val) { continue }
+        if ($val -match 'your-|<|@example\.com|ATATT3x\.\.\.|/path/provided/by/user|/path/to/|\{path-to') { continue }
+        if ($existing | Where-Object { $_ -match "^$key\s*:" }) { continue }
+        Add-Content -Path $SECRETS_FILE -Value "$key`: $val" -Encoding UTF8
+        $migrated = $true
+    }
+    if ($migrated) {
+        try {
+            $acl = Get-Acl $SECRETS_FILE
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "Allow")
+            $acl.AddAccessRule($rule)
+            Set-Acl $SECRETS_FILE $acl
+        } catch { }
+        Write-Ok "Moved user config from SKILL.md to $SECRETS_FILE"
+    }
+}
+
 # ── Preserve User Config ──
-$SavedLines = @()
 $SavedEnv = ""
 
 if (Test-Path $SKILL_DIR) {
-    $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
-    if (Test-Path $skillMdPath) {
-        $allLines = Get-Content $skillMdPath
-        $keep = @(
-            @{ Key = "^mcp-server-path:";        Placeholder = "\{path-to" },
-            @{ Key = "^imt-app-runtime-path:";   Placeholder = "/path/provided" },
-            @{ Key = "^make-apps-mockup-path:";  Placeholder = "/path/to" },
-            @{ Key = "^jira-email:";             Placeholder = "your-email" },
-            @{ Key = "^jira-api-token:";         Placeholder = "your-api-token" },
-            @{ Key = "^jira-base-url:";          Placeholder = "your-instance" }
-        )
-        foreach ($k in $keep) {
-            $line = ($allLines | Where-Object { $_ -match $k.Key -and $_ -notmatch $k.Placeholder } | Select-Object -Last 1) -join ""
-            if ($line) { $SavedLines += $line }
-        }
-    }
+    Move-TailConfig
 
     $savedEnvFile = Join-Path $MCP_SERVER_DIR ".env"
     if (Test-Path $savedEnvFile) {
@@ -330,18 +350,9 @@ OPENAI_API_KEY=$openaiKey
     }
 }
 
-# ── Restore User Config ──
-$skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
-if ((Test-Path $skillMdPath) -and $SavedLines.Count -gt 0) {
-    Add-Content -Path $skillMdPath -Value ""
-    foreach ($line in $SavedLines) {
-        Add-Content -Path $skillMdPath -Value $line
-        Write-Ok "Restored user config ($($line.Split(':')[0]))"
-    }
-}
-
 # ── Verify Installation ──
 Write-Host ""
+$skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
 $downloadJsPath = Join-Path $SKILL_DIR "scripts\download-app.js"
 $checkSetupPath = Join-Path $SKILL_DIR "scripts\check-setup.js"
 
@@ -373,6 +384,7 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     Write-Host "  1. Restart Cursor (rule changes load on restart)"
     Write-Host "  2. Ask any Make app question - the skill activates automatically"
     Write-Host "  3. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
+    Write-Host "     User config (paths, API keys) lives in $SECRETS_FILE - never in SKILL.md"
     Write-Host ""
     Write-Host "  Prerequisites:"
     Write-Host "  - Make Apps SDK extension installed in VS Code/Cursor" -ForegroundColor Cyan

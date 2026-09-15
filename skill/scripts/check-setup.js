@@ -17,7 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
-const { readSkillConfig } = require('./lib/settings');
+const { readSkillConfig, skillMdHasConfig, SECRETS_PATH } = require('./lib/settings');
 
 const args = new Set(process.argv.slice(2));
 if (!args.has('--skip-version')) {
@@ -29,6 +29,7 @@ const editorDir = getEditorDir();
 const isClaude = editorDir === '.claude';
 const skillMd = path.join(skillRoot, 'SKILL.md');
 const items = [];
+const SECRETS_HINT = `${SECRETS_PATH} (one \`key: value\` per line; create it with mode 600 if missing)`;
 
 function add(key, status, detail, fix) {
 	items.push({ key, status, detail, fix: fix || null });
@@ -46,14 +47,14 @@ function isPlaceholder(value, markers) {
 			'imt-app-runtime-path',
 			'missing',
 			'not set',
-			`Clone niceinnovative/imt-app-runtime (Make internal repo), then append to ${skillMd}:\n  imt-app-runtime-path: /absolute/path/to/imt-app-runtime`,
+			`Clone niceinnovative/imt-app-runtime (Make internal repo), then add to ${SECRETS_HINT}:\n  imt-app-runtime-path: /absolute/path/to/imt-app-runtime`,
 		);
 	} else if (!fs.existsSync(v)) {
 		add(
 			'imt-app-runtime-path',
 			'missing',
 			`path does not exist: ${v}`,
-			`Fix the imt-app-runtime-path line in ${skillMd} so it points to an existing clone.`,
+			`Fix the imt-app-runtime-path line in ${SECRETS_PATH} so it points to an existing clone.`,
 		);
 	} else {
 		add('imt-app-runtime-path', 'ok', v);
@@ -67,8 +68,8 @@ if (isClaude) {
 		add(
 			'make-api-key',
 			'missing',
-			'not set (Claude Code reads it from SKILL.md)',
-			`Generate a token in Make → Profile → API (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have), then append to ${skillMd}:\n  make-api-key: <token>\n  make-api-url: https://eu1.make.com/api/v2/admin   # optional — change for us1/us2/custom zone`,
+			'not set (Claude Code reads it from ~/.make-custom-app-skill-secrets)',
+			`Generate a token in Make → Profile → API (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have), then add to ${SECRETS_HINT}:\n  make-api-key: <token>\n  make-api-url: https://eu1.make.com/api/v2/admin   # optional — change for us1/us2/custom zone`,
 		);
 	} else {
 		add('make-api-key', 'ok', `set (${readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin'})`);
@@ -110,10 +111,10 @@ if (isClaude) {
 			'make-apps-mockup-path',
 			'optional-missing',
 			'not set — test-component.js unavailable',
-			`Clone the make-apps-mockup repo, then append to ${skillMd}:\n  make-apps-mockup-path: /absolute/path/to/make-apps-mockup`,
+			`Clone the make-apps-mockup repo, then add to ${SECRETS_HINT}:\n  make-apps-mockup-path: /absolute/path/to/make-apps-mockup`,
 		);
 	} else if (!fs.existsSync(v)) {
-		add('make-apps-mockup-path', 'optional-missing', `path does not exist: ${v}`, `Fix the make-apps-mockup-path line in ${skillMd}.`);
+		add('make-apps-mockup-path', 'optional-missing', `path does not exist: ${v}`, `Fix the make-apps-mockup-path line in ${SECRETS_PATH}.`);
 	} else {
 		add('make-apps-mockup-path', 'ok', v);
 	}
@@ -128,7 +129,7 @@ if (isClaude) {
 			'jira credentials',
 			'optional-missing',
 			'jira-email / jira-api-token not set — attachment download and reviewer assignment unavailable',
-			`Create a token at https://id.atlassian.com/manage-profile/security/api-tokens, then append to ${skillMd}:\n  jira-email: you@example.com\n  jira-api-token: <token>\n  jira-base-url: https://make.atlassian.net   # optional`,
+			`Create a token at https://id.atlassian.com/manage-profile/security/api-tokens, then add to ${SECRETS_HINT}:\n  jira-email: you@example.com\n  jira-api-token: <token>\n  jira-base-url: https://make.atlassian.net   # optional`,
 		);
 	} else {
 		add('jira credentials', 'ok', email);
@@ -155,7 +156,7 @@ if (isClaude) {
 			'mcp-server',
 			'optional-missing',
 			`not installed at ${mcpDir}`,
-			'Re-run the installer (it copies and builds mcp-server), or add an mcp-server-path: line to SKILL.md.',
+			`Re-run the installer (it copies and builds mcp-server), or add an mcp-server-path: line to ${SECRETS_PATH}.`,
 		);
 	} else if (!fs.existsSync(dist)) {
 		add('mcp-server', 'optional-missing', 'not built', `cd ${mcpDir} && npm install && npm run build`);
@@ -175,6 +176,19 @@ if (isClaude) {
 		);
 	} else {
 		add('mcp-server', 'ok', `registered (${registryPath})`);
+	}
+}
+
+// 6. Legacy config still in SKILL.md (pre-2.0) — SKILL.md is loaded into the model every session
+{
+	const legacy = ['make-api-key', 'jira-api-token', 'jira-email', 'imt-app-runtime-path', 'make-apps-mockup-path', 'mcp-server-path', 'make-api-url', 'jira-base-url'].filter(skillMdHasConfig);
+	if (legacy.length) {
+		add(
+			'legacy config in SKILL.md',
+			'optional-missing',
+			`still present in ${skillMd}: ${legacy.join(', ')} — SKILL.md is read by the AI agent every session`,
+			`Move these lines to ${SECRETS_PATH} and delete them from SKILL.md (re-running the installer does this automatically):\n  ${legacy.map((k) => `${k}: …`).join('\n  ')}`,
+		);
 	}
 }
 

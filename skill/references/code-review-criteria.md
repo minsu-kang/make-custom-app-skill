@@ -184,8 +184,8 @@ node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component
 - If tests **pass** → note "Component tests pass" in the review
 - If no tests exist for the component → note "No component integration test found" (not a blocking issue)
 
-**Requires**: `make-apps-mockup-path` configured in SKILL.md. If not configured, skip with a note:
-> Component integration tests skipped — `make-apps-mockup-path` not configured in SKILL.md.
+**Requires**: `make-apps-mockup-path` configured (see `check-setup.js`). If not configured, skip with a note:
+> Component integration tests skipped — `make-apps-mockup-path` not configured.
 
 ---
 
@@ -317,7 +317,7 @@ When code is **removed** in a change (headers deleted, parameters dropped, expre
 When reviewing `api.imljson` changes that use runtime variables, IML context features, or middleware behavior (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`):
 
 1. **First**: Check `${SKILL_ROOT}/references/runtime-reference.md` for documented behavior
-2. **If not found or still uncertain**: Search the `imt-app-runtime` source code directly (path in SKILL.md's last line `imt-app-runtime-path:`) to verify actual runtime behavior
+2. **If not found or still uncertain**: Search the `imt-app-runtime` source code directly (path reported by `check-setup.js` as `imt-app-runtime-path`) to verify actual runtime behavior
 
 **Never assume or guess** how runtime features work. Common mistakes to avoid:
 - **Flagging explicit body mapping as "sending empty values"** — When `api.imljson` maps params explicitly (e.g., `"name": "{{parameters.name}}"`), unfilled params evaluate to `undefined`, which `JSON.stringify` omits. The `temp` + `_.merge` pattern also skips `undefined` values. Do NOT flag this as a bug. See `runtime-reference.md` § "Undefined parameter handling in temp" for full details.

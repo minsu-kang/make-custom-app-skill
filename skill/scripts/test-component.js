@@ -18,7 +18,7 @@
  * Component types: module, rpc, connection, webhook
  *
  * Requires:
- *   - make-apps-mockup repo path configured in SKILL.md (make-apps-mockup-path: /path/to/repo)
+ *   - make-apps-mockup repo path configured in ~/.make-custom-app-skill-secrets (make-apps-mockup-path: /path/to/repo)
  *   - MAKE_API_KEY environment variable set
  */
 
@@ -26,20 +26,11 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
-const { getMakeApiKey } = require('./lib/settings');
-
-const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
+const { getEditorDir } = require('./lib/skill-root');
+const { getMakeApiKey, readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 
 function getMockupPath() {
-	if (!fs.existsSync(SKILL_MD_PATH)) return null;
-	const content = fs.readFileSync(SKILL_MD_PATH, 'utf-8');
-	const lines = content.trim().split('\n');
-	for (let i = lines.length - 1; i >= 0; i--) {
-		const match = lines[i].match(/^make-apps-mockup-path:\s*(.+)$/);
-		if (match) return match[1].trim();
-	}
-	return null;
+	return readSkillConfig('make-apps-mockup-path');
 }
 
 const args = process.argv.slice(2);
@@ -76,7 +67,7 @@ const mockupPath = getMockupPath();
 if (!mockupPath || !fs.existsSync(mockupPath)) {
 	console.error('make-apps-mockup path not configured or not found.');
 	console.error('');
-	console.error('Please configure it in SKILL.md by adding this line at the end:');
+	console.error(`Please configure it by adding this line to ${SECRETS_PATH}:`);
 	console.error('  make-apps-mockup-path: /path/to/make-apps-mockup');
 	console.error('');
 	console.error('Or clone the repo first:');
@@ -97,7 +88,7 @@ try {
 }
 
 // Resolve MAKE_API_KEY for the child ts-node process.
-//   Claude Code → SKILL.md `make-api-key:` (single source of truth; getMakeApiKey
+//   Claude Code → ~/.make-custom-app-skill-secrets `make-api-key:` (getMakeApiKey
 //                 exits with a setup guide if missing).
 //   Cursor      → process env, then mockup `.env`, then Cursor settings.json via
 //                 lib/settings.getMakeApiKey() as a final fallback.

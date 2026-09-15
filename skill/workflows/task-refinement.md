@@ -103,7 +103,7 @@ Generic dev steps (spec changes → create components → implement per skeleton
   "content": [ { "type": "codeBlock", "attrs": { "language": "json" }, "content": [ { "type": "text", "text": "{ ... }" } ] } ] }
 ```
 
-One `expand` per file. If `createJiraIssue` is unavailable or rejects the body, `POST /rest/api/3/issue` directly with the `jira-email` / `jira-api-token` from the SKILL.md tail. Markdown body (`contentFormat: "markdown"`) only when the report contains zero code blocks.
+One `expand` per file. If `createJiraIssue` is unavailable or rejects the body, write a small Node script that reads `jira-email` / `jira-api-token` via `${SKILL_ROOT}/scripts/lib/settings.js` (`loadJiraConfig()`) and `POST`s `/rest/api/3/issue` — do not read the secrets file yourself. Markdown body (`contentFormat: "markdown"`) only when the report contains zero code blocks.
 
 ## Checklist
 

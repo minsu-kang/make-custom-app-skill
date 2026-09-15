@@ -19,20 +19,13 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 const os = require('os');
-const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
+const { getEditorDir } = require('./lib/skill-root');
 
 const DEFAULT_CONTEXTS_DIR = path.join(os.homedir(), getEditorDir(), 'make-app-contexts');
-const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
+const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 
 function getRuntimePath() {
-	if (!fs.existsSync(SKILL_MD_PATH)) return null;
-	const content = fs.readFileSync(SKILL_MD_PATH, 'utf-8');
-	const lines = content.trim().split('\n');
-	for (let i = lines.length - 1; i >= 0; i--) {
-		const match = lines[i].match(/^imt-app-runtime-path:\s*(.+)$/);
-		if (match) return match[1].trim();
-	}
-	return null;
+	return readSkillConfig('imt-app-runtime-path');
 }
 
 function loadImlFunctions(runtimePath, tz) {
@@ -325,7 +318,7 @@ if (runtimePath && fs.existsSync(runtimePath)) {
 	}
 } else {
 	console.log('IML: imt-app-runtime path not configured — using passthrough stubs');
-	console.log('     Set imt-app-runtime-path in SKILL.md for full IML function support');
+	console.log(`     Set imt-app-runtime-path in ${SECRETS_PATH} for full IML function support`);
 }
 
 console.log(`Testing: ${slug} v${version}`);

@@ -15,7 +15,7 @@
 Right after the ticket fetch (lifecycle §4), assign the **parent** to yourself so ownership is visible in Jira:
 
 1. `getAccessibleAtlassianResources` → `cloudId` (cache for the session).
-2. `lookupJiraAccountId({ cloudId, searchString: <jira-email: value from SKILL.md tail> })` → pick the exact email match (cache).
+2. `lookupJiraAccountId({ cloudId, searchString: <reviewer email> })` — the email is the `jira credentials` detail line of `check-setup.js` output (never open the secrets file). Pick the exact email match (cache).
 3. `editJiraIssue({ cloudId, issueIdOrKey: PARENT, fields: { assignee: { accountId } } })` — skip when already assigned to you or when there is no ticket.
 
 Never set `assignee` on any sub-task, whatever its status. Status transitions happen only after the disposition (below).

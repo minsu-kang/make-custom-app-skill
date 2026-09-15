@@ -32,7 +32,7 @@
  *
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
- *   Claude Code → `make-api-key:` line in SKILL.md (required)
+ *   Claude Code → `make-api-key:` line in ~/.make-custom-app-skill-secrets (required)
  */
 
 const { loadSettings } = require('./lib/settings');

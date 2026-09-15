@@ -10,71 +10,20 @@
  *   ~/.claude/make-app-contexts/attachments/{issue-key}/ (Claude Code) or
  *   ~/.cursor/make-app-contexts/attachments/{issue-key}/ (Cursor)
  *
- * Requires jira-email and jira-api-token in SKILL.md
+ * Requires jira-email and jira-api-token in ~/.make-custom-app-skill-secrets
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const https = require('https');
-const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
+const { getEditorDir } = require('./lib/skill-root');
+const { loadJiraConfig } = require('./lib/settings');
 
-const SKILL_MD_PATH = path.join(getSkillRoot(), 'SKILL.md');
 const ATTACHMENTS_DIR = path.join(os.homedir(), getEditorDir(), 'make-app-contexts/attachments');
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
 
-function loadJiraConfig() {
-	if (!fs.existsSync(SKILL_MD_PATH)) {
-		console.error('ERROR: SKILL.md not found at', SKILL_MD_PATH);
-		process.exit(1);
-	}
-
-	const content = fs.readFileSync(SKILL_MD_PATH, 'utf-8');
-	const lines = content.split('\n');
-
-	// Last-wins: setup-guide example lines appear first, real creds appended at end.
-	// Skip markdown blockquote lines ("> ...") so setup-guide samples are ignored.
-	// Skip obvious placeholder values.
-	const isPlaceholder = (v) =>
-		!v ||
-		v.includes('your-') ||
-		v === 'user@example.com' ||
-		v === 'ATATT3x...' ||
-		v.startsWith('<') ||
-		v.endsWith('>');
-
-	let email = '';
-	let apiToken = '';
-	let baseUrl = 'https://make.atlassian.net';
-
-	for (const rawLine of lines) {
-		if (rawLine.trimStart().startsWith('>')) continue;
-		const trimmed = rawLine.trim();
-		if (trimmed.startsWith('jira-email:')) {
-			const v = trimmed.replace('jira-email:', '').trim();
-			if (!isPlaceholder(v)) email = v;
-		} else if (trimmed.startsWith('jira-api-token:')) {
-			const v = trimmed.replace('jira-api-token:', '').trim();
-			if (!isPlaceholder(v)) apiToken = v;
-		} else if (trimmed.startsWith('jira-base-url:')) {
-			const v = trimmed.replace('jira-base-url:', '').trim();
-			if (!isPlaceholder(v)) baseUrl = v;
-		}
-	}
-
-	if (!email || !apiToken) {
-		console.error('ERROR: Jira credentials not configured in SKILL.md.');
-		console.error(`Add the following to the last lines of ${SKILL_MD_PATH}:\n`);
-		console.error('  jira-email: your-email@example.com');
-		console.error('  jira-api-token: your-api-token');
-		console.error('  jira-base-url: https://make.atlassian.net  (optional, defaults to make.atlassian.net)\n');
-		console.error('Generate an API token at: https://id.atlassian.com/manage-profile/security/api-tokens');
-		process.exit(1);
-	}
-
-	return { email, apiToken, baseUrl };
-}
 
 function fetchJson(url, auth) {
 	return new Promise((resolve, reject) => {

@@ -70,7 +70,7 @@ cd make-custom-app-skill
 
 Both methods install skill files to `~/.cursor/skills/make-custom-app/` and one trigger rule to `~/.cursor/rules/make-custom-app/`. The one-liner downloads the repository archive once and copies `skill/`, `rules/`, and `mcp-server/` wholesale — there is no per-file list to keep in sync. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes rule files from 1.x releases and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
 
-After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js` to see what is still missing (`imt-app-runtime` path, Jira credentials, MCP server). The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
+After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js` to see what is still missing (`imt-app-runtime` path, Jira credentials, MCP server). User config lives in `~/.make-custom-app-skill-secrets` (one `key: value` per line, mode 600) — never inside the skill directory, so API keys are never loaded into the agent's context. Installs older than 2.0 kept these lines at the tail of `SKILL.md`; the installer moves them automatically. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
 ### Claude Code
 
@@ -183,10 +183,10 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
-| `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in SKILL.md. |
+| `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in `~/.make-custom-app-skill-secrets`. |
 | `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
-| `lib/settings.js` | Shared settings loader — reads installer-configured values from `SKILL.md` (paths, Jira credentials, etc.). |
+| `lib/settings.js` | Shared settings loader — reads `~/.make-custom-app-skill-secrets` (paths, Make/Jira credentials; legacy SKILL.md tail as fallback) and Cursor `settings.json`. |
 | `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). |
 
 ### Rule File (`rules/` → `~/.cursor/rules/make-custom-app/`, Cursor only)
@@ -260,8 +260,8 @@ When you install for Claude Code, the installer deploys a sub-agent definition t
 
 The agent's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints the exact fix and stops — typically:
 
-1. **Clone `imt-app-runtime`** (Make internal repo) and append `imt-app-runtime-path: /path/to/clone` to the installed `SKILL.md`
-2. **Claude Code only:** append `make-api-key: <token>` to the installed `SKILL.md`
+1. **Clone `imt-app-runtime`** (Make internal repo) and add `imt-app-runtime-path: /path/to/clone` to `~/.make-custom-app-skill-secrets`
+2. **Claude Code only:** add `make-api-key: <token>` to the same file
 
 App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
 

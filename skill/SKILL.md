@@ -12,10 +12,10 @@ Path variables: `${SKILL_ROOT}` = `~/.cursor/skills/make-custom-app` (Cursor) or
 
 ## First action — once per conversation
 
-Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: ["all"]`). It checks the skill version (auto-updates when outdated), `imt-app-runtime-path`, Make API credentials, and optional mockup / Jira / MCP setup, and prints the fix for anything missing.
+Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: ["all"]`). It checks the skill version (auto-updates when outdated), `imt-app-runtime-path`, Make API credentials, and optional mockup / Jira / MCP setup, and prints the fix for anything missing. User config (paths, API keys, Jira credentials) lives in `~/.make-custom-app-skill-secrets`; scripts read it, you never do.
 
 - Exit `0` → continue. Exit `3` → skill was just updated; re-read this file, then continue.
-- Exit `1` → show its output and **stop**: no app code, scripts, or MCP calls until the required items are fixed. Only exception: the user is asking you to add or fix one of those config lines.
+- Exit `1` → show its output and **stop**: no app code, scripts, or MCP calls until the required items are fixed. Only exception: the user is asking you to add or fix one of those config lines — then edit `~/.make-custom-app-skill-secrets` with the single line they gave you, without reading the rest of the file.
 
 ## Workflows
 
@@ -42,6 +42,7 @@ Read [workflows/lifecycle.md](workflows/lifecycle.md) first for every task (app 
 7. **Developer-facing text** (To Developer messages, Jira comments, Dev Notes) never mentions skill scripts, skill paths, Pinecone, or MCP tools. Speak in SDK / IMLJSON terms.
 8. **Stay inside the ticket's AC.** Anything outside it is proposed with a reason, not silently changed.
 9. **Function edits ship with tests.** `functions/{name}/code.js` change → update `test.js` + run `test-function.js`. `api.imljson` change outside a review → run `test-component.js`.
+10. **Never read `~/.make-custom-app-skill-secrets`** (or paste its contents). Scripts consume it; `check-setup.js` reports what you need to know (paths, Jira email) without the tokens.
 
 ## App components
 
@@ -92,4 +93,4 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 
 `check-setup.js` · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.
 
-<!-- User config lines (imt-app-runtime-path:, make-api-key:, make-apps-mockup-path:, jira-email:, jira-api-token:, mcp-server-path: …) are appended below by the installer. Run scripts/check-setup.js to see what is missing. -->
+<!-- User config (imt-app-runtime-path, make-api-key, make-apps-mockup-path, jira-email, jira-api-token, mcp-server-path …) lives in ~/.make-custom-app-skill-secrets, never in this file. Run scripts/check-setup.js to see what is missing. -->
