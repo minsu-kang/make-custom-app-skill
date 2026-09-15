@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.22.0 — 2026-09-15
+
+- **`code-review-criteria.md` + `code-review.md` — Breaking skip #5 (also skips Bugs): no-production-surface consumers.** A Bug or Breaking Change whose only consumers were never deployed (`private: true`/`null`) or are unused (0 users/scenarios, or empty `expect`+`parameters` stub) is not a review blocker. Do not skip when usage exists, even if labeled `(deprecated)`. Shared functions: skip leftover callers only. Unknown usage: do not skip. Trigger: IEN-14893 `generateAccountReport` / `generateCampaignReport`.
+
 ## 1.21.0 — 2026-09-04
 
 - **New `endpoints-reference.md` § "Pure API Wrapper Principle"** — core design principle for endpoints: no output transformations, minimal input transformations (`stripEmpty()`, `omit()`, `encodeURL()`), input/output schemas must match the third-party API as closely as possible. Documents allowed vs disallowed transformation patterns with concrete examples from Google Calendar (IEN-16255).
