@@ -1,5 +1,7 @@
 # Component Patterns Reference
 
+> Read when: writing or reviewing `base.imljson`, a connection (any auth type, `aliasTo`, install params, `redirect_uri`), error handling, webhooks, triggers, responders, or agency modules.
+
 ## Base Pattern
 
 `base.imljson` defines common settings inherited by **modules and RPCs only**. It is **not merged into `connections/*/api.imljson` or `webhooks/*/api.imljson`** — **every** field in base (`baseUrl`, `headers`, `qs`, `body`, `response`, `log`, `type`, `timeout`, or any other key) is ignored for connection and webhook contexts. Those components must specify their full URL, headers, error handling, logging, and everything else explicitly. Any field set in base acts as the default for modules/RPCs only and can be overridden at the component level.

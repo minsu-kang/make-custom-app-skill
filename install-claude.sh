@@ -15,24 +15,20 @@ set -e
 #   Flags:
 #     --update    Skip confirmation prompt (for scripted updates)
 #     --force     Remove everything and do a clean install
+#
+# Source resolution: when run from a local clone the clone is copied; when
+# piped from curl the whole repo archive is downloaded once and extracted, so
+# no file list is maintained here.
 # ============================================================
 
 REPO="minsu-kang/make-custom-app-skill"
 BRANCH="master"
 SKILL_DIR="$HOME/.claude/skills/make-custom-app"
-RULES_DIR="$SKILL_DIR/rules"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 CLAUDE_JSON="$HOME/.claude.json"
-VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
-
-SKILL_FILES=("SKILL.md")
-REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md" "security-reference.md" "code-smells-reference.md" "app-compilation-and-deployment-reference.md" "component-scaffold-templates.md" "endpoints-reference.md")
-WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md" "task-refinement.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js" "commit-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js" "post-review-transition.js")
-SCRIPT_LIB_FILES=("skill-root.js" "settings.js" "version-guard.js")
-RULE_FILES=("make-app-workflow.mdc" "make-app-todo-rules.mdc" "make-app-todo-bugfix.mdc" "make-app-todo-feature.mdc" "make-app-todo-task.mdc" "make-app-todo-review.mdc" "make-app-todo-refinement.mdc" "work-discipline.mdc")
 MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
-MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
+AGENTS_DIR="$HOME/.claude/agents"
+AGENT_DST="$AGENTS_DIR/make-integration-engineer.md"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -69,6 +65,7 @@ SAVED_JIRA_TOKEN=""
 SAVED_JIRA_BASE_URL=""
 SAVED_MAKE_API_KEY=""
 SAVED_MAKE_API_URL=""
+SAVED_ENV=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
@@ -81,10 +78,8 @@ if [ -d "$SKILL_DIR" ]; then
         SAVED_MAKE_API_KEY=$(grep '^make-api-key:' "$SKILL_DIR/SKILL.md" | grep -v 'your-make-api-token' | tail -1 || true)
         SAVED_MAKE_API_URL=$(grep '^make-api-url:' "$SKILL_DIR/SKILL.md" | grep -v 'eu1.make.com/api/v2/admin$' | tail -1 || true)
     fi
-
-    SAVED_ENV=""
-    if [ -f "$SKILL_DIR/mcp-server/.env" ]; then
-        SAVED_ENV=$(cat "$SKILL_DIR/mcp-server/.env")
+    if [ -f "$MCP_SERVER_DIR/.env" ]; then
+        SAVED_ENV=$(cat "$MCP_SERVER_DIR/.env")
     fi
 
     case "$MODE" in
@@ -115,253 +110,54 @@ if [ -d "$SKILL_DIR" ]; then
     esac
 fi
 
-mkdir -p "$SKILL_DIR"
-mkdir -p "$RULES_DIR"
-
-# ── Restore preserved .env ──
-if [ -n "$SAVED_ENV" ]; then
-    mkdir -p "$MCP_SERVER_DIR"
-    printf '%s\n' "$SAVED_ENV" > "$MCP_SERVER_DIR/.env"
-fi
-
-# ── Detect Source ──
-# When run via `curl | bash`, BASH_SOURCE[0] is empty — dirname "" returns "."
-# which resolves to cwd. If cwd happens to be a repo clone, local files get used
-# instead of downloading from GitHub. Only use local source when BASH_SOURCE[0]
-# points to an actual file (i.e., script was run directly, not piped).
-if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ── Resolve Source (local clone or GitHub archive) ──
+CLEANUP_TMP=""
+if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/skill/SKILL.md" ]; then
+    SRC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    info "Using local source: $SRC_ROOT"
 else
-    SCRIPT_DIR=""
+    command -v curl &>/dev/null || fail "curl is not installed."
+    command -v tar  &>/dev/null || fail "tar is not installed."
+    CLEANUP_TMP="$(mktemp -d)"
+    info "Downloading $REPO@$BRANCH archive..."
+    if ! curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$CLEANUP_TMP"; then
+        fail "Download failed. Check your network and try again."
+    fi
+    SRC_ROOT="$CLEANUP_TMP/$(basename "$REPO")-$BRANCH"
+    [ -f "$SRC_ROOT/skill/SKILL.md" ] || fail "Archive layout unexpected — skill/SKILL.md not found."
 fi
+trap '[ -n "$CLEANUP_TMP" ] && rm -rf "$CLEANUP_TMP"' EXIT
+echo ""
 
-# Path substitution: rewrite any reference to the Cursor install path so files
-# work under ~/.claude/skills/make-custom-app instead of ~/.cursor/skills/make-custom-app.
+# Safety net: rewrite any leftover Cursor-path literal so files work under ~/.claude.
+# The skill uses ${SKILL_ROOT} placeholders, so this is normally a no-op.
 PATH_REWRITE_SED='s|~/.cursor/skills/make-custom-app|~/.claude/skills/make-custom-app|g'
 
-copy_with_rewrite() {
-    local src="$1"
-    local dst="$2"
-    sed -E "$PATH_REWRITE_SED" "$src" > "$dst"
-}
-
-# Strip frontmatter (everything between the first `---` and the second `---`,
-# plus the optional blank line after) when copying .mdc rule files into .md.
-copy_rule_strip_frontmatter() {
-    local src="$1"
-    local dst="$2"
-    awk '
-        BEGIN { in_fm = 0; fm_done = 0; saw_blank_after = 0 }
-        NR == 1 && /^---[[:space:]]*$/ { in_fm = 1; next }
-        in_fm && /^---[[:space:]]*$/ { in_fm = 0; fm_done = 1; next }
-        in_fm { next }
-        fm_done && !saw_blank_after && /^[[:space:]]*$/ { saw_blank_after = 1; next }
-        { print }
-    ' "$src" | sed -E "$PATH_REWRITE_SED" > "$dst"
-}
-
-# ── Install Skill Files (skill/ → ~/.claude/skills/make-custom-app/) ──
+# ── Install skill/ → $SKILL_DIR (markdown path-rewritten) ──
 info "Installing skill files..."
+mkdir -p "$SKILL_DIR"
+(cd "$SRC_ROOT/skill" && find . -type f ! -name '.DS_Store' -print0) | while IFS= read -r -d '' rel; do
+    mkdir -p "$SKILL_DIR/$(dirname "$rel")"
+    case "$rel" in
+        *.md) sed -E "$PATH_REWRITE_SED" "$SRC_ROOT/skill/$rel" > "$SKILL_DIR/$rel" ;;
+        *)    cp "$SRC_ROOT/skill/$rel" "$SKILL_DIR/$rel" ;;
+    esac
+done
+rm -rf "$SKILL_DIR/rules"   # 1.x installed rule copies here; SKILL.md now carries the hard rules
+ok "skill/ ($(find "$SKILL_DIR" -type f | wc -l | tr -d ' ') files)"
+
+# ── Install mcp-server/ source → $MCP_SERVER_DIR ──
 echo ""
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/SKILL.md" ]; then
-    for file in "${SKILL_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/skill/$file" ]; then
-            copy_with_rewrite "$SCRIPT_DIR/skill/$file" "$SKILL_DIR/$file"
-            ok "$file"
-        else
-            warn "$file (not found, skipped)"
-        fi
-    done
-else
-    info "Downloading from GitHub..."
-    echo ""
-
-    if ! command -v curl &>/dev/null; then
-        fail "curl is not installed."
-    fi
-
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${SKILL_FILES[@]}"; do
-        TMP_FILE="$(mktemp)"
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMP_FILE" "$BASE_URL/skill/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            copy_with_rewrite "$TMP_FILE" "$SKILL_DIR/$file"
-            rm -f "$TMP_FILE"
-            ok "$file"
-        else
-            rm -f "$TMP_FILE"
-            warn "$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
+info "Installing MCP server source..."
+mkdir -p "$MCP_SERVER_DIR"
+(cd "$SRC_ROOT/mcp-server" && tar -cf - --exclude=node_modules --exclude=dist --exclude=.env --exclude='.DS_Store' .) | (cd "$MCP_SERVER_DIR" && tar -xf -)
+ok "mcp-server/ source copied"
+if [ -n "$SAVED_ENV" ]; then
+    printf '%s\n' "$SAVED_ENV" > "$MCP_SERVER_DIR/.env"
+    ok "mcp-server/.env preserved"
 fi
 
-# ── Install Reference Files ──
-echo ""
-info "Installing reference files..."
-echo ""
-
-mkdir -p "$SKILL_DIR/references"
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/references" ]; then
-    for src in "$SCRIPT_DIR"/skill/references/*.md; do
-        [ -f "$src" ] || continue
-        cp "$src" "$SKILL_DIR/references/$(basename "$src")"
-        ok "references/$(basename "$src")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${REFERENCE_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/references/$file" "$BASE_URL/skill/references/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "references/$file"
-        else
-            rm -f "$SKILL_DIR/references/$file"
-            warn "references/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Workflow Files (path-rewritten) ──
-echo ""
-info "Installing workflow files..."
-echo ""
-
-mkdir -p "$SKILL_DIR/workflows"
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/workflows" ]; then
-    for src in "$SCRIPT_DIR"/skill/workflows/*.md; do
-        [ -f "$src" ] || continue
-        copy_with_rewrite "$src" "$SKILL_DIR/workflows/$(basename "$src")"
-        ok "workflows/$(basename "$src")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${WORKFLOW_FILES[@]}"; do
-        TMP_FILE="$(mktemp)"
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMP_FILE" "$BASE_URL/skill/workflows/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            copy_with_rewrite "$TMP_FILE" "$SKILL_DIR/workflows/$file"
-            rm -f "$TMP_FILE"
-            ok "workflows/$file"
-        else
-            rm -f "$TMP_FILE"
-            warn "workflows/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Script Files ──
-echo ""
-info "Installing script files..."
-echo ""
-
-SCRIPTS_DEST="$SKILL_DIR/scripts"
-mkdir -p "$SCRIPTS_DEST"
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/scripts/download-app.js" ]; then
-    cp "$SCRIPT_DIR"/skill/scripts/*.js "$SCRIPTS_DEST/" 2>/dev/null
-    for file in "$SCRIPTS_DEST"/*.js; do
-        ok "scripts/$(basename "$file")"
-    done
-    mkdir -p "$SCRIPTS_DEST/lib"
-    cp "$SCRIPT_DIR"/skill/scripts/lib/*.js "$SCRIPTS_DEST/lib/" 2>/dev/null
-    for file in "$SCRIPTS_DEST"/lib/*.js; do
-        [ -f "$file" ] || continue
-        ok "scripts/lib/$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${SCRIPT_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/$file" "$BASE_URL/skill/scripts/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "scripts/$file"
-        else
-            rm -f "$SCRIPTS_DEST/$file"
-            warn "scripts/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-
-    mkdir -p "$SCRIPTS_DEST/lib"
-    for file in "${SCRIPT_LIB_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/lib/$file" "$BASE_URL/skill/scripts/lib/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "scripts/lib/$file"
-        else
-            rm -f "$SCRIPTS_DEST/lib/$file"
-            warn "scripts/lib/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Rule Files (rules/*.mdc → $RULES_DIR/*.md, frontmatter stripped, paths rewritten) ──
-echo ""
-info "Installing rule files..."
-echo ""
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/rules" ]; then
-    for src in "$SCRIPT_DIR"/rules/*.mdc; do
-        [ -f "$src" ] || continue
-        base="$(basename "$src" .mdc)"
-        copy_rule_strip_frontmatter "$src" "$RULES_DIR/$base.md"
-        ok "rules/$base.md"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${RULE_FILES[@]}"; do
-        TMP_FILE="$(mktemp)"
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMP_FILE" "$BASE_URL/rules/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            base="${file%.mdc}"
-            copy_rule_strip_frontmatter "$TMP_FILE" "$RULES_DIR/$base.md"
-            rm -f "$TMP_FILE"
-            ok "rules/$base.md"
-        else
-            rm -f "$TMP_FILE"
-            warn "rules/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install MCP Server ──
-echo ""
-info "Installing MCP server..."
-echo ""
-
-mkdir -p "$MCP_SERVER_DIR/lib" "$MCP_SERVER_DIR/tools"
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/mcp-server/index.ts" ]; then
-    for file in "${MCP_SERVER_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/mcp-server/$file" ]; then
-            cp "$SCRIPT_DIR/mcp-server/$file" "$MCP_SERVER_DIR/$file"
-            ok "mcp-server/$file"
-        else
-            warn "mcp-server/$file (not found, skipped)"
-        fi
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${MCP_SERVER_FILES[@]}"; do
-        dir_part=$(dirname "$file")
-        if [ "$dir_part" != "." ]; then
-            mkdir -p "$MCP_SERVER_DIR/$dir_part"
-        fi
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$MCP_SERVER_DIR/$file" "$BASE_URL/mcp-server/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "mcp-server/$file"
-        else
-            rm -f "$MCP_SERVER_DIR/$file"
-            warn "mcp-server/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
+# ── Build MCP Server ──
 MCP_CONFIGURED=false
 
 if [ -f "$MCP_SERVER_DIR/package.json" ]; then
@@ -397,6 +193,8 @@ if [ -f "$MCP_SERVER_DIR/package.json" ]; then
     if [ -f "$MCP_SERVER_DIR/.env" ]; then
         info "Existing .env found — skipping key setup."
         MCP_CONFIGURED=true
+    elif [ "$MODE" = "update" ]; then
+        info "Non-interactive update — skipping MCP key setup (run: cd $MCP_SERVER_DIR && cp .env.example .env, then re-run this installer)."
     else
         read -p "  Set up MCP server now? [y/n]: " setup_mcp </dev/tty
         echo ""
@@ -502,8 +300,8 @@ if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {};
 }
 
-// Absolute node path — Claude Code (and Cursor) launched from a GUI shortcut
-// inherits no shell PATH, so a literal 'node' fails with `spawn node ENOENT`.
+// Absolute node path — Claude Code launched from a GUI shortcut inherits no
+// shell PATH, so a literal 'node' fails with `spawn node ENOENT`.
 const NODE_BIN = process.execPath;
 
 const existingEntry = cfg.mcpServers[KEY];
@@ -529,7 +327,6 @@ console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
 NODEEOF
     REG_RESULT=$?
     if [ $REG_RESULT -eq 0 ]; then
-        # Re-detect what happened by inspecting the file
         if [ -f "$CLAUDE_JSON" ] && grep -q '"make-custom-app"' "$CLAUDE_JSON"; then
             ok "MCP server registered (key 'make-custom-app' present in $CLAUDE_JSON)"
         else
@@ -552,7 +349,6 @@ if [ -f "$CLAUDE_MD" ] && grep -qF "$SENTINEL" "$CLAUDE_MD"; then
 else
     mkdir -p "$(dirname "$CLAUDE_MD")"
     if [ -f "$CLAUDE_MD" ] && [ -s "$CLAUDE_MD" ]; then
-        # Ensure single blank line separator before our section
         tail -c1 "$CLAUDE_MD" | read -r _ || echo "" >> "$CLAUDE_MD"
         echo "" >> "$CLAUDE_MD"
     fi
@@ -568,87 +364,30 @@ fi
 # ── Install Claude Code Agent Definition ──
 echo ""
 info "Installing make-integration-engineer agent..."
-
-AGENTS_DIR="$HOME/.claude/agents"
 mkdir -p "$AGENTS_DIR"
-AGENT_DST="$AGENTS_DIR/make-integration-engineer.md"
-AGENT_KEY="make-integration-engineer"
 
-AGENT_ALREADY_EXISTS=false
-if [ -f "$AGENT_DST" ] && grep -qF "name: $AGENT_KEY" "$AGENT_DST"; then
-    AGENT_ALREADY_EXISTS=true
-fi
-
-install_agent() {
-    local src="$1"
-    # Replace {{SKILLS_DIR}} placeholder with actual expanded path
-    sed "s|{{SKILLS_DIR}}|$SKILL_DIR|g" "$src" > "$AGENT_DST"
-}
-
-if [ "$AGENT_ALREADY_EXISTS" = true ] && [ "$MODE" = "install" ]; then
+if [ -f "$AGENT_DST" ] && grep -qF "name: make-integration-engineer" "$AGENT_DST" && [ "$MODE" = "install" ]; then
     info "Agent already installed at $AGENT_DST — skipping (use --update to overwrite)."
-elif [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/subagents/make-integration-engineer.md" ]; then
-    install_agent "$SCRIPT_DIR/subagents/make-integration-engineer.md"
-    ok "make-integration-engineer agent installed to $AGENT_DST"
 else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-    TMP_FILE="$(mktemp)"
-    HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMP_FILE" "$BASE_URL/subagents/make-integration-engineer.md" 2>/dev/null || echo "000")
-    if [ "$HTTP_CODE" = "200" ]; then
-        install_agent "$TMP_FILE"
-        rm -f "$TMP_FILE"
-        ok "make-integration-engineer agent installed to $AGENT_DST"
-    else
-        rm -f "$TMP_FILE"
-        warn "make-integration-engineer.md (download failed: HTTP $HTTP_CODE)"
-    fi
+    sed "s|{{SKILLS_DIR}}|$SKILL_DIR|g" "$SRC_ROOT/subagents/make-integration-engineer.md" > "$AGENT_DST"
+    ok "make-integration-engineer agent installed to $AGENT_DST"
 fi
 
 # ── Restore User Config ──
 if [ -f "$SKILL_DIR/SKILL.md" ]; then
-    if [ -n "$SAVED_MCP_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (mcp-server-path)"
-    fi
-    if [ -n "$SAVED_RUNTIME_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (imt-app-runtime-path)"
-    fi
-    if [ -n "$SAVED_MOCKUP_PATH" ]; then
-        echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (make-apps-mockup-path)"
-    fi
-    if [ -n "$SAVED_JIRA_EMAIL" ]; then
-        echo "$SAVED_JIRA_EMAIL" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-email)"
-    fi
-    if [ -n "$SAVED_JIRA_TOKEN" ]; then
-        echo "$SAVED_JIRA_TOKEN" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-api-token)"
-    fi
-    if [ -n "$SAVED_JIRA_BASE_URL" ]; then
-        echo "$SAVED_JIRA_BASE_URL" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-base-url)"
-    fi
-    if [ -n "$SAVED_MAKE_API_KEY" ]; then
-        echo "$SAVED_MAKE_API_KEY" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (make-api-key)"
-    fi
-    if [ -n "$SAVED_MAKE_API_URL" ]; then
-        echo "$SAVED_MAKE_API_URL" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (make-api-url)"
-    fi
+    echo "" >> "$SKILL_DIR/SKILL.md"
+    for line in "$SAVED_MCP_PATH" "$SAVED_RUNTIME_PATH" "$SAVED_MOCKUP_PATH" "$SAVED_JIRA_EMAIL" "$SAVED_JIRA_TOKEN" "$SAVED_JIRA_BASE_URL" "$SAVED_MAKE_API_KEY" "$SAVED_MAKE_API_URL"; do
+        if [ -n "$line" ]; then
+            echo "$line" >> "$SKILL_DIR/SKILL.md"
+            ok "Restored user config (${line%%:*})"
+        fi
+    done
 fi
 
 # ── Verify Installation ──
 echo ""
-if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ]; then
-    INSTALLED_VERSION=""
-    if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')
-    fi
+if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] && [ -f "$SKILL_DIR/scripts/check-setup.js" ]; then
+    INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')
 
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     if [ "$MODE" = "update" ]; then
@@ -663,23 +402,20 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ]; 
     echo ""
     echo -e "  ${BOLD}Installed to:${NC}"
     echo -e "    Skill: $SKILL_DIR"
-    echo -e "    Rules: $RULES_DIR"
+    echo -e "    Agent: $AGENT_DST"
     echo -e "    Wired in: $CLAUDE_MD"
     echo -e "    MCP registered: $CLAUDE_JSON"
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
     echo -e "  1. Restart Claude Code"
     echo -e "  2. Ask any Make app question — the skill activates automatically"
-    echo -e "  3. On first use, you'll be guided to clone imt-app-runtime"
+    echo -e "  3. Check your setup any time: ${CYAN}node $SKILL_DIR/scripts/check-setup.js${NC}"
+    echo -e "     (it tells you where to add imt-app-runtime-path and make-api-key)"
     echo ""
     if [ "$MCP_CONFIGURED" = true ]; then
         echo -e "  ${BOLD}MCP Server:${NC} ${GREEN}Configured${NC}"
-        echo -e "  Restart Claude Code to activate shared app context via Pinecone."
     else
-        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC}"
-        echo -e "  To enable later, run:"
-        echo -e "    ${CYAN}cd $MCP_SERVER_DIR${NC}"
-        echo -e "    ${CYAN}cp .env.example .env${NC}  # fill in API keys"
+        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC} — see check-setup.js output for the steps"
     fi
     echo ""
 else

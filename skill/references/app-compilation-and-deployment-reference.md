@@ -1,6 +1,8 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # App Compilation & Deployment Reference
 
+> Read when: interpreting `approved` / `compile` / `review-changes.js` 0-change results, module or app visibility (`private`, `deprecated`, `public`), admin endpoints, or the compile → IPM → zone-install pipeline.
+
 How a Make custom app travels from the editable SDK code (stored in a database) to a **compiled file package** that a Make zone instance actually executes. This is the missing half of the picture for code reviews: it explains *why* `review-changes.js` behaves the way it does, what `approved` / `compile` really mean, and where a "live" app physically lives.
 
 > **Source repos** (Make internal — referenced the way `runtime-reference.md` references `imt-app-runtime`):
@@ -61,7 +63,7 @@ A brand-new app (`issuetype: "App"`) is almost always `approved: false` / `compi
 - `POST /sdk/apps/{slug}/{version}/commit` → `apps.changes_commit`: **requires `approved`**; on the first commit of each field it captures an `'initial state'` baseline into history; applies the pending change values to the real `apps.*` tables; deletes the `apps.change` rows; then calls `enqueueCompile`.
 - `POST /admin/sdk/apps/{slug}/{version}/compile` (admin) and the approve action both also call `enqueueCompile`.
 - `POST /sdk/apps/{slug}/{version}/rollback` discards **all** pending change rows at once — no id selection, not undoable.
-- All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [app-context.md § App Commit / Rollback / Compile](../workflows/app-context.md).
+- All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [lifecycle.md § 6 Push changes](../workflows/lifecycle.md).
 - The **Jira** workflow status for "ready for review" is canonically **`Compilation`**; some developers colloquially set **`Commit`** instead. Both mean the same thing and `post-review-transition.js` accepts either.
 
 ### `compile` flag is legacy / in-progress signal
@@ -70,7 +72,24 @@ The API's `app.compile` is no longer the primary DB boolean — `imt-web-api` ov
 
 ### `compiledName` / `isCompiled`
 
-`apps.app.compiled_name` is set at approval and is the IPM package name (`app_compile` manifest name = `coalesce(compiled_name, name)`). The SDK themes endpoint exposes `isCompiled` per app (`true` once a compiled package exists). `ipmDeployedToZone` is **not** defined in any of the five repos above — it surfaces from the IPME/admin layer and must be read per zone via the admin app endpoint (see SKILL.md visibility notes).
+`apps.app.compiled_name` is set at approval and is the IPM package name (`app_compile` manifest name = `coalesce(compiled_name, name)`). The SDK themes endpoint exposes `isCompiled` per app (`true` once a compiled package exists). `ipmDeployedToZone` is **not** defined in any of the five repos above — it surfaces from the IPME/admin layer and must be read per zone via the admin app endpoint (see § "App-level visibility" below).
+
+### App-level visibility — the admin app endpoint
+
+`GET {zone}/api/v2/admin/apps/{slug}` is **admin-only** and **per-zone** (eu1, us1, …). Its status code is itself information:
+
+| Status | Meaning |
+|---|---|
+| `200` | App is IPM-deployed to that zone. `app.versions[*]` carries `private` / `deprecated` / `packagePrivate` and `modules[*].private` / `.deprecated`. |
+| `403` | Caller has an admin role but lacks access to this endpoint. |
+| `404` | App is compiled but **not yet deployed to this zone via IPM** → unusable in that zone's scenario builder regardless of `approved` / `private`. A 404 in one zone says nothing about other zones. |
+
+Scenario-builder visibility per version (and, independently, per module):
+
+- `private: false` + `deprecated: false` → visible and usable (full production).
+- `private: true` → not visible, regardless of `deprecated`.
+- `deprecated: true` → not visible for new use, but scenarios already using it keep rendering.
+- `approved: true` (compiled) is necessary but **not sufficient** — always also check `private` + `deprecated` per zone. `approved` reflects compilation state, never "approved by the Make team for production".
 
 ### Module visibility & hiding — `deprecated`/`private` vs SDK `public` (field-verified, IEN-15262)
 

@@ -68,9 +68,9 @@ cd make-custom-app-skill
 
 > **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
 
-Both methods install skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/`. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes deprecated rule files from earlier releases (`make-app-auto-actions.mdc` and `make-app-code-review.mdc`, replaced in 1.12.0 by the split `make-app-workflow.mdc` + `make-app-todo-*.mdc` rules and the `skill/workflows/code-review.md` workflow) and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
+Both methods install skill files to `~/.cursor/skills/make-custom-app/` and one trigger rule to `~/.cursor/rules/make-custom-app/`. The one-liner downloads the repository archive once and copies `skill/`, `rules/`, and `mcp-server/` wholesale — there is no per-file list to keep in sync. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes rule files from 1.x releases and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
 
-After installation, **restart Cursor**. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
+After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js` to see what is still missing (`imt-app-runtime` path, Jira credentials, MCP server). The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
 ### Claude Code
 
@@ -121,14 +121,13 @@ The installer places files under `~/.claude/` and **does not touch your Cursor i
 
 ### Cursor
 
-Skill files to `~/.cursor/skills/make-custom-app/` and rule files to `~/.cursor/rules/make-custom-app/` (see tables below — the file inventory is identical for both editors).
+Skill files to `~/.cursor/skills/make-custom-app/` and the trigger rule to `~/.cursor/rules/make-custom-app/make-custom-app.mdc` (see tables below — the skill inventory is identical for both editors).
 
 ### Claude Code
 
 | Target | Location |
 |--------|----------|
 | Skill files | `~/.claude/skills/make-custom-app/` |
-| Rule files | `~/.claude/skills/make-custom-app/rules/` |
 | Agent definition | `~/.claude/agents/make-integration-engineer.md` |
 | MCP server | `~/.claude/skills/make-custom-app/mcp-server/` |
 | MCP registration | `~/.claude/claude.json` (key: `make-custom-app`) |
@@ -142,15 +141,15 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 
 | File | Description |
 |------|-------------|
-| `SKILL.md` | Core domain knowledge (IMLJSON, module types, IML expressions) + workflow routing table |
+| `SKILL.md` | ≤ 9 KB always-loaded contract: first action (`check-setup.js`), workflow routing, hard rules, component/module tables, reference index |
 | **Workflows** | |
-| `workflows/app-context.md` | App detection, code download/sync, context file management |
-| `workflows/code-review.md` | Fetch uncommitted changes, review against criteria, generate report |
+| `workflows/lifecycle.md` | Shared skeleton for every task — app identification, code sync, context load, Jira fetch, write-script confirmation, close-out (Dev Notes, context file, Pinecone) |
+| `workflows/code-review.md` | Review-specific: reviewer assignment, `approved`-state interpretation, skip rules #1–#5, runtime/vendor-doc gates, output format, disposition gate |
 | `workflows/bug-investigation.md` | Root cause analysis, reproduce, fix, verify, developer notes |
 | `workflows/feature-request.md` | Design, create new components, implement, test, push |
 | `workflows/app-task.md` | UX updates, refactoring, metadata changes, deprecation, cleanup |
 | `workflows/task-refinement.md` | Read `Preparation`-status Jira ticket, evaluate feasibility, draft implementation plan, optionally create `Investigation` subtask |
-| `workflows/pinecone-sync.md` | Auto-sync context to shared Pinecone vector DB |
+| `workflows/create-endpoint.md` | Create or update SDK Endpoints (Arbitrary Call or regular) |
 | **References** | |
 | `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
 | `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
@@ -174,6 +173,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 
 | File | Description |
 |------|-------------|
+| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, Jira credentials, MCP server. Exit 1 when a required item is missing; prints the fix. Run once per conversation (the skill's first action). |
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
 | `review-changes.js` | Fetches uncommitted changes for code review |
@@ -189,20 +189,13 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 | `lib/settings.js` | Shared settings loader — reads installer-configured values from `SKILL.md` (paths, Jira credentials, etc.). |
 | `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). |
 
-### Rule Files (`~/.cursor/rules/make-custom-app/` or `~/.claude/skills/make-custom-app/rules/`)
-
-Split per concern so each file stays short, focused, and is loaded only when relevant:
+### Rule File (`rules/` → `~/.cursor/rules/make-custom-app/`, Cursor only)
 
 | File | When loaded | Description |
 |------|-------------|-------------|
-| `make-app-workflow.mdc` | always | Pre / During / After Work checklist — runtime path check, version check, code sync, auto-execute scripts, Jira attachments, UX reads, IML function tests, runtime reference, post-work context update. |
-| `make-app-todo-rules.mdc` | always | Static TODO discipline — 9 universal rules (verbatim creation, no add / merge / split / reorder, single `in_progress`, `[GATE]` discipline, `[CANCELLED: <reason>]` prefix, no template swap), Common Pre/Post blocks shared by every template, and the template selection matrix. |
-| `make-app-todo-bugfix.mdc` | on bug work | § B Bugfix template (17 items). |
-| `make-app-todo-feature.mdc` | on new component / app | § N New / Feature Implementation template (18 items). |
-| `make-app-todo-task.mdc` | on refactor / metadata / UX | § T App Task template (16 items). |
-| `make-app-todo-review.mdc` | on code review | § R Code Review template (15 items). The full review process — inputs, Atlassian MCP check, Jira-driven flow, output format, Developer Message, post-review disposition gate, re-review, no-Jira fallback — lives in `skill/workflows/code-review.md` (loaded together by the agent). |
-| `make-app-todo-refinement.mdc` | on task refinement | § Refinement template — Jira ticket reading, app/reference loading, feasibility analysis, plan drafting, optional `Investigation` subtask creation. Pairs with `skill/workflows/task-refinement.md`. |
-| `work-discipline.mdc` | always | Systematic work habits — full impact analysis, no piecemeal fixes, changed files tracking, AC scope discipline, context degradation management, proactive reference re-read. |
+| `make-custom-app.mdc` | always (~600 bytes) | Trigger only: when the conversation involves a Make app, IMLJSON, the SDK, `make-app-contexts`, or an IEN app ticket, load the `make-custom-app` skill first. All behavioural rules live in `SKILL.md` § Hard rules and the workflows, so nothing else is loaded globally. |
+
+Claude Code does not install a rule file — the `make-integration-engineer` sub-agent calls `Skill('make-custom-app')` as its first action.
 
 ## Repository Structure
 
@@ -218,25 +211,19 @@ make-custom-app-skill/
 ├── skill/                              # → installed to skills/make-custom-app/
 │   ├── SKILL.md                        #   Core domain knowledge + workflow routing
 │   ├── workflows/                      #   Workflow instructions (trigger-based)
-│   │   ├── app-context.md
+│   │   ├── lifecycle.md                #     Shared skeleton, read first
 │   │   ├── code-review.md
 │   │   ├── bug-investigation.md
 │   │   ├── feature-request.md
 │   │   ├── app-task.md
 │   │   ├── task-refinement.md
-│   │   └── pinecone-sync.md
+│   │   └── create-endpoint.md
 │   ├── references/                     #   Reference documents (on-demand)
 │   └── scripts/                        #   Automation scripts (editor auto-detected)
+│       ├── check-setup.js              #     Setup diagnosis (first action)
 │       └── lib/skill-root.js           #     Shared skill-root + editor-dir resolver
-├── rules/                              # → installed to rules/make-custom-app/
-│   ├── make-app-workflow.mdc
-│   ├── make-app-todo-rules.mdc
-│   ├── make-app-todo-bugfix.mdc
-│   ├── make-app-todo-feature.mdc
-│   ├── make-app-todo-task.mdc
-│   ├── make-app-todo-review.mdc
-│   ├── make-app-todo-refinement.mdc
-│   └── work-discipline.mdc
+├── rules/                              # → installed to ~/.cursor/rules/make-custom-app/ (Cursor only)
+│   └── make-custom-app.mdc             #   Trigger rule (~600 bytes)
 └── mcp-server/                         # → installed to skills/make-custom-app/mcp-server/
     ├── index.ts                        #   MCP server entry point
     ├── lib/                            #   Pinecone + embeddings helpers
@@ -249,14 +236,14 @@ make-custom-app-skill/
 |---|---|---|
 | **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/make-custom-app/` |
 | **When loaded** | On-demand (when Make app work is detected) | Always active |
-| **Purpose** | Domain knowledge, workflows, reference docs, scripts | Behavioral directives referencing detailed docs |
-| **Size** | Large (SKILL.md + workflows + references + scripts) | Concise (~100-180 lines per rule) |
+| **Purpose** | Operating contract (SKILL.md), workflows, reference docs, scripts | Trigger: load the skill |
+| **Size** | SKILL.md ≤ 9 KB always; workflows/references on demand | ~600 bytes |
 
 ## The `make-integration-engineer` Sub-Agent (Claude Code)
 
 When you install for Claude Code, the installer deploys a sub-agent definition to `~/.claude/agents/make-integration-engineer.md`. The orchestrator (your global `~/.claude/CLAUDE.md`) automatically delegates any Make app work to this agent — you do not invoke it explicitly.
 
-**What it is:** A Claude Code sub-agent pre-loaded with the full Make domain skill (SKILL.md + all workflow and rule files). It behaves as a Make Senior Integration Engineer with knowledge of IMLJSON, IML, runtime internals, and the full SDK.
+**What it is:** A thin Claude Code sub-agent whose first action is `Skill('make-custom-app')`. `SKILL.md` is its operating contract; it persists knowledge only through the app context files and the Pinecone MCP tools.
 
 **How invocation works:** The routing note appended to `~/.claude/CLAUDE.md` instructs the orchestrator: *"For any Make.com custom app work — building, debugging, reviewing, or managing Make integrations — delegate to the `make-integration-engineer` sub-agent."* The orchestrator routes matching requests automatically.
 
@@ -271,10 +258,12 @@ When you install for Claude Code, the installer deploys a sub-agent definition t
 
 ## First Use
 
-On first use, the agent will guide you to:
+The agent's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints the exact fix and stops — typically:
 
-1. **Clone `imt-app-runtime`** via GitHub Desktop — needed for runtime reference
-2. **Download app source code** — when you ask about a specific app, the agent will prompt you to run a download command in an external terminal
+1. **Clone `imt-app-runtime`** (Make internal repo) and append `imt-app-runtime-path: /path/to/clone` to the installed `SKILL.md`
+2. **Claude Code only:** append `make-api-key: <token>` to the installed `SKILL.md`
+
+App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
 
 ## Usage Examples
 

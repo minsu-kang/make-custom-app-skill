@@ -1,5 +1,7 @@
 # Custom IML Functions (functions/)
 
+> Read when: creating or editing `functions/{name}/code.js` or `test.js` — conventions, required test coverage, assert style, 5000-character limit.
+
 Write per-app custom JavaScript functions in `functions/{functionName}/code.js`. Call in IMLJSON with `{{functionName(args)}}`.
 
 ```

@@ -1,5 +1,7 @@
 # Polling Trigger Implementation Guide
 
+> Read when: implementing or reviewing a polling trigger (type_id 1) — `trigger.order`, date filtering, epoch, page size, examples.
+
 Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1311932438/Polling+trigger)
 
 ## When to Use Polling Trigger

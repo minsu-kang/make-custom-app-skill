@@ -1,5 +1,7 @@
 # Communication (API) Detailed Reference
 
+> Read when: writing or modifying `api.imljson` — full request/response spec, pagination patterns, `iterate` / `output` / `temp` details, connection-type and RPC patterns, file upload/download.
+
 Official docs: https://developers.make.com/custom-apps-documentation/component-blocks/api
 
 ## Full Spec

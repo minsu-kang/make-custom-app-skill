@@ -1,5 +1,7 @@
 # Apps UX Best Practices
 
+> Read when: writing or reviewing any label, hint, field structure, error message, ordering, or naming in `expect` / `parameters` / `interface`. Mandatory before UX changes (hard rule 3).
+
 Source: [Apps UX best practices (Confluence)](https://make.atlassian.net/wiki/spaces/IEN/pages/886734999/Apps+UX+best+practices)
 
 Figma Design: [Apps UX Council](https://www.figma.com/file/W6gA16FZ6f3qTnkdZRLM4m/Apps-UX-Council)

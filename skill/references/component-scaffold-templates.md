@@ -1,5 +1,7 @@
 # Component Scaffold Templates (SDK defaults)
 
+> Read when: a review change has an `old_value` and you must decide whether it is untouched SDK scaffold boilerplate (→ new component, skip diff + Breaking) — compare against the per-type templates here.
+
 When the Make SDK creates a new module / RPC / webhook, the files are **pre-filled with default scaffold boilerplate** — not real code. `review-changes.js` then reports this boilerplate as the change's `old_value`. That `old_value` is **not a real prior implementation**, so the component is effectively **new**.
 
 ## How to use this file (code review)

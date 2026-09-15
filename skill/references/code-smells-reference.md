@@ -1,5 +1,7 @@
 # Code Smells & Quality Thresholds Reference (Make Custom Apps)
 
+> Read when: judging code quality of `functions/*/code.js` or IMLJSON during a review — quantitative thresholds, IMLJSON smells, cross-file smells, and how to report them.
+
 Authoritative reference for **quantitative thresholds** and **IMLJSON-specific smells** in Make custom app code review. This file is the single source of truth for quality measurement; `code-review-criteria.md` keeps the high-level JS design principles (SRP, DRY, declarative > imperative) and points here for numbers and IMLJSON smells.
 
 **Scope split** (no overlap with `code-review-criteria.md`):

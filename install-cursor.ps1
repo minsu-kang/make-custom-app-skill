@@ -14,6 +14,10 @@
 #   Flags:
 #     -Mode update    Skip confirmation prompt (for scripted updates)
 #     -Mode force     Remove everything and do a clean install
+#
+# Source resolution: when run from a local clone the clone is copied; when
+# piped from irm the whole repo archive (zip) is downloaded once and
+# extracted, so no file list is maintained here.
 # ============================================================
 
 param(
@@ -24,33 +28,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Force TLS 1.2 for HTTPS — required for GitHub raw on PowerShell 5.1
-# (legacy default on Windows 10 is SSL3/TLS1.0 which GitHub rejects).
+# Force TLS 1.2 for HTTPS — required for GitHub on PowerShell 5.1.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $REPO = "minsu-kang/make-custom-app-skill"
 $BRANCH = "master"
 $SKILL_DIR = Join-Path $env:USERPROFILE ".cursor\skills\make-custom-app"
 $RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules\make-custom-app"
-$VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
-
-$SKILL_FILES = @("SKILL.md")
-$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md", "security-reference.md", "code-smells-reference.md", "app-compilation-and-deployment-reference.md", "component-scaffold-templates.md", "endpoints-reference.md")
-$WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md", "task-refinement.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "commit-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js", "post-review-transition.js")
-$SCRIPT_LIB_FILES = @("skill-root.js", "settings.js", "version-guard.js")
-$RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "make-app-todo-refinement.mdc", "work-discipline.mdc")
-$DEPRECATED_RULE_FILES = @("make-app-auto-actions.mdc", "make-app-code-review.mdc")
+$MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
 $HOOKS_DIR = Join-Path $env:USERPROFILE ".cursor\hooks"
 $HOOKS_JSON = Join-Path $env:USERPROFILE ".cursor\hooks.json"
 $DEPRECATED_HOOK_FILES = @("make-app-auto-actions-check.js", "check-make-app-ticket-sync.js")
-$MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
-$MCP_SERVER_FILES = @(
-    "package.json", "tsconfig.json", "index.ts", "register.js",
-    "lib/pinecone.ts", "lib/embeddings.ts", "lib/chunker.ts",
-    "tools/upsert.ts", "tools/search.ts", "tools/get-summary.ts",
-    "tools/list-apps.ts", "tools/upsert-jira.ts", ".env.example"
-)
+# Rule files installed by 1.x releases directly under ~/.cursor/rules. Removed so retired rules stop loading.
+$LEGACY_RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "make-app-todo-refinement.mdc", "work-discipline.mdc", "make-app-ux-guideline.mdc", "make-app-auto-actions.mdc", "make-app-code-review.mdc")
 
 function Write-Info  { param($msg) Write-Host "  $msg" -ForegroundColor Cyan }
 function Write-Ok    { param($msg) Write-Host "  [OK] $msg" -ForegroundColor Green }
@@ -64,27 +54,28 @@ Write-Host "  ==============================================" -ForegroundColor W
 Write-Host ""
 
 # ── Preserve User Config ──
-$SavedRuntimePath = ""
-$SavedMcpPath = ""
-$SavedMockupPath = ""
-$SavedJiraEmail = ""
-$SavedJiraToken = ""
-$SavedJiraBaseUrl = ""
+$SavedLines = @()
+$SavedEnv = ""
 
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
     if (Test-Path $skillMdPath) {
         $allLines = Get-Content $skillMdPath
-        $SavedRuntimePath = ($allLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
-        $SavedMcpPath = ($allLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
-        $SavedMockupPath = ($allLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
-        $SavedJiraEmail = ($allLines | Where-Object { $_ -match "^jira-email:" -and $_ -notmatch "your-email" } | Select-Object -Last 1) -join ""
-        $SavedJiraToken = ($allLines | Where-Object { $_ -match "^jira-api-token:" -and $_ -notmatch "your-api-token" } | Select-Object -Last 1) -join ""
-        $SavedJiraBaseUrl = ($allLines | Where-Object { $_ -match "^jira-base-url:" -and $_ -notmatch "your-instance" } | Select-Object -Last 1) -join ""
+        $keep = @(
+            @{ Key = "^mcp-server-path:";        Placeholder = "\{path-to" },
+            @{ Key = "^imt-app-runtime-path:";   Placeholder = "/path/provided" },
+            @{ Key = "^make-apps-mockup-path:";  Placeholder = "/path/to" },
+            @{ Key = "^jira-email:";             Placeholder = "your-email" },
+            @{ Key = "^jira-api-token:";         Placeholder = "your-api-token" },
+            @{ Key = "^jira-base-url:";          Placeholder = "your-instance" }
+        )
+        foreach ($k in $keep) {
+            $line = ($allLines | Where-Object { $_ -match $k.Key -and $_ -notmatch $k.Placeholder } | Select-Object -Last 1) -join ""
+            if ($line) { $SavedLines += $line }
+        }
     }
 
-    $SavedEnv = ""
-    $savedEnvFile = Join-Path $SKILL_DIR "mcp-server\.env"
+    $savedEnvFile = Join-Path $MCP_SERVER_DIR ".env"
     if (Test-Path $savedEnvFile) {
         $SavedEnv = Get-Content $savedEnvFile -Raw
     }
@@ -117,239 +108,78 @@ if (Test-Path $SKILL_DIR) {
     }
 }
 
-New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
-New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
-
-# ── Migrate: remove old/deprecated rule files ──
-$OldRulesDir = Join-Path $env:USERPROFILE ".cursor\rules"
-$DeprecatedRules = @("make-app-ux-guideline.mdc")
-foreach ($file in ($RULE_FILES + $DeprecatedRules)) {
-    $oldPath = Join-Path $OldRulesDir $file
-    if (Test-Path $oldPath) {
-        Remove-Item -Force $oldPath
-    }
+# ── Resolve Source (local clone or GitHub archive) ──
+$CleanupTmp = $null
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "skill\SKILL.md"))) {
+    $SrcRoot = $PSScriptRoot
+    Write-Info "Using local source: $SrcRoot"
 }
-foreach ($file in $DeprecatedRules) {
-    $depPath = Join-Path $RULES_DIR $file
-    if (Test-Path $depPath) {
-        Remove-Item -Force $depPath
-    }
-}
-
-# ── Restore preserved .env ──
-if ($SavedEnv) {
-    $restoreMcpDir = Join-Path $SKILL_DIR "mcp-server"
-    New-Item -ItemType Directory -Force -Path $restoreMcpDir | Out-Null
-    Set-Content -Path (Join-Path $restoreMcpDir ".env") -Value $SavedEnv -Encoding UTF8
-}
-
-# ── Detect Source ──
-$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { "" }
-
-function Download-File {
-    param(
-        [string]$Url,
-        [string]$OutPath
-    )
+else {
+    $CleanupTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("make-custom-app-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $CleanupTmp | Out-Null
+    $zipPath = Join-Path $CleanupTmp "src.zip"
+    Write-Info "Downloading $REPO@$BRANCH archive..."
     try {
-        $parentDir = Split-Path $OutPath -Parent
-        if (-not (Test-Path $parentDir)) {
-            New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
-        }
-        Invoke-WebRequest -Uri $Url -OutFile $OutPath -UseBasicParsing -ErrorAction Stop
-        return $true
+        Invoke-WebRequest -Uri "https://github.com/$REPO/archive/refs/heads/$BRANCH.zip" -OutFile $zipPath -UseBasicParsing -ErrorAction Stop
+        Expand-Archive -Path $zipPath -DestinationPath $CleanupTmp -Force
     }
     catch {
-        if (Test-Path $OutPath) { Remove-Item -Force $OutPath }
-        return $false
+        Write-Fail "Download failed: $($_.Exception.Message)"
+    }
+    $SrcRoot = Join-Path $CleanupTmp ("$($REPO.Split('/')[1])-$BRANCH")
+    if (-not (Test-Path (Join-Path $SrcRoot "skill\SKILL.md"))) {
+        Write-Fail "Archive layout unexpected - skill\SKILL.md not found."
     }
 }
-
-# ── Install Skill Files ──
-Write-Info "Installing skill files..."
 Write-Host ""
 
-$localSkillMd = if ($ScriptDir) { Join-Path $ScriptDir "skill\SKILL.md" } else { "" }
+try {
+    # ── Install skill\ → $SKILL_DIR ──
+    Write-Info "Installing skill files..."
+    New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
+    Copy-Item -Path (Join-Path $SrcRoot "skill\*") -Destination $SKILL_DIR -Recurse -Force
+    Get-ChildItem -Path $SKILL_DIR -Recurse -Force -Filter ".DS_Store" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    $fileCount = (Get-ChildItem -Path $SKILL_DIR -Recurse -File | Measure-Object).Count
+    Write-Ok "skill/ ($fileCount files)"
 
-if ($ScriptDir -and (Test-Path $localSkillMd)) {
-    foreach ($file in $SKILL_FILES) {
-        $src = Join-Path $ScriptDir "skill\$file"
-        if (Test-Path $src) {
-            Copy-Item -Force $src (Join-Path $SKILL_DIR $file)
-            Write-Ok $file
-        }
-        else {
-            Write-Warn "$file (not found, skipped)"
-        }
+    # ── Install rules\ → $RULES_DIR (replaced wholesale) ──
+    Write-Info "Installing rule files..."
+    if (Test-Path $RULES_DIR) { Remove-Item -Recurse -Force $RULES_DIR }
+    New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
+    Copy-Item -Path (Join-Path $SrcRoot "rules\*.mdc") -Destination $RULES_DIR -Force
+    foreach ($f in (Get-ChildItem -Path $RULES_DIR -Filter "*.mdc")) { Write-Ok "rules/$($f.Name)" }
+    $oldRulesDir = Join-Path $env:USERPROFILE ".cursor\rules"
+    foreach ($f in $LEGACY_RULE_FILES) {
+        $p = Join-Path $oldRulesDir $f
+        if (Test-Path $p) { Remove-Item -Force $p }
     }
-}
-else {
-    Write-Info "Downloading from GitHub..."
+
+    # ── Install mcp-server\ source → $MCP_SERVER_DIR ──
     Write-Host ""
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $SKILL_FILES) {
-        $outPath = Join-Path $SKILL_DIR $file
-        if (Download-File "$baseUrl/skill/$file" $outPath) {
-            Write-Ok $file
+    Write-Info "Installing MCP server source..."
+    New-Item -ItemType Directory -Force -Path $MCP_SERVER_DIR | Out-Null
+    $mcpSrc = Join-Path $SrcRoot "mcp-server"
+    Get-ChildItem -Path $mcpSrc -Recurse -File -Force |
+        Where-Object { $_.FullName -notmatch '[\\/](node_modules|dist)[\\/]' -and $_.Name -ne ".env" -and $_.Name -ne ".DS_Store" } |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($mcpSrc.Length).TrimStart('\', '/')
+            $dst = Join-Path $MCP_SERVER_DIR $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+            Copy-Item -Force $_.FullName $dst
         }
-        else {
-            Write-Warn "$file (download failed)"
-        }
+    Write-Ok "mcp-server/ source copied"
+    if ($SavedEnv) {
+        Set-Content -Path (Join-Path $MCP_SERVER_DIR ".env") -Value $SavedEnv -Encoding UTF8
+        Write-Ok "mcp-server/.env preserved"
+    }
+}
+finally {
+    if ($CleanupTmp -and (Test-Path $CleanupTmp)) {
+        Remove-Item -Recurse -Force $CleanupTmp -ErrorAction SilentlyContinue
     }
 }
 
-# ── Install Reference Files (skill/references/ → ~/.cursor/skills/make-custom-app/references/) ──
-Write-Host ""
-Write-Info "Installing reference files..."
-Write-Host ""
-
-$REFERENCES_DIR = Join-Path $SKILL_DIR "references"
-New-Item -ItemType Directory -Force -Path $REFERENCES_DIR | Out-Null
-
-$localReferencesDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\references" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localReferencesDir)) {
-    Copy-Item -Force (Join-Path $localReferencesDir "*.md") $REFERENCES_DIR -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $REFERENCES_DIR -Filter "*.md")) {
-        Write-Ok "references/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $REFERENCE_FILES) {
-        $outPath = Join-Path $REFERENCES_DIR $file
-        if (Download-File "$baseUrl/skill/references/$file" $outPath) {
-            Write-Ok "references/$file"
-        }
-        else {
-            Write-Warn "references/$file (download failed)"
-        }
-    }
-}
-
-# ── Install Workflow Files (skill/workflows/ → ~/.cursor/skills/make-custom-app/workflows/) ──
-Write-Host ""
-Write-Info "Installing workflow files..."
-Write-Host ""
-
-$WORKFLOWS_DIR = Join-Path $SKILL_DIR "workflows"
-New-Item -ItemType Directory -Force -Path $WORKFLOWS_DIR | Out-Null
-
-$localWorkflowsDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\workflows" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localWorkflowsDir)) {
-    Copy-Item -Force (Join-Path $localWorkflowsDir "*.md") $WORKFLOWS_DIR -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $WORKFLOWS_DIR -Filter "*.md")) {
-        Write-Ok "workflows/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $WORKFLOW_FILES) {
-        $outPath = Join-Path $WORKFLOWS_DIR $file
-        if (Download-File "$baseUrl/skill/workflows/$file" $outPath) {
-            Write-Ok "workflows/$file"
-        }
-        else {
-            Write-Warn "workflows/$file (download failed)"
-        }
-    }
-}
-
-# ── Install Script Files (skill/scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
-Write-Host ""
-Write-Info "Installing script files..."
-Write-Host ""
-
-$SCRIPTS_DEST = Join-Path $SKILL_DIR "scripts"
-New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
-
-$localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "skill\scripts\download-app.js" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localDownloadJs)) {
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\*.js") $SCRIPTS_DEST -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $SCRIPTS_DEST -Filter "*.js")) {
-        Write-Ok "scripts/$($file.Name)"
-    }
-    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
-    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\lib\*.js") $SCRIPTS_LIB_DEST -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $SCRIPTS_LIB_DEST -Filter "*.js")) {
-        Write-Ok "scripts/lib/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $SCRIPT_FILES) {
-        $outPath = Join-Path $SCRIPTS_DEST $file
-        if (Download-File "$baseUrl/skill/scripts/$file" $outPath) {
-            Write-Ok "scripts/$file"
-        }
-        else {
-            Write-Warn "scripts/$file (download failed)"
-        }
-    }
-    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
-    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
-    foreach ($file in $SCRIPT_LIB_FILES) {
-        $outPath = Join-Path $SCRIPTS_LIB_DEST $file
-        if (Download-File "$baseUrl/skill/scripts/lib/$file" $outPath) {
-            Write-Ok "scripts/lib/$file"
-        }
-        else {
-            Write-Warn "scripts/lib/$file (download failed)"
-        }
-    }
-}
-
-# ── Install Rule Files ──
-Write-Host ""
-Write-Info "Installing rule files..."
-Write-Host ""
-
-$localRulesDir = if ($ScriptDir) { Join-Path $ScriptDir "rules" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localRulesDir)) {
-    Copy-Item -Force (Join-Path $ScriptDir "rules\*.mdc") $RULES_DIR -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $RULES_DIR -Filter "*.mdc")) {
-        Write-Ok $file.Name
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $RULE_FILES) {
-        $outPath = Join-Path $RULES_DIR $file
-        if (Download-File "$baseUrl/rules/$file" $outPath) {
-            Write-Ok $file
-        }
-        else {
-            Write-Warn "$file (download failed)"
-        }
-    }
-}
-
-# ── Cleanup deprecated rule files (renamed/split in newer releases) ──
-Write-Host ""
-Write-Info "Removing deprecated rule files..."
-Write-Host ""
-
-foreach ($file in $DEPRECATED_RULE_FILES) {
-    $rulePath = Join-Path $RULES_DIR $file
-    if (Test-Path $rulePath) {
-        Remove-Item -Force $rulePath
-        Write-Ok "removed rules/$file"
-    }
-}
-
-# ── Cleanup deprecated stop hooks from earlier releases ──
-# Removed in 1.12.0 — stop-hook enforcement was replaced with strict static TODO
-# templates per work type (see rules/make-app-todo-*.mdc). Delete any leftover
-# hook script and prune its registration from ~/.cursor/hooks.json so old
-# installs stop firing.
-Write-Host ""
-Write-Info "Removing deprecated stop hooks (replaced by static TODO templates)..."
-Write-Host ""
-
+# ── Cleanup deprecated stop hooks from releases before 1.12.0 ──
 if (Test-Path $HOOKS_DIR) {
     foreach ($file in $DEPRECATED_HOOK_FILES) {
         $hookPath = Join-Path $HOOKS_DIR $file
@@ -395,46 +225,7 @@ if (Test-Path $HOOKS_JSON) {
     }
 }
 
-# ── Install MCP Server ──
-Write-Host ""
-Write-Info "Installing MCP server..."
-Write-Host ""
-
-New-Item -ItemType Directory -Force -Path (Join-Path $MCP_SERVER_DIR "lib") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $MCP_SERVER_DIR "tools") | Out-Null
-
-$localMcpIndex = if ($ScriptDir) { Join-Path $ScriptDir "mcp-server\index.ts" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localMcpIndex)) {
-    foreach ($file in $MCP_SERVER_FILES) {
-        $src = Join-Path $ScriptDir "mcp-server\$file"
-        if (Test-Path $src) {
-            $dest = Join-Path $MCP_SERVER_DIR $file
-            $destDir = Split-Path $dest -Parent
-            if (-not (Test-Path $destDir)) {
-                New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-            }
-            Copy-Item -Force $src $dest
-            Write-Ok "mcp-server/$file"
-        }
-        else {
-            Write-Warn "mcp-server/$file (not found, skipped)"
-        }
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $MCP_SERVER_FILES) {
-        $outPath = Join-Path $MCP_SERVER_DIR $file
-        if (Download-File "$baseUrl/mcp-server/$file" $outPath) {
-            Write-Ok "mcp-server/$file"
-        }
-        else {
-            Write-Warn "mcp-server/$file (download failed)"
-        }
-    }
-}
-
+# ── Build MCP Server ──
 $McpConfigured = $false
 $mcpPackageJson = Join-Path $MCP_SERVER_DIR "package.json"
 
@@ -486,6 +277,9 @@ if (Test-Path $mcpPackageJson) {
         Write-Info "Existing .env found - skipping key setup."
         $McpConfigured = $true
     }
+    elseif ($Mode -eq "update") {
+        Write-Info "Non-interactive update - skipping MCP key setup (cd $MCP_SERVER_DIR; copy .env.example .env; npm run register)."
+    }
     else {
         $setupMcp = Read-Host "  Set up MCP server now? [y/n]"
         Write-Host ""
@@ -511,7 +305,7 @@ OPENAI_API_KEY=$openaiKey
         else {
             Write-Info "Skipping MCP server setup. You can configure it later:"
             Write-Host "      cd $MCP_SERVER_DIR" -ForegroundColor Cyan
-            Write-Host "      cp .env.example .env  # fill in API keys" -ForegroundColor Cyan
+            Write-Host "      copy .env.example .env  # fill in API keys" -ForegroundColor Cyan
             Write-Host "      npm run register" -ForegroundColor Cyan
             Write-Host ""
         }
@@ -538,44 +332,24 @@ OPENAI_API_KEY=$openaiKey
 
 # ── Restore User Config ──
 $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
-if (Test-Path $skillMdPath) {
-    if ($SavedMcpPath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
-        Write-Ok "Restored user config (mcp-server-path)"
-    }
-    if ($SavedRuntimePath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
-        Write-Ok "Restored user config (imt-app-runtime-path)"
-    }
-    if ($SavedMockupPath) {
-        Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
-        Write-Ok "Restored user config (make-apps-mockup-path)"
-    }
-    if ($SavedJiraEmail) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraEmail"
-        Write-Ok "Restored user config (jira-email)"
-    }
-    if ($SavedJiraToken) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraToken"
-        Write-Ok "Restored user config (jira-api-token)"
-    }
-    if ($SavedJiraBaseUrl) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraBaseUrl"
-        Write-Ok "Restored user config (jira-base-url)"
+if ((Test-Path $skillMdPath) -and $SavedLines.Count -gt 0) {
+    Add-Content -Path $skillMdPath -Value ""
+    foreach ($line in $SavedLines) {
+        Add-Content -Path $skillMdPath -Value $line
+        Write-Ok "Restored user config ($($line.Split(':')[0]))"
     }
 }
 
 # ── Verify Installation ──
 Write-Host ""
 $downloadJsPath = Join-Path $SKILL_DIR "scripts\download-app.js"
+$checkSetupPath = Join-Path $SKILL_DIR "scripts\check-setup.js"
 
-if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath)) {
+if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $checkSetupPath)) {
     $installedVersion = ""
-    if (Test-Path $skillMdPath) {
-        $versionLine = Select-String -Path $skillMdPath -Pattern "^version:" | Select-Object -First 1
-        if ($versionLine) {
-            $installedVersion = ($versionLine.Line -replace "^version:\s*", "").Trim()
-        }
+    $versionLine = Select-String -Path $skillMdPath -Pattern "^version:" | Select-Object -First 1
+    if ($versionLine) {
+        $installedVersion = ($versionLine.Line -replace "^version:\s*", "").Trim()
     }
 
     Write-Host ""
@@ -596,26 +370,22 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath)) {
     Write-Host "    Rules: $RULES_DIR"
     Write-Host ""
     Write-Host "  Next steps:"
-    Write-Host "  1. Restart Cursor"
+    Write-Host "  1. Restart Cursor (rule changes load on restart)"
     Write-Host "  2. Ask any Make app question - the skill activates automatically"
-    Write-Host "  3. On first use, you'll be guided to clone imt-app-runtime"
+    Write-Host "  3. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  Prerequisites:"
     Write-Host "  - Make Apps SDK extension installed in VS Code/Cursor" -ForegroundColor Cyan
     Write-Host "  - API key and environment configured in extension settings" -ForegroundColor Cyan
+    Write-Host "  - imt-app-runtime cloned locally (check-setup.js tells you where to put the path)" -ForegroundColor Cyan
     Write-Host ""
     if ($McpConfigured) {
         Write-Host "  MCP Server: " -NoNewline
         Write-Host "Configured and registered" -ForegroundColor Green
-        Write-Host "  Restart Cursor to activate shared app context via Pinecone."
     }
     else {
         Write-Host "  MCP Server: " -NoNewline
-        Write-Host "Not configured" -ForegroundColor Yellow
-        Write-Host "  To enable later, run:"
-        Write-Host "    cd $MCP_SERVER_DIR" -ForegroundColor Cyan
-        Write-Host "    cp .env.example .env  # fill in API keys" -ForegroundColor Cyan
-        Write-Host "    npm run register" -ForegroundColor Cyan
+        Write-Host "Not configured - see check-setup.js output for the steps" -ForegroundColor Yellow
     }
     Write-Host ""
 }

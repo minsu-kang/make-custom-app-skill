@@ -1,5 +1,7 @@
 # Security Reference (Make Custom Apps)
 
+> Read when: reviewing credentials handling, OAuth flows, webhook signature verification, SSRF / injection risks, log sanitization, or data exposure in an app.
+
 Authoritative security checklist for Make custom app code review. This file is the **single source of truth** for security review; `code-review-criteria.md` only links here. Scope covers IMLJSON (`api.imljson`, `parameters.imljson`, `samples.imljson`, `interface.imljson`, connection `install*`/`common`/`scope*`) and `functions/*/code.js`.
 
 Each finding below maps to a verdict — **Critical** (block merge), **High** (changes requested), **Medium** (improvement). Severity column uses `C` / `H` / `M`. `—` means **not a finding** — the row exists so reviewers do not raise a documented false positive.

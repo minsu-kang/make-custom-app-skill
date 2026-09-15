@@ -1,0 +1,7 @@
+---
+description: Route Make.com custom app work to the make-custom-app skill
+globs:
+alwaysApply: true
+---
+
+When the conversation involves a Make.com custom app, IMLJSON, the Make Apps SDK, `make-app-contexts`, or an IEN Jira ticket about an app: load the `make-custom-app` skill (`~/.cursor/skills/make-custom-app/SKILL.md`) before any other action and follow it. Do not answer from memory.

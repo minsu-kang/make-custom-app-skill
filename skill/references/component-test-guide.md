@@ -1,6 +1,8 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Component Integration Test Guide
 
+> Read when: running or writing `test-component.js` tests — test file structure, `capture()` arguments, communications mocks, expected output, discovery, debugging, make-apps-mockup layout.
+
 ## When to Read This
 
 Read this reference when you need to:

@@ -1,5 +1,7 @@
 # Real-World App Example — Instagram for Business (v5)
 
+> Read when: you need a complete real-app reference for structure and IMLJSON patterns (Instagram v5: connection, base, modules, RPCs, webhooks).
+
 This file contains practical IMLJSON pattern examples based on the Instagram app source code.
 
 ## App Directory Structure

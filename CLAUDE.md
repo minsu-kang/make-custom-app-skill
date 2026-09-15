@@ -34,30 +34,28 @@ This repo ships a **two-target skill**: the same domain knowledge installs into 
 ### Dual-target layout
 
 ```
-skill/          → installed to ~/.cursor/skills/make-custom-app/  (Cursor)
-                               ~/.claude/skills/make-custom-app/   (Claude Code)
-rules/          → installed to ~/.cursor/rules/make-custom-app/   (Cursor)
-                               ~/.claude/skills/make-custom-app/rules/ (Claude Code)
-subagents/      → ~/.claude/agents/  (Claude Code only)
-mcp-server/     → ~/.claude/skills/make-custom-app/mcp-server/    (Claude Code only)
+skill/      → ~/.cursor/skills/make-custom-app/ (Cursor)
+              ~/.claude/skills/make-custom-app/ (Claude Code)
+rules/      → ~/.cursor/rules/make-custom-app/ (Cursor only — one ~600-byte trigger rule)
+subagents/  → ~/.claude/agents/ (Claude Code only)
+mcp-server/ → ~/.claude/skills/make-custom-app/mcp-server/ (both)
 ```
 
-Installers are split by target: `install-cursor.sh` / `install-cursor.ps1` write under `~/.cursor/`, `install-claude.sh` / `install-claude.ps1` write under `~/.claude/`. The `skill/` payload is identical between targets — runtime auto-detection makes a single source tree work for both.
+Installers are split by target: `install-cursor.sh` / `install-cursor.ps1` write under `~/.cursor/`, `install-claude.sh` / `install-claude.ps1` under `~/.claude/`. Each downloads the GitHub archive once (or uses the local clone) and copies directories wholesale — no file lists to maintain. The `skill/` payload is identical between targets.
+
+### Three layers
+
+- **Code-enforced**: `scripts/check-setup.js` (first action every conversation — version, `imt-app-runtime-path`, API credentials, optional mockup / Jira / MCP) and `scripts/lib/version-guard.js` (runs at the top of every script, auto-updates an outdated install).
+- **Always loaded**: `skill/SKILL.md` (≤ 9 KB) — first action, workflow routing, hard rules, component/module tables, reference index. It is the only prose loaded in every Make session.
+- **On demand**: `workflows/lifecycle.md` (shared skeleton: app identification → sync → context → Jira → work → push with confirmation → close-out) plus per-task deltas (`code-review.md`, `bug-investigation.md`, `feature-request.md`, `app-task.md`, `task-refinement.md`, `create-endpoint.md`), and `references/*.md`, each with a `> Read when:` header.
 
 ### Editor auto-detection
 
-Scripts under `skill/scripts/` no longer hardcode `.cursor`. They derive the editor and skill root from `process.argv[1]` via the shared utility `skill/scripts/lib/skill-root.js`:
-
-- `getSkillRoot()` — returns `~/.cursor/skills/make-custom-app` or `~/.claude/skills/make-custom-app` based on the invocation path.
-- `getEditorDir()` — returns the dot-dir name (`.cursor` or `.claude`) for sibling paths like `make-app-contexts`.
-
-Markdown workflow and reference files match the same convention: they use `${SKILL_ROOT}` and `${CONTEXTS_DIR}` placeholders (declared in a `<!-- Variables: ... -->` comment at the top of each file) instead of hardcoded `~/.cursor/...` paths. The agent expands these against whichever editor is loading the skill.
+Scripts under `skill/scripts/` derive the editor and skill root from `process.argv[1]` via `skill/scripts/lib/skill-root.js` (`getSkillRoot()`, `getEditorDir()`). Markdown files use `${SKILL_ROOT}` and `${CONTEXTS_DIR}` placeholders declared in a `<!-- Variables: ... -->` comment; the agent expands them for whichever editor loaded the skill.
 
 ### Claude Code execution model
 
-The Claude Code path introduces a sub-agent named `make-integration-engineer` (`subagents/make-integration-engineer.md`). The global `~/.claude/CLAUDE.md` is patched by the installer to route all Make app work to this agent automatically.
-
-The sub-agent's **mandatory first action** every session is `Skill('make-custom-app')`, which loads `SKILL.md` and triggers the version-check/auto-update logic. Static file reads are not a substitute.
+`subagents/make-integration-engineer.md` is a thin sub-agent: its mandatory first action is `Skill('make-custom-app')`, which loads `SKILL.md`; everything else follows from there. The installer patches `~/.claude/CLAUDE.md` to route Make app work to this agent. There is no separate rule set or private memory for Claude Code — knowledge persists only through app context files and the Pinecone MCP tools.
 
 ### MCP server (Pinecone shared context)
 

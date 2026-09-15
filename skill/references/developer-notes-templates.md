@@ -1,5 +1,7 @@
 # Developer Notes Templates
 
+> Read when: writing Jira Developer Notes (`customfield_10483`) after a bugfix or feature — ADF table templates.
+
 Generate Developer Notes for any Jira ticket (bug, feature, or other) when work is completed. Use the appropriate template based on the ticket type.
 
 ## Common Rules

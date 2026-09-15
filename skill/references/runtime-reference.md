@@ -1,5 +1,7 @@
 # imt-app-runtime Internal Reference
 
+> Read when: writing or reviewing `api.imljson` — directive semantics, middleware chain, URL/QS normalization, `temp` two-phase evaluation, pagination, polling triggers, IML path syntax, `api.endpoint`, `environment` / `internal` roots, limits. Mandatory before flagging any `api.imljson` issue (hard rule 3).
+
 Source: `imt-app-runtime` — the engine that executes Make custom app IMLJSON at runtime.
 
 ## Execution Flow

@@ -1,5 +1,7 @@
 # Parameters & Interface Reference
 
+> Read when: writing or reviewing `expect.imljson`, `parameters.imljson`, or `interface.imljson` — valid types, spec properties, RPC-backed options, collections/arrays, dynamic interface. Do not use a property that is not listed here.
+
 ## Parameters Structure
 
 Both Expect (mappable params) and Parameters (static params) use the same syntax.

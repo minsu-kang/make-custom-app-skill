@@ -1,7 +1,7 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code Review Criteria
 
-Detailed review criteria for Make custom app code reviews. Referenced by the code review workflow (`workflows/code-review.md`) and the static § R TODO template (`rules/make-app-todo-review.mdc`).
+> Read when: performing a code review — after `workflows/code-review.md` has set the skip rules and gates. This file defines the review categories, the out-of-scope list, and the per-file-type checks.
 
 ## Review Categories
 
@@ -9,33 +9,7 @@ Evaluate each change against the following categories:
 
 ### Breaking Changes (risk of breaking existing scenarios)
 
-> **Skip conditions** (do not evaluate the Breaking Changes category at all):
->
-> 1. **App-level skip** — If the Jira ticket's `issuetype.name` is **"App"**, skip this category for the entire app. App-type tickets are new apps not yet deployed to production, so no existing scenarios exist that could break.
-> 2. **Per-change skip — no `old_value`** — If the change reported by `review-changes.js` is a **pure new-component creation** (a module, RPC, webhook, connection, function, or group whose files have `new_value` only, with no `old_value`), skip breaking-change evaluation for that component. A brand-new component has never been placed in any scenario, so the "existing mapping broken" concept does not apply.
-> 3. **Endpoint skip (always)** — changes whose `group` is `endpoint` are SDK Endpoints (see [endpoints-reference.md](endpoints-reference.md)): not scenario-runnable (MCP `endpoint_execute` / platform Run Endpoint only), so no existing scenario mappings can break. Always skip Breaking Changes for endpoint changes. A shared custom IML function edited for an endpoint CAN still break modules that reuse it — evaluate that under the `function/{name}/code` change. Also: missing `required`/`default` enforcement when calling endpoints via MCP is a known platform gap (Executor initiative) — never flag it as a Bug.
-> 4. **Per-change skip — `old_value` is the default scaffold template** — A newly created module/RPC is pre-filled by the SDK with Make's **default scaffold boilerplate** (placeholder `"url": "/users"`, `"iterate": "{{body.users}}"`, the standard scaffold comments such as `// Relative to base URL`, `// Query string`, `// Splits array from API response into bundles`, and — for triggers — a default `response.trigger`). `review-changes.js` reports this boilerplate as the `old_value`, but it is **not a real prior implementation**, so the component is effectively new → skip breaking-change evaluation. Decide first from the **ticket** whether the work is new-component implementation, then confirm by checking whether the `old_value` is the untouched scaffold (not a real previous version). The canonical scaffolds live in the `model` template app (slug `model`, version 1 — `download-app.js model 1`, see `modules/{Action,Search,Trigger,Universal,…}/api.imljson`). Recognition markers: `"url": "/users"` or `/users/{{parameters.id}}`, `"iterate": "{{body.users}}"`, `"qs": { "pageSize": 100 }`, default `response.trigger` (`id:{{item.id}}`, `date:{{item.created}}`, `order:desc`), and the boilerplate `// Relative to base URL` / `// Splits array from API response into bundles` comments. **Deterministic check:** compare `old_value` (whitespace-/comment-insensitive) against the matching template in [`component-scaffold-templates.md`](component-scaffold-templates.md) (every per-type scaffold — module by `typeId`, RPC, webhook, connection); a match = untouched template = new component. When ambiguous, run the Breaking eval rather than skipping.
-> 5. **No-production-surface skip (Breaking AND Bugs)** — If the **only consumers** of the finding are components with **no production surface**, skip both Breaking Changes and Bugs for those consumers. The code can still be wrong; it is not a review blocker. "No production surface" means **either**:
->     - the component was **never deployed** for users to place (still `private: true` / `private: null`, never made public), **or**
->     - it is **unused**: Investigation / Dev Notes / usage counts show zero users and zero scenarios, or the module is an incomplete stub (`expect` and `parameters` both `[]`) that cannot be mapped.
->
->     State in Analysis:
->
->     > Breaking/Bug skipped — `{group}/{item}` has no production surface (`private: null` | unused | empty expect).
->
->     **Do NOT skip** when usage exists, even if the label says `(deprecated)`. Example: `makeSoapApiCall` with 7 users / 3 scenarios still needs deprecate + sanitize.
->
->     **Shared functions:** skip only the unused callers. Production callers of the same function are still reviewed. Do not revert a shared JSON helper to SOAP XML to "fix" a leftover stub.
->
->     **When usage is unknown, do not skip** — flag as usual, or ask. Combined evidence is enough: `private: null` + empty expect/parameters + Dev Notes "skipped" (IEN-14893 `generateAccountReport` / `generateCampaignReport`).
->
-> In all cases, the review output's Analysis must explicitly state the skip reason:
->
-> > Breaking Changes check skipped — new {app | component: `{group}/{item}`} (no existing scenarios).
->
-> All other categories (Bugs, Improvements, Security, ES6+, Code Quality, Tests, UX, Runtime, Polling Triggers) still apply as usual — **except skip #5, which also suppresses Bugs** on no-production-surface consumers — and the quality of `new_value` is **always** reviewed. **`old_value` comparison rule:** review the `old_value → new_value` diff **only when `old_value` is a real prior implementation**. When `old_value` is the `model` scaffold template, the diff is meaningless — **skip the `old_value` comparison entirely** and judge `new_value` standalone. **Modifications to real existing components** (changes whose `old_value` is a genuine prior implementation, not the scaffold template) are still subject to breaking-change evaluation — judge this per change, not per app — **unless skip #5 applies**. This includes shared components (`base`, a shared RPC, etc.) that a new-component task happens to touch. Example: "new module B added (`old_value` = scaffold → skip diff + breaking) + shared RPC A modified (`old_value` = real impl → full diff + breaking eval)".
->
-> **Publish/visibility state is never a finding.** A new module is normally `private: true` / `private: null` in `metadata.json` during implementation and review; the deployer makes it visible in the scenario builder after QA. Do NOT raise a new module's `private`/publish/visibility state as a Breaking Change, Bug, or Improvement.
+> **Skip rules #1–#5** (app-level, new component, scaffold `old_value`, endpoint, no production surface) are defined once in [code-review.md § Skip rules](../workflows/code-review.md). Decide them per change before evaluating this category. Skip #5 also suppresses Bugs. When `old_value` is the SDK scaffold, judge `new_value` alone — the diff is meaningless. A new module's `private` / publish state is **never** a finding.
 
 - Interface output fields removed/renamed → existing scenario mappings may break
 - Expect/Parameters fields removed/renamed → existing scenario settings become invalid
@@ -47,7 +21,7 @@ Evaluate each change against the following categories:
 
 ### Bugs (potential bugs)
 
-> **Skip:** a Bug whose **only consumers** have no production surface is **not a blocker**. Same rule as Breaking skip #5 (never-deployed / unused / empty expect+parameters). State the skip in Analysis. Do not skip when any consumer is in production or has users.
+> Skip #5 (no production surface) applies here too — see [code-review.md § Skip rules](../workflows/code-review.md).
 
 - Incorrect variable references in IML expressions (e.g., `{{parameters.filed}}` typo)
 - Missing required fields (no response.output, no error handling, etc.)

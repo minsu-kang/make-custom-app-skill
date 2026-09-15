@@ -15,26 +15,23 @@ set -e
 #   Flags:
 #     --update    Skip confirmation prompt (for scripted updates)
 #     --force     Remove everything and do a clean install
+#
+# Source resolution: when run from a local clone the clone is copied; when
+# piped from curl the whole repo archive is downloaded once and extracted, so
+# no file list is maintained here.
 # ============================================================
 
 REPO="minsu-kang/make-custom-app-skill"
 BRANCH="master"
 SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
 RULES_DIR="$HOME/.cursor/rules/make-custom-app"
-VERSION_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
-
-SKILL_FILES=("SKILL.md")
-REFERENCE_FILES=("builtin-iml-functions.md" "communication-reference.md" "examples.md" "runtime-reference.md" "app-ux-best-practices.md" "parameters-reference.md" "component-patterns-reference.md" "developer-notes-templates.md" "custom-functions-reference.md" "polling-trigger-guide.md" "component-test-guide.md" "code-review-criteria.md" "security-reference.md" "code-smells-reference.md" "app-compilation-and-deployment-reference.md" "component-scaffold-templates.md" "endpoints-reference.md")
-WORKFLOW_FILES=("app-context.md" "code-review.md" "bug-investigation.md" "feature-request.md" "app-task.md" "pinecone-sync.md" "task-refinement.md")
-SCRIPT_FILES=("download-app.js" "review-changes.js" "commit-changes.js" "update-app.js" "create-component.js" "update-component.js" "delete-component.js" "test-function.js" "test-component.js" "download-jira-ticket-attachment.js" "post-review-transition.js")
-SCRIPT_LIB_FILES=("skill-root.js" "settings.js" "version-guard.js")
-RULE_FILES=("make-app-workflow.mdc" "make-app-todo-rules.mdc" "make-app-todo-bugfix.mdc" "make-app-todo-feature.mdc" "make-app-todo-task.mdc" "make-app-todo-review.mdc" "make-app-todo-refinement.mdc" "work-discipline.mdc")
-DEPRECATED_RULE_FILES=("make-app-auto-actions.mdc" "make-app-code-review.mdc")
+MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
 HOOKS_DIR="$HOME/.cursor/hooks"
 HOOKS_JSON="$HOME/.cursor/hooks.json"
 DEPRECATED_HOOK_FILES=("make-app-auto-actions-check.js" "check-make-app-ticket-sync.js")
-MCP_SERVER_DIR="$SKILL_DIR/mcp-server"
-MCP_SERVER_FILES=("package.json" "tsconfig.json" "index.ts" "register.js" "lib/pinecone.ts" "lib/embeddings.ts" "lib/chunker.ts" "tools/upsert.ts" "tools/search.ts" "tools/get-summary.ts" "tools/list-apps.ts" "tools/upsert-jira.ts" ".env.example")
+# Rule files installed by 1.x releases (both directly under ~/.cursor/rules and
+# under $RULES_DIR). Removed on every install so retired rules stop loading.
+LEGACY_RULE_FILES=("make-app-workflow.mdc" "make-app-todo-rules.mdc" "make-app-todo-bugfix.mdc" "make-app-todo-feature.mdc" "make-app-todo-task.mdc" "make-app-todo-review.mdc" "make-app-todo-refinement.mdc" "work-discipline.mdc" "make-app-ux-guideline.mdc" "make-app-auto-actions.mdc" "make-app-code-review.mdc")
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -69,6 +66,7 @@ SAVED_MOCKUP_PATH=""
 SAVED_JIRA_EMAIL=""
 SAVED_JIRA_TOKEN=""
 SAVED_JIRA_BASE_URL=""
+SAVED_ENV=""
 
 if [ -d "$SKILL_DIR" ]; then
     if [ -f "$SKILL_DIR/SKILL.md" ]; then
@@ -79,10 +77,8 @@ if [ -d "$SKILL_DIR" ]; then
         SAVED_JIRA_TOKEN=$(grep '^jira-api-token:' "$SKILL_DIR/SKILL.md" | grep -v 'your-api-token' | tail -1 || true)
         SAVED_JIRA_BASE_URL=$(grep '^jira-base-url:' "$SKILL_DIR/SKILL.md" | grep -v 'your-instance' | tail -1 || true)
     fi
-
-    SAVED_ENV=""
-    if [ -f "$SKILL_DIR/mcp-server/.env" ]; then
-        SAVED_ENV=$(cat "$SKILL_DIR/mcp-server/.env")
+    if [ -f "$MCP_SERVER_DIR/.env" ]; then
+        SAVED_ENV=$(cat "$MCP_SERVER_DIR/.env")
     fi
 
     case "$MODE" in
@@ -113,215 +109,54 @@ if [ -d "$SKILL_DIR" ]; then
     esac
 fi
 
-mkdir -p "$SKILL_DIR"
-mkdir -p "$RULES_DIR"
-
-# ── Migrate: remove old/deprecated rule files ──
-OLD_RULES_DIR="$HOME/.cursor/rules"
-DEPRECATED_RULES=("make-app-ux-guideline.mdc")
-for file in "${RULE_FILES[@]}" "${DEPRECATED_RULES[@]}"; do
-    if [ -f "$OLD_RULES_DIR/$file" ]; then
-        rm -f "$OLD_RULES_DIR/$file"
-    fi
-done
-for file in "${DEPRECATED_RULES[@]}"; do
-    if [ -f "$RULES_DIR/$file" ]; then
-        rm -f "$RULES_DIR/$file"
-    fi
-done
-
-# ── Restore preserved .env ──
-if [ -n "$SAVED_ENV" ]; then
-    mkdir -p "$MCP_SERVER_DIR"
-    printf '%s\n' "$SAVED_ENV" > "$MCP_SERVER_DIR/.env"
-fi
-
-# ── Detect Source ──
-# When run via `curl | bash`, BASH_SOURCE[0] is empty — dirname "" returns "."
-# which resolves to cwd. If cwd happens to be a repo clone, local files get used
-# instead of downloading from GitHub. Only use local source when BASH_SOURCE[0]
-# points to an actual file (i.e., script was run directly, not piped).
-if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ── Resolve Source (local clone or GitHub archive) ──
+CLEANUP_TMP=""
+if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/skill/SKILL.md" ]; then
+    SRC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    info "Using local source: $SRC_ROOT"
 else
-    SCRIPT_DIR=""
+    command -v curl &>/dev/null || fail "curl is not installed."
+    command -v tar  &>/dev/null || fail "tar is not installed."
+    CLEANUP_TMP="$(mktemp -d)"
+    info "Downloading $REPO@$BRANCH archive..."
+    if ! curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" | tar -xz -C "$CLEANUP_TMP"; then
+        fail "Download failed. Check your network and try again."
+    fi
+    SRC_ROOT="$CLEANUP_TMP/$(basename "$REPO")-$BRANCH"
+    [ -f "$SRC_ROOT/skill/SKILL.md" ] || fail "Archive layout unexpected — skill/SKILL.md not found."
 fi
+trap '[ -n "$CLEANUP_TMP" ] && rm -rf "$CLEANUP_TMP"' EXIT
+echo ""
 
-# ── Install Skill Files (skill/ → ~/.cursor/skills/make-custom-app/) ──
+# ── Install skill/ → $SKILL_DIR ──
 info "Installing skill files..."
-echo ""
+mkdir -p "$SKILL_DIR"
+cp -R "$SRC_ROOT/skill/." "$SKILL_DIR/"
+find "$SKILL_DIR" -name '.DS_Store' -delete 2>/dev/null || true
+ok "skill/ ($(find "$SKILL_DIR" -type f | wc -l | tr -d ' ') files)"
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/SKILL.md" ]; then
-    for file in "${SKILL_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/skill/$file" ]; then
-            cp "$SCRIPT_DIR/skill/$file" "$SKILL_DIR/$file"
-            ok "$file"
-        else
-            warn "$file (not found, skipped)"
-        fi
-    done
-else
-    info "Downloading from GitHub..."
-    echo ""
-
-    if ! command -v curl &>/dev/null; then
-        fail "curl is not installed."
-    fi
-
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${SKILL_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/$file" "$BASE_URL/skill/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "$file"
-        else
-            rm -f "$SKILL_DIR/$file"
-            warn "$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Reference Files (skill/references/ → ~/.cursor/skills/make-custom-app/references/) ──
-echo ""
-info "Installing reference files..."
-echo ""
-
-mkdir -p "$SKILL_DIR/references"
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/references" ]; then
-    cp "$SCRIPT_DIR"/skill/references/*.md "$SKILL_DIR/references/" 2>/dev/null
-    for file in "$SKILL_DIR"/references/*.md; do
-        ok "references/$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${REFERENCE_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/references/$file" "$BASE_URL/skill/references/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "references/$file"
-        else
-            rm -f "$SKILL_DIR/references/$file"
-            warn "references/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Workflow Files (skill/workflows/ → ~/.cursor/skills/make-custom-app/workflows/) ──
-echo ""
-info "Installing workflow files..."
-echo ""
-
-mkdir -p "$SKILL_DIR/workflows"
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/skill/workflows" ]; then
-    cp "$SCRIPT_DIR"/skill/workflows/*.md "$SKILL_DIR/workflows/" 2>/dev/null
-    for file in "$SKILL_DIR"/workflows/*.md; do
-        ok "workflows/$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${WORKFLOW_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SKILL_DIR/workflows/$file" "$BASE_URL/skill/workflows/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "workflows/$file"
-        else
-            rm -f "$SKILL_DIR/workflows/$file"
-            warn "workflows/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Script Files (skill/scripts/ → ~/.cursor/skills/make-custom-app/scripts/) ──
-echo ""
-info "Installing script files..."
-echo ""
-
-SCRIPTS_DEST="$SKILL_DIR/scripts"
-mkdir -p "$SCRIPTS_DEST"
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/skill/scripts/download-app.js" ]; then
-    cp "$SCRIPT_DIR"/skill/scripts/*.js "$SCRIPTS_DEST/" 2>/dev/null
-    for file in "$SCRIPTS_DEST"/*.js; do
-        ok "scripts/$(basename "$file")"
-    done
-    mkdir -p "$SCRIPTS_DEST/lib"
-    cp "$SCRIPT_DIR"/skill/scripts/lib/*.js "$SCRIPTS_DEST/lib/" 2>/dev/null
-    for file in "$SCRIPTS_DEST"/lib/*.js; do
-        [ -f "$file" ] || continue
-        ok "scripts/lib/$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${SCRIPT_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/$file" "$BASE_URL/skill/scripts/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "scripts/$file"
-        else
-            rm -f "$SCRIPTS_DEST/$file"
-            warn "scripts/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-
-    mkdir -p "$SCRIPTS_DEST/lib"
-    for file in "${SCRIPT_LIB_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$SCRIPTS_DEST/lib/$file" "$BASE_URL/skill/scripts/lib/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "scripts/lib/$file"
-        else
-            rm -f "$SCRIPTS_DEST/lib/$file"
-            warn "scripts/lib/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Install Rule Files (rules/ → ~/.cursor/rules/) ──
-echo ""
+# ── Install rules/ → $RULES_DIR (replaced wholesale) ──
 info "Installing rule files..."
-echo ""
-
-if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/rules" ]; then
-    cp "$SCRIPT_DIR"/rules/*.mdc "$RULES_DIR/" 2>/dev/null
-    for file in "$RULES_DIR"/*.mdc; do
-        ok "$(basename "$file")"
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${RULE_FILES[@]}"; do
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$RULES_DIR/$file" "$BASE_URL/rules/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "$file"
-        else
-            rm -f "$RULES_DIR/$file"
-            warn "$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
-# ── Cleanup deprecated rule files (renamed/split in newer releases) ──
-echo ""
-info "Removing deprecated rule files..."
-echo ""
-
-for file in "${DEPRECATED_RULE_FILES[@]}"; do
-    if [ -f "$RULES_DIR/$file" ]; then
-        rm -f "$RULES_DIR/$file"
-        ok "removed rules/$file"
-    fi
+rm -rf "$RULES_DIR"
+mkdir -p "$RULES_DIR"
+cp "$SRC_ROOT"/rules/*.mdc "$RULES_DIR/"
+for f in "$RULES_DIR"/*.mdc; do ok "rules/$(basename "$f")"; done
+for f in "${LEGACY_RULE_FILES[@]}"; do
+    rm -f "$HOME/.cursor/rules/$f"
 done
 
-# ── Cleanup deprecated stop hooks from earlier releases ──
-# Removed in 1.12.0 — stop-hook enforcement was replaced with strict static TODO
-# templates per work type (see rules/make-app-todo-*.mdc). Delete any leftover
-# hook script and prune its registration from ~/.cursor/hooks.json so old
-# installs stop firing.
+# ── Install mcp-server/ source → $MCP_SERVER_DIR ──
 echo ""
-info "Removing deprecated stop hooks (replaced by static TODO templates)..."
-echo ""
+info "Installing MCP server source..."
+mkdir -p "$MCP_SERVER_DIR"
+(cd "$SRC_ROOT/mcp-server" && tar -cf - --exclude=node_modules --exclude=dist --exclude=.env --exclude='.DS_Store' .) | (cd "$MCP_SERVER_DIR" && tar -xf -)
+ok "mcp-server/ source copied"
+if [ -n "$SAVED_ENV" ]; then
+    printf '%s\n' "$SAVED_ENV" > "$MCP_SERVER_DIR/.env"
+    ok "mcp-server/.env preserved"
+fi
 
+# ── Cleanup deprecated stop hooks from releases before 1.12.0 ──
 if [ -d "$HOOKS_DIR" ]; then
     for file in "${DEPRECATED_HOOK_FILES[@]}"; do
         if [ -f "$HOOKS_DIR/$file" ]; then
@@ -350,53 +185,15 @@ if (cfg.hooks.stop.length !== before) {
     console.log('pruned');
 }
 EOF
-    if [ $? -eq 0 ]; then
-        ok "hooks.json (deprecated stop hooks pruned)"
-    fi
 fi
 
-# ── Install MCP Server (mcp-server/ → ~/.cursor/skills/make-custom-app/mcp-server/) ──
-echo ""
-info "Installing MCP server..."
-echo ""
-
-mkdir -p "$MCP_SERVER_DIR/lib" "$MCP_SERVER_DIR/tools"
-
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/mcp-server/index.ts" ]; then
-    for file in "${MCP_SERVER_FILES[@]}"; do
-        if [ -f "$SCRIPT_DIR/mcp-server/$file" ]; then
-            cp "$SCRIPT_DIR/mcp-server/$file" "$MCP_SERVER_DIR/$file"
-            ok "mcp-server/$file"
-        else
-            warn "mcp-server/$file (not found, skipped)"
-        fi
-    done
-else
-    BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
-
-    for file in "${MCP_SERVER_FILES[@]}"; do
-        dir_part=$(dirname "$file")
-        if [ "$dir_part" != "." ]; then
-            mkdir -p "$MCP_SERVER_DIR/$dir_part"
-        fi
-        HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$MCP_SERVER_DIR/$file" "$BASE_URL/mcp-server/$file" 2>/dev/null || echo "000")
-        if [ "$HTTP_CODE" = "200" ]; then
-            ok "mcp-server/$file"
-        else
-            rm -f "$MCP_SERVER_DIR/$file"
-            warn "mcp-server/$file (download failed: HTTP $HTTP_CODE)"
-        fi
-    done
-fi
-
+# ── Build MCP Server ──
 MCP_CONFIGURED=false
 
 if [ -f "$MCP_SERVER_DIR/package.json" ]; then
     echo ""
     info "Installing MCP server dependencies (npm install)..."
     if command -v npm &>/dev/null; then
-        # Use `if (...); then` form so subshell failure doesn't trip `set -e`
-        # and abort the whole installer before the restore block at the bottom.
         if (cd "$MCP_SERVER_DIR" && npm install --silent 2>/dev/null); then
             ok "MCP server dependencies installed"
         else
@@ -426,6 +223,8 @@ if [ -f "$MCP_SERVER_DIR/package.json" ]; then
     if [ -f "$MCP_SERVER_DIR/.env" ]; then
         info "Existing .env found — skipping key setup."
         MCP_CONFIGURED=true
+    elif [ "$MODE" = "update" ]; then
+        info "Non-interactive update — skipping MCP key setup (run: cd $MCP_SERVER_DIR && cp .env.example .env && npm run register)."
     else
         read -p "  Set up MCP server now? [y/n]: " setup_mcp </dev/tty
         echo ""
@@ -468,41 +267,19 @@ fi
 
 # ── Restore User Config ──
 if [ -f "$SKILL_DIR/SKILL.md" ]; then
-    if [ -n "$SAVED_MCP_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_MCP_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (mcp-server-path)"
-    fi
-    if [ -n "$SAVED_RUNTIME_PATH" ]; then
-        echo "" >> "$SKILL_DIR/SKILL.md"
-        echo "$SAVED_RUNTIME_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (imt-app-runtime-path)"
-    fi
-    if [ -n "$SAVED_MOCKUP_PATH" ]; then
-        echo "$SAVED_MOCKUP_PATH" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (make-apps-mockup-path)"
-    fi
-    if [ -n "$SAVED_JIRA_EMAIL" ]; then
-        echo "$SAVED_JIRA_EMAIL" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-email)"
-    fi
-    if [ -n "$SAVED_JIRA_TOKEN" ]; then
-        echo "$SAVED_JIRA_TOKEN" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-api-token)"
-    fi
-    if [ -n "$SAVED_JIRA_BASE_URL" ]; then
-        echo "$SAVED_JIRA_BASE_URL" >> "$SKILL_DIR/SKILL.md"
-        ok "Restored user config (jira-base-url)"
-    fi
+    echo "" >> "$SKILL_DIR/SKILL.md"
+    for line in "$SAVED_MCP_PATH" "$SAVED_RUNTIME_PATH" "$SAVED_MOCKUP_PATH" "$SAVED_JIRA_EMAIL" "$SAVED_JIRA_TOKEN" "$SAVED_JIRA_BASE_URL"; do
+        if [ -n "$line" ]; then
+            echo "$line" >> "$SKILL_DIR/SKILL.md"
+            ok "Restored user config (${line%%:*})"
+        fi
+    done
 fi
 
 # ── Verify Installation ──
 echo ""
-if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ]; then
-    INSTALLED_VERSION=""
-    if [ -f "$SKILL_DIR/SKILL.md" ]; then
-        INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')
-    fi
+if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] && [ -f "$SKILL_DIR/scripts/check-setup.js" ]; then
+    INSTALLED_VERSION=$(grep -m1 '^version:' "$SKILL_DIR/SKILL.md" | sed 's/version:[[:space:]]*//')
 
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     if [ "$MODE" = "update" ]; then
@@ -520,23 +297,19 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ]; 
     echo -e "    Rules: $RULES_DIR"
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
-    echo -e "  1. Restart Cursor"
+    echo -e "  1. Restart Cursor (rule changes load on restart)"
     echo -e "  2. Ask any Make app question — the skill activates automatically"
-    echo -e "  3. On first use, you'll be guided to clone imt-app-runtime"
+    echo -e "  3. Check your setup any time: ${CYAN}node $SKILL_DIR/scripts/check-setup.js${NC}"
     echo ""
     echo -e "  ${BOLD}Prerequisites:${NC}"
     echo -e "  - ${CYAN}Make Apps SDK${NC} extension installed in VS Code/Cursor"
     echo -e "  - API key and environment configured in extension settings"
+    echo -e "  - ${CYAN}imt-app-runtime${NC} cloned locally (check-setup.js tells you where to put the path)"
     echo ""
     if [ "$MCP_CONFIGURED" = true ]; then
         echo -e "  ${BOLD}MCP Server:${NC} ${GREEN}Configured and registered${NC}"
-        echo -e "  Restart Cursor to activate shared app context via Pinecone."
     else
-        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC}"
-        echo -e "  To enable later, run:"
-        echo -e "    ${CYAN}cd $MCP_SERVER_DIR${NC}"
-        echo -e "    ${CYAN}cp .env.example .env${NC}  # fill in API keys"
-        echo -e "    ${CYAN}npm run register${NC}"
+        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC} — see check-setup.js output for the steps"
     fi
     echo ""
 else

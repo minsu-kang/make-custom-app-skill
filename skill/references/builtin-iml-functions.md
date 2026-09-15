@@ -1,5 +1,7 @@
 # Built-in IML Function Reference
 
+> Read when: verifying that an IML function used in `{{ }}` exists and how it behaves; includes the imt-app-runtime extras (`jwt`, `parseJSON`, `errorFactory` …) and the no-inline-literal rule.
+
 Source: `@integromat/iml` package — `lib/functions.js`, `lib/operators.js`, `lib/keywords.js`, `lib/variables.js`, `lib/iml.js`
 Official docs: https://help.make.com/functions
 
@@ -270,4 +272,4 @@ These are NOT in the `@integromat/iml` package. They are injected by the Make ap
 | `isArray` | `isArray(value)` | Check if value is array. |
 | `pop` | `pop(array)` | Remove and return last element of array. |
 | `shift` | `shift(array)` | Remove and return first element of array. |
-| `errorFactory` | `errorFactory(errorType, message)` | Create custom error. See SKILL.md for available error types. |
+| `errorFactory` | `errorFactory(errorType, message)` | Create custom error. `errorType` is one of: `DataError`, `UnknownError`, `RuntimeError`, `InconsistencyError`, `RateLimitError`, `OutOfSpaceError`, `ConnectionError`, `InvalidConfigurationError`, `InvalidAccessTokenError`, `UnexpectedError`, `MaxResultsExceededError`, `MaxFileSizeExceededError`, `IncompleteDataError`, `DuplicateDataError`, `ModuleTimeoutError`, `Warning`. |

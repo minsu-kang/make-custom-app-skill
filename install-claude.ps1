@@ -14,6 +14,10 @@
 #   Flags:
 #     -Mode update    Skip confirmation prompt (for scripted updates)
 #     -Mode force     Remove everything and do a clean install
+#
+# Source resolution: when run from a local clone the clone is copied; when
+# piped from irm the whole repo archive (zip) is downloaded once and
+# extracted, so no file list is maintained here.
 # ============================================================
 
 param(
@@ -24,179 +28,68 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Force TLS 1.2 for HTTPS — required for GitHub raw on PowerShell 5.1
-# (legacy default on Windows 10 is SSL3/TLS1.0 which GitHub rejects).
+# Force TLS 1.2 for HTTPS — required for GitHub on PowerShell 5.1.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $REPO = "minsu-kang/make-custom-app-skill"
 $BRANCH = "master"
 $CLAUDE_HOME = Join-Path $env:USERPROFILE ".claude"
 $SKILL_DIR = Join-Path $CLAUDE_HOME "skills\make-custom-app"
-$RULES_DIR = Join-Path $SKILL_DIR "rules"
 $AGENTS_DIR = Join-Path $CLAUDE_HOME "agents"
+$AGENT_DST = Join-Path $AGENTS_DIR "make-integration-engineer.md"
 $CLAUDE_MD = Join-Path $CLAUDE_HOME "CLAUDE.md"
 $CLAUDE_JSON = Join-Path $HOME ".claude.json"
-$VERSION_URL = "https://raw.githubusercontent.com/$REPO/$BRANCH/version.json"
-
-$SKILL_FILES = @("SKILL.md")
-$REFERENCE_FILES = @("builtin-iml-functions.md", "communication-reference.md", "examples.md", "runtime-reference.md", "app-ux-best-practices.md", "parameters-reference.md", "component-patterns-reference.md", "developer-notes-templates.md", "custom-functions-reference.md", "polling-trigger-guide.md", "component-test-guide.md", "code-review-criteria.md", "security-reference.md", "code-smells-reference.md", "app-compilation-and-deployment-reference.md", "component-scaffold-templates.md", "endpoints-reference.md")
-$WORKFLOW_FILES = @("app-context.md", "code-review.md", "bug-investigation.md", "feature-request.md", "app-task.md", "pinecone-sync.md", "task-refinement.md")
-$SCRIPT_FILES = @("download-app.js", "review-changes.js", "commit-changes.js", "update-app.js", "create-component.js", "update-component.js", "delete-component.js", "test-function.js", "test-component.js", "download-jira-ticket-attachment.js", "post-review-transition.js")
-$SCRIPT_LIB_FILES = @("skill-root.js", "settings.js", "version-guard.js")
-$RULE_FILES = @("make-app-workflow.mdc", "make-app-todo-rules.mdc", "make-app-todo-bugfix.mdc", "make-app-todo-feature.mdc", "make-app-todo-task.mdc", "make-app-todo-review.mdc", "make-app-todo-refinement.mdc", "work-discipline.mdc")
 $MCP_SERVER_DIR = Join-Path $SKILL_DIR "mcp-server"
-$MCP_SERVER_FILES = @(
-    "package.json", "tsconfig.json", "index.ts", "register.js",
-    "lib/pinecone.ts", "lib/embeddings.ts", "lib/chunker.ts",
-    "tools/upsert.ts", "tools/search.ts", "tools/get-summary.ts",
-    "tools/list-apps.ts", "tools/upsert-jira.ts", ".env.example"
-)
 
 function Write-Info  { param($msg) Write-Host "  $msg" -ForegroundColor Cyan }
 function Write-Ok    { param($msg) Write-Host "  [OK] $msg" -ForegroundColor Green }
 function Write-Warn  { param($msg) Write-Host "  [!]  $msg" -ForegroundColor Yellow }
 function Write-Fail  { param($msg) Write-Host "  [X]  $msg" -ForegroundColor Red; exit 1 }
 
-# Path rewrite: replace ~/.cursor/skills/make-custom-app with ~/.claude/skills/make-custom-app
-function Convert-PathRewrite {
-    param([string]$Content)
-    if ($null -eq $Content) { return $Content }
-    return $Content.Replace("~/.cursor/skills/make-custom-app", "~/.claude/skills/make-custom-app")
-}
-
-function Copy-WithRewrite {
+# Safety net: rewrite any leftover Cursor-path literal so files work under ~/.claude.
+# The skill uses ${SKILL_ROOT} placeholders, so this is normally a no-op.
+function Copy-MarkdownRewritten {
     param([string]$Src, [string]$Dst)
     $parentDir = Split-Path $Dst -Parent
-    if (-not (Test-Path $parentDir)) {
-        New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
-    }
+    if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Force -Path $parentDir | Out-Null }
     $content = Get-Content -Path $Src -Raw
-    $content = Convert-PathRewrite $content
-    # Use UTF8 without BOM via .NET to keep file format consistent
+    if ($null -ne $content) {
+        $content = $content.Replace("~/.cursor/skills/make-custom-app", "~/.claude/skills/make-custom-app")
+    }
     [System.IO.File]::WriteAllText($Dst, $content, (New-Object System.Text.UTF8Encoding $false))
 }
 
-# Strip frontmatter (the first ---...--- block plus an optional blank line after)
-# and apply path rewrite — for converting .mdc rule files into .md.
-function Copy-RuleStripFrontmatter {
-    param([string]$Src, [string]$Dst)
-    $parentDir = Split-Path $Dst -Parent
-    if (-not (Test-Path $parentDir)) {
-        New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
-    }
-    $lines = Get-Content -Path $Src
-    $out = New-Object System.Collections.Generic.List[string]
-    $inFm = $false
-    $fmDone = $false
-    $sawBlankAfter = $false
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $line = $lines[$i]
-        if ($i -eq 0 -and $line -match '^---\s*$') {
-            $inFm = $true
-            continue
-        }
-        if ($inFm -and $line -match '^---\s*$') {
-            $inFm = $false
-            $fmDone = $true
-            continue
-        }
-        if ($inFm) { continue }
-        if ($fmDone -and -not $sawBlankAfter -and $line -match '^\s*$') {
-            $sawBlankAfter = $true
-            continue
-        }
-        $out.Add($line) | Out-Null
-    }
-    $content = ($out -join "`n")
-    $content = Convert-PathRewrite $content
-    [System.IO.File]::WriteAllText($Dst, $content, (New-Object System.Text.UTF8Encoding $false))
-}
-
-function Download-File {
-    param(
-        [string]$Url,
-        [string]$OutPath
-    )
-    try {
-        $parentDir = Split-Path $OutPath -Parent
-        if (-not (Test-Path $parentDir)) {
-            New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
-        }
-        Invoke-WebRequest -Uri $Url -OutFile $OutPath -UseBasicParsing -ErrorAction Stop
-        return $true
-    }
-    catch {
-        if (Test-Path $OutPath) { Remove-Item -Force $OutPath }
-        return $false
-    }
-}
-
-function Download-FileWithRewrite {
-    param([string]$Url, [string]$OutPath)
-    $tmp = [System.IO.Path]::GetTempFileName()
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -ErrorAction Stop
-        Copy-WithRewrite -Src $tmp -Dst $OutPath
-        return $true
-    }
-    catch {
-        if (Test-Path $OutPath) { Remove-Item -Force $OutPath }
-        return $false
-    }
-    finally {
-        if (Test-Path $tmp) { Remove-Item -Force $tmp }
-    }
-}
-
-function Download-RuleStripFrontmatter {
-    param([string]$Url, [string]$OutPath)
-    $tmp = [System.IO.Path]::GetTempFileName()
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -ErrorAction Stop
-        Copy-RuleStripFrontmatter -Src $tmp -Dst $OutPath
-        return $true
-    }
-    catch {
-        if (Test-Path $OutPath) { Remove-Item -Force $OutPath }
-        return $false
-    }
-    finally {
-        if (Test-Path $tmp) { Remove-Item -Force $tmp }
-    }
-}
-
 Write-Host ""
-Write-Host "  ==============================================" -ForegroundColor White
-Write-Host "    Make Custom App Skill Installer for Claude   " -ForegroundColor White
-Write-Host "  ==============================================" -ForegroundColor White
+Write-Host "  ==================================================" -ForegroundColor White
+Write-Host "    Make Custom App Skill Installer for Claude      " -ForegroundColor White
+Write-Host "  ==================================================" -ForegroundColor White
 Write-Host ""
 
-# -- Preserve User Config --
-$SavedRuntimePath = ""
-$SavedMcpPath = ""
-$SavedMockupPath = ""
-$SavedJiraEmail = ""
-$SavedJiraToken = ""
-$SavedJiraBaseUrl = ""
-$SavedMakeApiKey = ""
-$SavedMakeApiUrl = ""
+# ── Preserve User Config ──
+$SavedLines = @()
 $SavedEnv = ""
 
 if (Test-Path $SKILL_DIR) {
     $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
     if (Test-Path $skillMdPath) {
         $allLines = Get-Content $skillMdPath
-        $SavedRuntimePath = ($allLines | Where-Object { $_ -match "^imt-app-runtime-path:" -and $_ -notmatch "/path/provided" } | Select-Object -Last 1) -join ""
-        $SavedMcpPath = ($allLines | Where-Object { $_ -match "^mcp-server-path:" -and $_ -notmatch "\{path-to" } | Select-Object -Last 1) -join ""
-        $SavedMockupPath = ($allLines | Where-Object { $_ -match "^make-apps-mockup-path:" -and $_ -notmatch "/path/to" } | Select-Object -Last 1) -join ""
-        $SavedJiraEmail = ($allLines | Where-Object { $_ -match "^jira-email:" -and $_ -notmatch "your-email" } | Select-Object -Last 1) -join ""
-        $SavedJiraToken = ($allLines | Where-Object { $_ -match "^jira-api-token:" -and $_ -notmatch "your-api-token" } | Select-Object -Last 1) -join ""
-        $SavedJiraBaseUrl = ($allLines | Where-Object { $_ -match "^jira-base-url:" -and $_ -notmatch "your-instance" } | Select-Object -Last 1) -join ""
-        $SavedMakeApiKey = ($allLines | Where-Object { $_ -match "^make-api-key:" -and $_ -notmatch "your-make-api-token" } | Select-Object -Last 1) -join ""
-        $SavedMakeApiUrl = ($allLines | Where-Object { $_ -match "^make-api-url:" -and $_ -notmatch "eu1\.make\.com/api/v2/admin$" } | Select-Object -Last 1) -join ""
+        $keep = @(
+            @{ Key = "^mcp-server-path:";        Placeholder = "\{path-to" },
+            @{ Key = "^imt-app-runtime-path:";   Placeholder = "/path/provided" },
+            @{ Key = "^make-apps-mockup-path:";  Placeholder = "/path/to" },
+            @{ Key = "^jira-email:";             Placeholder = "your-email" },
+            @{ Key = "^jira-api-token:";         Placeholder = "your-api-token" },
+            @{ Key = "^jira-base-url:";          Placeholder = "your-instance" },
+            @{ Key = "^make-api-key:";           Placeholder = "your-make-api-token" },
+            @{ Key = "^make-api-url:";           Placeholder = "eu1\.make\.com/api/v2/admin$" }
+        )
+        foreach ($k in $keep) {
+            $line = ($allLines | Where-Object { $_ -match $k.Key -and $_ -notmatch $k.Placeholder } | Select-Object -Last 1) -join ""
+            if ($line) { $SavedLines += $line }
+        }
     }
 
-    $savedEnvFile = Join-Path $SKILL_DIR "mcp-server\.env"
+    $savedEnvFile = Join-Path $MCP_SERVER_DIR ".env"
     if (Test-Path $savedEnvFile) {
         $SavedEnv = Get-Content $savedEnvFile -Raw
     }
@@ -229,230 +122,95 @@ if (Test-Path $SKILL_DIR) {
     }
 }
 
-New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
-New-Item -ItemType Directory -Force -Path $RULES_DIR | Out-Null
-
-# -- Restore preserved .env --
-if ($SavedEnv) {
-    $restoreMcpDir = Join-Path $SKILL_DIR "mcp-server"
-    New-Item -ItemType Directory -Force -Path $restoreMcpDir | Out-Null
-    Set-Content -Path (Join-Path $restoreMcpDir ".env") -Value $SavedEnv -Encoding UTF8
-}
-
-# -- Detect Source --
-# When run via `irm | iex`, $PSScriptRoot is empty — fall back to download mode.
-$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { "" }
-
-# -- Install Skill Files (skill/ -> $SKILL_DIR/) --
-Write-Info "Installing skill files..."
-Write-Host ""
-
-$localSkillMd = if ($ScriptDir) { Join-Path $ScriptDir "skill\SKILL.md" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localSkillMd)) {
-    foreach ($file in $SKILL_FILES) {
-        $src = Join-Path $ScriptDir "skill\$file"
-        if (Test-Path $src) {
-            Copy-WithRewrite -Src $src -Dst (Join-Path $SKILL_DIR $file)
-            Write-Ok $file
-        }
-        else {
-            Write-Warn "$file (not found, skipped)"
-        }
-    }
+# ── Resolve Source (local clone or GitHub archive) ──
+$CleanupTmp = $null
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "skill\SKILL.md"))) {
+    $SrcRoot = $PSScriptRoot
+    Write-Info "Using local source: $SrcRoot"
 }
 else {
-    Write-Info "Downloading from GitHub..."
-    Write-Host ""
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $SKILL_FILES) {
-        $outPath = Join-Path $SKILL_DIR $file
-        if (Download-FileWithRewrite "$baseUrl/skill/$file" $outPath) {
-            Write-Ok $file
-        }
-        else {
-            Write-Warn "$file (download failed)"
-        }
+    $CleanupTmp = Join-Path ([System.IO.Path]::GetTempPath()) ("make-custom-app-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $CleanupTmp | Out-Null
+    $zipPath = Join-Path $CleanupTmp "src.zip"
+    Write-Info "Downloading $REPO@$BRANCH archive..."
+    try {
+        Invoke-WebRequest -Uri "https://github.com/$REPO/archive/refs/heads/$BRANCH.zip" -OutFile $zipPath -UseBasicParsing -ErrorAction Stop
+        Expand-Archive -Path $zipPath -DestinationPath $CleanupTmp -Force
+    }
+    catch {
+        Write-Fail "Download failed: $($_.Exception.Message)"
+    }
+    $SrcRoot = Join-Path $CleanupTmp ("$($REPO.Split('/')[1])-$BRANCH")
+    if (-not (Test-Path (Join-Path $SrcRoot "skill\SKILL.md"))) {
+        Write-Fail "Archive layout unexpected - skill\SKILL.md not found."
     }
 }
-
-# -- Install Reference Files (skill/references/ -> $SKILL_DIR/references/) --
-Write-Host ""
-Write-Info "Installing reference files..."
 Write-Host ""
 
-$REFERENCES_DIR = Join-Path $SKILL_DIR "references"
-New-Item -ItemType Directory -Force -Path $REFERENCES_DIR | Out-Null
-
-$localReferencesDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\references" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localReferencesDir)) {
-    Copy-Item -Force (Join-Path $localReferencesDir "*.md") $REFERENCES_DIR -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $REFERENCES_DIR -Filter "*.md")) {
-        Write-Ok "references/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $REFERENCE_FILES) {
-        $outPath = Join-Path $REFERENCES_DIR $file
-        if (Download-File "$baseUrl/skill/references/$file" $outPath) {
-            Write-Ok "references/$file"
-        }
-        else {
-            Write-Warn "references/$file (download failed)"
-        }
-    }
-}
-
-# -- Install Workflow Files (path-rewritten) --
-Write-Host ""
-Write-Info "Installing workflow files..."
-Write-Host ""
-
-$WORKFLOWS_DIR = Join-Path $SKILL_DIR "workflows"
-New-Item -ItemType Directory -Force -Path $WORKFLOWS_DIR | Out-Null
-
-$localWorkflowsDir = if ($ScriptDir) { Join-Path $ScriptDir "skill\workflows" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localWorkflowsDir)) {
-    foreach ($src in (Get-ChildItem -Path $localWorkflowsDir -Filter "*.md")) {
-        $dst = Join-Path $WORKFLOWS_DIR $src.Name
-        Copy-WithRewrite -Src $src.FullName -Dst $dst
-        Write-Ok "workflows/$($src.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $WORKFLOW_FILES) {
-        $outPath = Join-Path $WORKFLOWS_DIR $file
-        if (Download-FileWithRewrite "$baseUrl/skill/workflows/$file" $outPath) {
-            Write-Ok "workflows/$file"
-        }
-        else {
-            Write-Warn "workflows/$file (download failed)"
-        }
-    }
-}
-
-# -- Install Script Files (skill/scripts/ -> $SKILL_DIR/scripts/) --
-Write-Host ""
-Write-Info "Installing script files..."
-Write-Host ""
-
-$SCRIPTS_DEST = Join-Path $SKILL_DIR "scripts"
-New-Item -ItemType Directory -Force -Path $SCRIPTS_DEST | Out-Null
-
-$localDownloadJs = if ($ScriptDir) { Join-Path $ScriptDir "skill\scripts\download-app.js" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localDownloadJs)) {
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\*.js") $SCRIPTS_DEST -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $SCRIPTS_DEST -Filter "*.js")) {
-        Write-Ok "scripts/$($file.Name)"
-    }
-    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
-    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
-    Copy-Item -Force (Join-Path $ScriptDir "skill\scripts\lib\*.js") $SCRIPTS_LIB_DEST -ErrorAction SilentlyContinue
-    foreach ($file in (Get-ChildItem -Path $SCRIPTS_LIB_DEST -Filter "*.js")) {
-        Write-Ok "scripts/lib/$($file.Name)"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $SCRIPT_FILES) {
-        $outPath = Join-Path $SCRIPTS_DEST $file
-        if (Download-File "$baseUrl/skill/scripts/$file" $outPath) {
-            Write-Ok "scripts/$file"
-        }
-        else {
-            Write-Warn "scripts/$file (download failed)"
-        }
-    }
-    $SCRIPTS_LIB_DEST = Join-Path $SCRIPTS_DEST "lib"
-    New-Item -ItemType Directory -Force -Path $SCRIPTS_LIB_DEST | Out-Null
-    foreach ($file in $SCRIPT_LIB_FILES) {
-        $outPath = Join-Path $SCRIPTS_LIB_DEST $file
-        if (Download-File "$baseUrl/skill/scripts/lib/$file" $outPath) {
-            Write-Ok "scripts/lib/$file"
-        }
-        else {
-            Write-Warn "scripts/lib/$file (download failed)"
-        }
-    }
-}
-
-# -- Install Rule Files (rules/*.mdc -> $RULES_DIR/*.md, frontmatter stripped, paths rewritten) --
-Write-Host ""
-Write-Info "Installing rule files..."
-Write-Host ""
-
-$localRulesDir = if ($ScriptDir) { Join-Path $ScriptDir "rules" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localRulesDir)) {
-    foreach ($src in (Get-ChildItem -Path $localRulesDir -Filter "*.mdc")) {
-        $base = [System.IO.Path]::GetFileNameWithoutExtension($src.Name)
-        $dst = Join-Path $RULES_DIR "$base.md"
-        Copy-RuleStripFrontmatter -Src $src.FullName -Dst $dst
-        Write-Ok "rules/$base.md"
-    }
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $RULE_FILES) {
-        $base = [System.IO.Path]::GetFileNameWithoutExtension($file)
-        $outPath = Join-Path $RULES_DIR "$base.md"
-        if (Download-RuleStripFrontmatter "$baseUrl/rules/$file" $outPath) {
-            Write-Ok "rules/$base.md"
-        }
-        else {
-            Write-Warn "rules/$file (download failed)"
-        }
-    }
-}
-
-# -- Install MCP Server --
-Write-Host ""
-Write-Info "Installing MCP server..."
-Write-Host ""
-
-New-Item -ItemType Directory -Force -Path (Join-Path $MCP_SERVER_DIR "lib") | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $MCP_SERVER_DIR "tools") | Out-Null
-
-$localMcpIndex = if ($ScriptDir) { Join-Path $ScriptDir "mcp-server\index.ts" } else { "" }
-
-if ($ScriptDir -and (Test-Path $localMcpIndex)) {
-    foreach ($file in $MCP_SERVER_FILES) {
-        # MCP_SERVER_FILES uses forward slashes; normalize for Windows source path.
-        $relWin = $file.Replace("/", "\")
-        $src = Join-Path $ScriptDir "mcp-server\$relWin"
-        if (Test-Path $src) {
-            $dest = Join-Path $MCP_SERVER_DIR $relWin
-            $destDir = Split-Path $dest -Parent
-            if (-not (Test-Path $destDir)) {
-                New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+try {
+    # ── Install skill\ → $SKILL_DIR (markdown path-rewritten) ──
+    Write-Info "Installing skill files..."
+    New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
+    $skillSrc = Join-Path $SrcRoot "skill"
+    Get-ChildItem -Path $skillSrc -Recurse -File -Force |
+        Where-Object { $_.Name -ne ".DS_Store" } |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
+            $dst = Join-Path $SKILL_DIR $rel
+            if ($_.Extension -eq ".md") {
+                Copy-MarkdownRewritten -Src $_.FullName -Dst $dst
             }
-            Copy-Item -Force $src $dest
-            Write-Ok "mcp-server/$file"
+            else {
+                New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+                Copy-Item -Force $_.FullName $dst
+            }
         }
-        else {
-            Write-Warn "mcp-server/$file (not found, skipped)"
+    $legacyRules = Join-Path $SKILL_DIR "rules"   # 1.x installed rule copies here
+    if (Test-Path $legacyRules) { Remove-Item -Recurse -Force $legacyRules }
+    $fileCount = (Get-ChildItem -Path $SKILL_DIR -Recurse -File | Measure-Object).Count
+    Write-Ok "skill/ ($fileCount files)"
+
+    # ── Install mcp-server\ source → $MCP_SERVER_DIR ──
+    Write-Host ""
+    Write-Info "Installing MCP server source..."
+    New-Item -ItemType Directory -Force -Path $MCP_SERVER_DIR | Out-Null
+    $mcpSrc = Join-Path $SrcRoot "mcp-server"
+    Get-ChildItem -Path $mcpSrc -Recurse -File -Force |
+        Where-Object { $_.FullName -notmatch '[\\/](node_modules|dist)[\\/]' -and $_.Name -ne ".env" -and $_.Name -ne ".DS_Store" } |
+        ForEach-Object {
+            $rel = $_.FullName.Substring($mcpSrc.Length).TrimStart('\', '/')
+            $dst = Join-Path $MCP_SERVER_DIR $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+            Copy-Item -Force $_.FullName $dst
         }
+    Write-Ok "mcp-server/ source copied"
+    if ($SavedEnv) {
+        Set-Content -Path (Join-Path $MCP_SERVER_DIR ".env") -Value $SavedEnv -Encoding UTF8
+        Write-Ok "mcp-server/.env preserved"
+    }
+
+    # ── Install Claude Code Agent Definition ──
+    Write-Host ""
+    Write-Info "Installing make-integration-engineer agent..."
+    New-Item -ItemType Directory -Force -Path $AGENTS_DIR | Out-Null
+    $agentAlreadyExists = (Test-Path $AGENT_DST) -and (Select-String -Path $AGENT_DST -Pattern "name: make-integration-engineer" -SimpleMatch -Quiet)
+    if ($agentAlreadyExists -and $Mode -eq "install") {
+        Write-Info "Agent already installed at $AGENT_DST - skipping (use -Mode update to overwrite)."
+    }
+    else {
+        $agentContent = Get-Content -Path (Join-Path $SrcRoot "subagents\make-integration-engineer.md") -Raw
+        $agentContent = $agentContent.Replace("{{SKILLS_DIR}}", $SKILL_DIR.Replace("\", "/"))
+        [System.IO.File]::WriteAllText($AGENT_DST, $agentContent, (New-Object System.Text.UTF8Encoding $false))
+        Write-Ok "make-integration-engineer agent installed to $AGENT_DST"
     }
 }
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    foreach ($file in $MCP_SERVER_FILES) {
-        $relWin = $file.Replace("/", "\")
-        $outPath = Join-Path $MCP_SERVER_DIR $relWin
-        if (Download-File "$baseUrl/mcp-server/$file" $outPath) {
-            Write-Ok "mcp-server/$file"
-        }
-        else {
-            Write-Warn "mcp-server/$file (download failed)"
-        }
+finally {
+    if ($CleanupTmp -and (Test-Path $CleanupTmp)) {
+        Remove-Item -Recurse -Force $CleanupTmp -ErrorAction SilentlyContinue
     }
 }
 
+# ── Build MCP Server ──
 $McpConfigured = $false
 $mcpPackageJson = Join-Path $MCP_SERVER_DIR "package.json"
 
@@ -489,7 +247,7 @@ if (Test-Path $mcpPackageJson) {
         Write-Warn "npm not found - install Node.js and run: cd $MCP_SERVER_DIR && npm install && npm run build"
     }
 
-    # -- MCP Server Configuration --
+    # ── MCP Server Configuration ──
     Write-Host ""
     Write-Host "  ==============================================" -ForegroundColor White
     Write-Host "    MCP Server Setup (Shared App Context)        " -ForegroundColor White
@@ -503,6 +261,9 @@ if (Test-Path $mcpPackageJson) {
     if (Test-Path $envPath) {
         Write-Info "Existing .env found - skipping key setup."
         $McpConfigured = $true
+    }
+    elseif ($Mode -eq "update") {
+        Write-Info "Non-interactive update - skipping MCP key setup (cd $MCP_SERVER_DIR; copy .env.example .env; re-run this installer)."
     }
     else {
         $setupMcp = Read-Host "  Set up MCP server now? [y/n]"
@@ -529,13 +290,13 @@ OPENAI_API_KEY=$openaiKey
         else {
             Write-Info "Skipping MCP server setup. You can configure it later:"
             Write-Host "      cd $MCP_SERVER_DIR" -ForegroundColor Cyan
-            Write-Host "      cp .env.example .env  # fill in API keys" -ForegroundColor Cyan
+            Write-Host "      copy .env.example .env  # fill in API keys" -ForegroundColor Cyan
             Write-Host ""
         }
     }
 }
 
-# -- Register MCP Server in $CLAUDE_JSON --
+# ── Register MCP Server in $CLAUDE_JSON ──
 Write-Host ""
 Write-Info "Registering MCP server in $CLAUDE_JSON..."
 
@@ -621,8 +382,8 @@ if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') {
     cfg.mcpServers = {};
 }
 
-// Absolute node path — Claude Code (and Cursor) launched from a GUI shortcut
-// inherits no shell PATH, so a literal 'node' fails with `spawn node ENOENT`.
+// Absolute node path — Claude Code launched from a GUI shortcut inherits no
+// shell PATH, so a literal 'node' fails with `spawn node ENOENT`.
 const NODE_BIN = process.execPath;
 
 const existingEntry = cfg.mcpServers[KEY];
@@ -647,7 +408,6 @@ fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
 console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
 '@
 
-    # Write the inline script to a temp file and exec node against it
     $tmpJs = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mcp-register-$([guid]::NewGuid().ToString('N')).js")
     try {
         [System.IO.File]::WriteAllText($tmpJs, $nodeScript, (New-Object System.Text.UTF8Encoding $false))
@@ -676,7 +436,7 @@ console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
     }
 }
 
-# -- Append Skill Section to $CLAUDE_MD (idempotent via sentinel) --
+# ── Append Skill Section to $CLAUDE_MD (idempotent via sentinel) ──
 Write-Host ""
 Write-Info "Wiring skill into $CLAUDE_MD..."
 
@@ -707,15 +467,9 @@ For any Make.com custom app work — building, debugging, reviewing, or managing
 
     if ((Test-Path $CLAUDE_MD) -and ((Get-Item $CLAUDE_MD).Length -gt 0)) {
         $existing = Get-Content $CLAUDE_MD -Raw
-        # Ensure single blank line separator before our section
-        if (-not $existing.EndsWith("`n")) {
-            $existing += "`n"
-        }
-        if (-not $existing.EndsWith("`n`n")) {
-            $existing += "`n"
-        }
-        $newContent = $existing + $section + "`n"
-        [System.IO.File]::WriteAllText($CLAUDE_MD, $newContent, (New-Object System.Text.UTF8Encoding $false))
+        if (-not $existing.EndsWith("`n")) { $existing += "`n" }
+        if (-not $existing.EndsWith("`n`n")) { $existing += "`n" }
+        [System.IO.File]::WriteAllText($CLAUDE_MD, $existing + $section + "`n", (New-Object System.Text.UTF8Encoding $false))
     }
     else {
         [System.IO.File]::WriteAllText($CLAUDE_MD, $section + "`n", (New-Object System.Text.UTF8Encoding $false))
@@ -723,97 +477,22 @@ For any Make.com custom app work — building, debugging, reviewing, or managing
     Write-Ok "Skill section appended to $CLAUDE_MD"
 }
 
-# -- Install Claude Code Agent Definition --
-Write-Host ""
-Write-Info "Installing make-integration-engineer agent..."
-
-New-Item -ItemType Directory -Force -Path $AGENTS_DIR | Out-Null
-$AgentDst = Join-Path $AGENTS_DIR "make-integration-engineer.md"
-$AgentKey = "make-integration-engineer"
-
-$agentAlreadyExists = $false
-if (Test-Path $AgentDst) {
-    if (Select-String -Path $AgentDst -Pattern "name: $AgentKey" -SimpleMatch -Quiet) {
-        $agentAlreadyExists = $true
-    }
-}
-
-# Forward slashes in the placeholder substitution — the agent file uses the value
-# inside @-import paths inside markdown, where forward slashes are conventional.
-$skillDirForwardSlash = $SKILL_DIR.Replace("\", "/")
-
-function Install-Agent {
-    param([string]$Src)
-    $content = Get-Content -Path $Src -Raw
-    $content = $content.Replace("{{SKILLS_DIR}}", $skillDirForwardSlash)
-    [System.IO.File]::WriteAllText($AgentDst, $content, (New-Object System.Text.UTF8Encoding $false))
-}
-
-if ($agentAlreadyExists -and $Mode -eq "install") {
-    Write-Info "Agent already installed at $AgentDst - skipping (use -Mode update to overwrite)."
-}
-elseif ($ScriptDir -and (Test-Path (Join-Path $ScriptDir "subagents\make-integration-engineer.md"))) {
-    Install-Agent -Src (Join-Path $ScriptDir "subagents\make-integration-engineer.md")
-    Write-Ok "make-integration-engineer agent installed to $AgentDst"
-}
-else {
-    $baseUrl = "https://raw.githubusercontent.com/$REPO/$BRANCH"
-    $tmp = [System.IO.Path]::GetTempFileName()
-    try {
-        Invoke-WebRequest -Uri "$baseUrl/subagents/make-integration-engineer.md" -OutFile $tmp -UseBasicParsing -ErrorAction Stop
-        Install-Agent -Src $tmp
-        Write-Ok "make-integration-engineer agent installed to $AgentDst"
-    }
-    catch {
-        Write-Warn "make-integration-engineer.md (download failed)"
-    }
-    finally {
-        if (Test-Path $tmp) { Remove-Item -Force $tmp }
-    }
-}
-
-# -- Restore User Config --
+# ── Restore User Config ──
 $skillMdPath = Join-Path $SKILL_DIR "SKILL.md"
-if (Test-Path $skillMdPath) {
-    if ($SavedMcpPath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedMcpPath"
-        Write-Ok "Restored user config (mcp-server-path)"
-    }
-    if ($SavedRuntimePath) {
-        Add-Content -Path $skillMdPath -Value "`n$SavedRuntimePath"
-        Write-Ok "Restored user config (imt-app-runtime-path)"
-    }
-    if ($SavedMockupPath) {
-        Add-Content -Path $skillMdPath -Value "$SavedMockupPath"
-        Write-Ok "Restored user config (make-apps-mockup-path)"
-    }
-    if ($SavedJiraEmail) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraEmail"
-        Write-Ok "Restored user config (jira-email)"
-    }
-    if ($SavedJiraToken) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraToken"
-        Write-Ok "Restored user config (jira-api-token)"
-    }
-    if ($SavedJiraBaseUrl) {
-        Add-Content -Path $skillMdPath -Value "$SavedJiraBaseUrl"
-        Write-Ok "Restored user config (jira-base-url)"
-    }
-    if ($SavedMakeApiKey) {
-        Add-Content -Path $skillMdPath -Value "$SavedMakeApiKey"
-        Write-Ok "Restored user config (make-api-key)"
-    }
-    if ($SavedMakeApiUrl) {
-        Add-Content -Path $skillMdPath -Value "$SavedMakeApiUrl"
-        Write-Ok "Restored user config (make-api-url)"
+if ((Test-Path $skillMdPath) -and $SavedLines.Count -gt 0) {
+    Add-Content -Path $skillMdPath -Value ""
+    foreach ($line in $SavedLines) {
+        Add-Content -Path $skillMdPath -Value $line
+        Write-Ok "Restored user config ($($line.Split(':')[0]))"
     }
 }
 
-# -- Verify Installation --
+# ── Verify Installation ──
 Write-Host ""
 $downloadJsPath = Join-Path $SKILL_DIR "scripts\download-app.js"
+$checkSetupPath = Join-Path $SKILL_DIR "scripts\check-setup.js"
 
-if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath)) {
+if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $checkSetupPath)) {
     $installedVersion = ""
     $versionLine = Select-String -Path $skillMdPath -Pattern "^version:" | Select-Object -First 1
     if ($versionLine) {
@@ -835,26 +514,23 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath)) {
     Write-Host ""
     Write-Host "  Installed to:"
     Write-Host "    Skill:          $SKILL_DIR"
-    Write-Host "    Rules:          $RULES_DIR"
+    Write-Host "    Agent:          $AGENT_DST"
     Write-Host "    Wired in:       $CLAUDE_MD"
     Write-Host "    MCP registered: $CLAUDE_JSON"
     Write-Host ""
     Write-Host "  Next steps:"
     Write-Host "  1. Restart Claude Code"
     Write-Host "  2. Ask any Make app question - the skill activates automatically"
-    Write-Host "  3. On first use, you'll be guided to clone imt-app-runtime"
+    Write-Host "  3. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
+    Write-Host "     (it tells you where to add imt-app-runtime-path and make-api-key)"
     Write-Host ""
     if ($McpConfigured) {
         Write-Host "  MCP Server: " -NoNewline
         Write-Host "Configured" -ForegroundColor Green
-        Write-Host "  Restart Claude Code to activate shared app context via Pinecone."
     }
     else {
         Write-Host "  MCP Server: " -NoNewline
-        Write-Host "Not configured" -ForegroundColor Yellow
-        Write-Host "  To enable later, run:"
-        Write-Host "    cd $MCP_SERVER_DIR" -ForegroundColor Cyan
-        Write-Host "    cp .env.example .env  # fill in API keys" -ForegroundColor Cyan
+        Write-Host "Not configured - see check-setup.js output for the steps" -ForegroundColor Yellow
     }
     Write-Host ""
 }
