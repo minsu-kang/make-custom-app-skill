@@ -46,6 +46,87 @@ function Write-Ok    { param($msg) Write-Host "  [OK] $msg" -ForegroundColor Gre
 function Write-Warn  { param($msg) Write-Host "  [!]  $msg" -ForegroundColor Yellow }
 function Write-Fail  { param($msg) Write-Host "  [X]  $msg" -ForegroundColor Red; exit 1 }
 
+# Main session loads the skill directly. Closing sentinel lets -Mode update replace the block.
+$SkillSection = @'
+<!-- make-custom-app-skill -->
+# Make Custom App Skill
+
+When the conversation involves a Make.com custom app, IMLJSON, the Make Apps SDK, `make-app-contexts`, or an IEN Jira ticket about an app: invoke the `make-custom-app` skill before any other action and follow it. Do not answer from memory. Do not delegate this work to a sub-agent.
+<!-- /make-custom-app-skill -->
+'@
+
+function Remove-SkillSection {
+    param([string]$Path)
+    $lines = @(Get-Content -Path $Path)
+    $start = '<!-- make-custom-app-skill -->'
+    $end = '<!-- /make-custom-app-skill -->'
+    $hasEnd = $false
+    foreach ($line in $lines) {
+        if ($line -eq $end) { $hasEnd = $true; break }
+    }
+    $out = New-Object System.Collections.Generic.List[string]
+    if ($hasEnd) {
+        $skip = $false
+        foreach ($line in $lines) {
+            if ($line -eq $start) { $skip = $true; continue }
+            if ($line -eq $end) { $skip = $false; continue }
+            if (-not $skip) { $out.Add($line) }
+        }
+    }
+    else {
+        $skip = $false
+        $phase = 'none'
+        foreach ($line in $lines) {
+            if (-not $skip -and $line -eq $start) {
+                $skip = $true
+                $phase = 'after_start'
+                continue
+            }
+            if ($skip -and $phase -eq 'after_start') {
+                if ($line -eq '# Make Custom App Skill' -or $line -eq '') { continue }
+                $phase = 'body'
+                continue
+            }
+            if ($skip -and $phase -eq 'body') {
+                if ($line -eq '') { $skip = $false; continue }
+                continue
+            }
+            $out.Add($line)
+        }
+    }
+    while ($out.Count -gt 0 -and [string]::IsNullOrWhiteSpace($out[$out.Count - 1])) {
+        $out.RemoveAt($out.Count - 1)
+    }
+    return $out
+}
+
+function Set-ClaudeMdSkillSection {
+    Write-Info "Wiring skill into $CLAUDE_MD..."
+    $claudeMdParent = Split-Path $CLAUDE_MD -Parent
+    if (-not (Test-Path $claudeMdParent)) {
+        New-Item -ItemType Directory -Force -Path $claudeMdParent | Out-Null
+    }
+    $body = New-Object System.Collections.Generic.List[string]
+    if ((Test-Path $CLAUDE_MD) -and ((Get-Item $CLAUDE_MD).Length -gt 0)) {
+        $body = Remove-SkillSection -Path $CLAUDE_MD
+    }
+    if ($body.Count -gt 0) {
+        $text = ($body -join "`n") + "`n`n" + $SkillSection + "`n"
+    }
+    else {
+        $text = $SkillSection + "`n"
+    }
+    [System.IO.File]::WriteAllText($CLAUDE_MD, $text, (New-Object System.Text.UTF8Encoding $false))
+    Write-Ok "Skill section written to $CLAUDE_MD"
+}
+
+function Remove-LegacyAgent {
+    if (Test-Path $AGENT_DST) {
+        Remove-Item -Force $AGENT_DST
+        Write-Ok "Removed leftover make-integration-engineer agent ($AGENT_DST)"
+    }
+}
+
 # Safety net: rewrite any leftover Cursor-path literal so files work under ~/.claude.
 # The skill uses ${SKILL_ROOT} placeholders, so this is normally a no-op.
 function Copy-MarkdownRewritten {
@@ -205,21 +286,6 @@ try {
     if ($SavedEnv) {
         Set-Content -Path (Join-Path $MCP_SERVER_DIR ".env") -Value $SavedEnv -Encoding UTF8
         Write-Ok "mcp-server/.env preserved"
-    }
-
-    # ── Install Claude Code Agent Definition ──
-    Write-Host ""
-    Write-Info "Installing make-integration-engineer agent..."
-    New-Item -ItemType Directory -Force -Path $AGENTS_DIR | Out-Null
-    $agentAlreadyExists = (Test-Path $AGENT_DST) -and (Select-String -Path $AGENT_DST -Pattern "name: make-integration-engineer" -SimpleMatch -Quiet)
-    if ($agentAlreadyExists -and $Mode -eq "install") {
-        Write-Info "Agent already installed at $AGENT_DST - skipping (use -Mode update to overwrite)."
-    }
-    else {
-        $agentContent = Get-Content -Path (Join-Path $SrcRoot "subagents\make-integration-engineer.md") -Raw
-        $agentContent = $agentContent.Replace("{{SKILLS_DIR}}", $SKILL_DIR.Replace("\", "/"))
-        [System.IO.File]::WriteAllText($AGENT_DST, $agentContent, (New-Object System.Text.UTF8Encoding $false))
-        Write-Ok "make-integration-engineer agent installed to $AGENT_DST"
     }
 }
 finally {
@@ -454,46 +520,13 @@ console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
     }
 }
 
-# ── Append Skill Section to $CLAUDE_MD (idempotent via sentinel) ──
+# ── Wire skill into $CLAUDE_MD (replace existing sentinel block) ──
 Write-Host ""
-Write-Info "Wiring skill into $CLAUDE_MD..."
+Set-ClaudeMdSkillSection
 
-$Sentinel = '<!-- make-custom-app-skill -->'
-$alreadyWired = $false
-if (Test-Path $CLAUDE_MD) {
-    $existing = Get-Content $CLAUDE_MD -Raw
-    if ($existing -and $existing.Contains($Sentinel)) {
-        $alreadyWired = $true
-    }
-}
-
-if ($alreadyWired) {
-    Write-Info "Skill section already present in $CLAUDE_MD - skipping append."
-}
-else {
-    $claudeMdParent = Split-Path $CLAUDE_MD -Parent
-    if (-not (Test-Path $claudeMdParent)) {
-        New-Item -ItemType Directory -Force -Path $claudeMdParent | Out-Null
-    }
-
-    $section = @"
-$Sentinel
-# Make Custom App Skill
-
-For any Make.com custom app work — building, debugging, reviewing, or managing Make integrations — delegate to the ``make-integration-engineer`` sub-agent.
-"@
-
-    if ((Test-Path $CLAUDE_MD) -and ((Get-Item $CLAUDE_MD).Length -gt 0)) {
-        $existing = Get-Content $CLAUDE_MD -Raw
-        if (-not $existing.EndsWith("`n")) { $existing += "`n" }
-        if (-not $existing.EndsWith("`n`n")) { $existing += "`n" }
-        [System.IO.File]::WriteAllText($CLAUDE_MD, $existing + $section + "`n", (New-Object System.Text.UTF8Encoding $false))
-    }
-    else {
-        [System.IO.File]::WriteAllText($CLAUDE_MD, $section + "`n", (New-Object System.Text.UTF8Encoding $false))
-    }
-    Write-Ok "Skill section appended to $CLAUDE_MD"
-}
+# ── Remove leftover Claude Code sub-agent (Make work now runs in the main session) ──
+Write-Host ""
+Remove-LegacyAgent
 
 # ── Verify Installation ──
 Write-Host ""
@@ -523,7 +556,6 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     Write-Host ""
     Write-Host "  Installed to:"
     Write-Host "    Skill:          $SKILL_DIR"
-    Write-Host "    Agent:          $AGENT_DST"
     Write-Host "    Wired in:       $CLAUDE_MD"
     Write-Host "    MCP registered: $CLAUDE_JSON"
     Write-Host ""

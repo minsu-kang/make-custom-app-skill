@@ -42,6 +42,81 @@ ok()    { echo -e "${GREEN}✓${NC} $1"; }
 warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
 fail()  { echo -e "${RED}✗${NC} $1"; exit 1; }
 
+# Main session loads the skill directly. Closing sentinel lets --update replace the block.
+SKILL_SECTION='<!-- make-custom-app-skill -->
+# Make Custom App Skill
+
+When the conversation involves a Make.com custom app, IMLJSON, the Make Apps SDK, `make-app-contexts`, or an IEN Jira ticket about an app: invoke the `make-custom-app` skill before any other action and follow it. Do not answer from memory. Do not delegate this work to a sub-agent.
+<!-- /make-custom-app-skill -->'
+
+strip_skill_section() {
+    local src="$1" dst="$2"
+    if grep -qF '<!-- /make-custom-app-skill -->' "$src" 2>/dev/null; then
+        awk '
+            { sub(/\r$/, "") }
+            $0 == "<!-- make-custom-app-skill -->" { skip=1; next }
+            $0 == "<!-- /make-custom-app-skill -->" { skip=0; next }
+            skip { next }
+            { print }
+        ' "$src" > "$dst"
+    else
+        awk '
+            BEGIN { skip=0; phase="" }
+            { sub(/\r$/, "") }
+            $0 == "<!-- make-custom-app-skill -->" { skip=1; phase="after_start"; next }
+            skip && phase=="after_start" {
+                if ($0 == "# Make Custom App Skill" || $0 == "") next
+                phase="body"
+                next
+            }
+            skip && phase=="body" {
+                if ($0 == "") { skip=0; next }
+                next
+            }
+            { print }
+        ' "$src" > "$dst"
+    fi
+}
+
+trim_trailing_blanks() {
+    awk '
+        { lines[++n] = $0 }
+        END {
+            while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+            for (i = 1; i <= n; i++) print lines[i]
+        }
+    '
+}
+
+wire_claude_md() {
+    info "Wiring skill into $CLAUDE_MD..."
+    mkdir -p "$(dirname "$CLAUDE_MD")"
+    local tmp stripped
+    tmp="$(mktemp)"
+    stripped="$(mktemp)"
+    if [ -f "$CLAUDE_MD" ] && [ -s "$CLAUDE_MD" ]; then
+        strip_skill_section "$CLAUDE_MD" "$stripped"
+        trim_trailing_blanks < "$stripped" > "$tmp"
+        if [ -s "$tmp" ]; then
+            printf '\n%s\n' "$SKILL_SECTION" >> "$tmp"
+        else
+            printf '%s\n' "$SKILL_SECTION" > "$tmp"
+        fi
+    else
+        printf '%s\n' "$SKILL_SECTION" > "$tmp"
+    fi
+    mv "$tmp" "$CLAUDE_MD"
+    rm -f "$stripped"
+    ok "Skill section written to $CLAUDE_MD"
+}
+
+remove_legacy_agent() {
+    if [ -f "$AGENT_DST" ]; then
+        rm -f "$AGENT_DST"
+        ok "Removed leftover make-integration-engineer agent ($AGENT_DST)"
+    fi
+}
+
 MODE="install"
 for arg in "$@"; do
     case "$arg" in
@@ -348,39 +423,13 @@ NODEEOF
     fi
 fi
 
-# ── Append Skill Section to ~/.claude/CLAUDE.md (idempotent via sentinel) ──
+# ── Wire skill into ~/.claude/CLAUDE.md (replace existing sentinel block) ──
 echo ""
-info "Wiring skill into $CLAUDE_MD..."
+wire_claude_md
 
-SENTINEL='<!-- make-custom-app-skill -->'
-if [ -f "$CLAUDE_MD" ] && grep -qF "$SENTINEL" "$CLAUDE_MD"; then
-    info "Skill section already present in $CLAUDE_MD — skipping append."
-else
-    mkdir -p "$(dirname "$CLAUDE_MD")"
-    if [ -f "$CLAUDE_MD" ] && [ -s "$CLAUDE_MD" ]; then
-        tail -c1 "$CLAUDE_MD" | read -r _ || echo "" >> "$CLAUDE_MD"
-        echo "" >> "$CLAUDE_MD"
-    fi
-    cat >> "$CLAUDE_MD" <<CLAUDEEOF
-$SENTINEL
-# Make Custom App Skill
-
-For any Make.com custom app work — building, debugging, reviewing, or managing Make integrations — delegate to the \`make-integration-engineer\` sub-agent.
-CLAUDEEOF
-    ok "Skill section appended to $CLAUDE_MD"
-fi
-
-# ── Install Claude Code Agent Definition ──
+# ── Remove leftover Claude Code sub-agent (Make work now runs in the main session) ──
 echo ""
-info "Installing make-integration-engineer agent..."
-mkdir -p "$AGENTS_DIR"
-
-if [ -f "$AGENT_DST" ] && grep -qF "name: make-integration-engineer" "$AGENT_DST" && [ "$MODE" = "install" ]; then
-    info "Agent already installed at $AGENT_DST — skipping (use --update to overwrite)."
-else
-    sed "s|{{SKILLS_DIR}}|$SKILL_DIR|g" "$SRC_ROOT/subagents/make-integration-engineer.md" > "$AGENT_DST"
-    ok "make-integration-engineer agent installed to $AGENT_DST"
-fi
+remove_legacy_agent
 
 # ── Verify Installation ──
 echo ""
@@ -400,7 +449,6 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] &
     echo ""
     echo -e "  ${BOLD}Installed to:${NC}"
     echo -e "    Skill: $SKILL_DIR"
-    echo -e "    Agent: $AGENT_DST"
     echo -e "    Wired in: $CLAUDE_MD"
     echo -e "    MCP registered: $CLAUDE_JSON"
     echo ""

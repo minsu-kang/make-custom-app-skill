@@ -37,7 +37,6 @@ This repo ships a **two-target skill**: the same domain knowledge installs into 
 skill/      → ~/.cursor/skills/make-custom-app/ (Cursor)
               ~/.claude/skills/make-custom-app/ (Claude Code)
 rules/      → ~/.cursor/rules/make-custom-app/ (Cursor only — one ~600-byte trigger rule)
-subagents/  → ~/.claude/agents/ (Claude Code only)
 mcp-server/ → ~/.claude/skills/make-custom-app/mcp-server/ (both)
 ```
 
@@ -55,7 +54,7 @@ Scripts under `skill/scripts/` derive the editor and skill root from `process.ar
 
 ### Claude Code execution model
 
-`subagents/make-integration-engineer.md` is a thin sub-agent: its mandatory first action is `Skill('make-custom-app')`, which loads `SKILL.md`; everything else follows from there. The installer patches `~/.claude/CLAUDE.md` to route Make app work to this agent. There is no separate rule set or private memory for Claude Code — knowledge persists only through app context files and the Pinecone MCP tools.
+Same as Cursor: the main session invokes the `make-custom-app` skill and follows `SKILL.md`. The installer patches `~/.claude/CLAUDE.md` with that trigger (Cursor uses `rules/make-custom-app.mdc` instead). There is no Claude Code sub-agent and no private memory store — knowledge persists only through app context files and the Pinecone MCP tools. `--update` rewrites the CLAUDE.md sentinel block and deletes a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0 installs.
 
 ### MCP server (Pinecone shared context)
 
