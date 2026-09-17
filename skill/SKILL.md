@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.1.0
+version: 2.1.1
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -15,7 +15,7 @@ Path variables: `${SKILL_ROOT}` = `~/.cursor/skills/make-custom-app` (Cursor) or
 Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: ["all"]`). It checks the skill version (auto-updates when outdated), `imt-app-runtime-path`, Make API credentials, and optional mockup / Jira / MCP setup, and prints the fix for anything missing. User config (paths, API keys, Jira credentials) lives in `~/.make-custom-app-skill-secrets`; scripts read it, you never do.
 
 - Exit `0` → continue. Exit `3` → skill was just updated; re-read this file, then continue.
-- Exit `1` → show its output and **stop**: no app code, scripts, or MCP calls until the required items are fixed. Only exception: the user is asking you to add or fix one of those config lines — then edit `~/.make-custom-app-skill-secrets` with the single line they gave you, without reading the rest of the file.
+- Exit `1` → show its output and **stop**: no app code, scripts, or MCP calls until the required items are fixed. Tell the user to run `node ${SKILL_ROOT}/scripts/setup-secrets.js` **in their own terminal** — do not run that wizard yourself (it is interactive and writes secrets). Only exception: the user is asking you to add or fix one of those config lines — then edit `~/.make-custom-app-skill-secrets` with the single line they gave you, without reading the rest of the file.
 
 ## Workflows
 
@@ -91,6 +91,6 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 
 ## Scripts (`${SKILL_ROOT}/scripts/`)
 
-`check-setup.js` · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.
+`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.
 
-<!-- User config (imt-app-runtime-path, make-api-key, make-apps-mockup-path, jira-email, jira-api-token, mcp-server-path …) lives in ~/.make-custom-app-skill-secrets, never in this file. Run scripts/check-setup.js to see what is missing. -->
+<!-- User config (imt-app-runtime-path, make-api-key, make-apps-mockup-path, jira-email, jira-api-token, mcp-server-path …) lives in ~/.make-custom-app-skill-secrets, never in this file. Run scripts/setup-secrets.js in a terminal to fill it; scripts/check-setup.js reports what is still missing. -->

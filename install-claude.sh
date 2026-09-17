@@ -454,15 +454,16 @@ if [ -f "$SKILL_DIR/SKILL.md" ] && [ -f "$SKILL_DIR/scripts/download-app.js" ] &
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
     echo -e "  1. Restart Claude Code"
-    echo -e "  2. Ask any Make app question — the skill activates automatically"
-    echo -e "  3. Check your setup any time: ${CYAN}node $SKILL_DIR/scripts/check-setup.js${NC}"
+    echo -e "  2. Fill in API keys and paths in your terminal:"
+    echo -e "     ${CYAN}node $SKILL_DIR/scripts/setup-secrets.js${NC}"
+    echo -e "  3. Ask any Make app question — the skill activates automatically"
+    echo -e "  4. Check your setup any time: ${CYAN}node $SKILL_DIR/scripts/check-setup.js${NC}"
     echo -e "     User config (paths, API keys) lives in ${CYAN}$SECRETS_FILE${NC} — never in SKILL.md"
-    echo -e "     (it tells you where to add imt-app-runtime-path and make-api-key)"
     echo ""
     if [ "$MCP_CONFIGURED" = true ]; then
         echo -e "  ${BOLD}MCP Server:${NC} ${GREEN}Configured${NC}"
     else
-        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC} — see check-setup.js output for the steps"
+        echo -e "  ${BOLD}MCP Server:${NC} ${YELLOW}Not configured${NC} — run setup-secrets.js and opt in to MCP"
     fi
     echo ""
 else

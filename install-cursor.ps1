@@ -382,14 +382,16 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     Write-Host ""
     Write-Host "  Next steps:"
     Write-Host "  1. Restart Cursor (rule changes load on restart)"
-    Write-Host "  2. Ask any Make app question - the skill activates automatically"
-    Write-Host "  3. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
+    Write-Host "  2. Fill in API keys and paths in your terminal:"
+    Write-Host "     node $(Join-Path $SKILL_DIR 'scripts\setup-secrets.js')" -ForegroundColor Cyan
+    Write-Host "  3. Ask any Make app question - the skill activates automatically"
+    Write-Host "  4. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
     Write-Host "     User config (paths, API keys) lives in $SECRETS_FILE - never in SKILL.md"
     Write-Host ""
     Write-Host "  Prerequisites:"
     Write-Host "  - Make Apps SDK extension installed in VS Code/Cursor" -ForegroundColor Cyan
     Write-Host "  - API key and environment configured in extension settings" -ForegroundColor Cyan
-    Write-Host "  - imt-app-runtime cloned locally (check-setup.js tells you where to put the path)" -ForegroundColor Cyan
+    Write-Host "  - imt-app-runtime cloned locally (setup-secrets.js walks you through this)" -ForegroundColor Cyan
     Write-Host ""
     if ($McpConfigured) {
         Write-Host "  MCP Server: " -NoNewline
@@ -397,7 +399,7 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     }
     else {
         Write-Host "  MCP Server: " -NoNewline
-        Write-Host "Not configured - see check-setup.js output for the steps" -ForegroundColor Yellow
+        Write-Host "Not configured - run setup-secrets.js and opt in to MCP" -ForegroundColor Yellow
     }
     Write-Host ""
 }

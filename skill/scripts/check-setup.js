@@ -29,7 +29,8 @@ const editorDir = getEditorDir();
 const isClaude = editorDir === '.claude';
 const skillMd = path.join(skillRoot, 'SKILL.md');
 const items = [];
-const SECRETS_HINT = `${SECRETS_PATH} (one \`key: value\` per line; create it with mode 600 if missing)`;
+const SETUP_CMD = `node ${path.join(skillRoot, 'scripts', 'setup-secrets.js')}`;
+const SETUP_HINT = `Run this in your own terminal (do not run it via the agent — it is interactive and writes secrets):\n  ${SETUP_CMD}`;
 
 function add(key, status, detail, fix) {
 	items.push({ key, status, detail, fix: fix || null });
@@ -47,14 +48,14 @@ function isPlaceholder(value, markers) {
 			'imt-app-runtime-path',
 			'missing',
 			'not set',
-			`Clone niceinnovative/imt-app-runtime (Make internal repo), then add to ${SECRETS_HINT}:\n  imt-app-runtime-path: /absolute/path/to/imt-app-runtime`,
+			`${SETUP_HINT}\nThe wizard will ask you to clone integromat/imt-app-runtime and paste the local path.`,
 		);
 	} else if (!fs.existsSync(v)) {
 		add(
 			'imt-app-runtime-path',
 			'missing',
 			`path does not exist: ${v}`,
-			`Fix the imt-app-runtime-path line in ${SECRETS_PATH} so it points to an existing clone.`,
+			`${SETUP_HINT}\nThe current imt-app-runtime-path does not exist on disk.`,
 		);
 	} else {
 		add('imt-app-runtime-path', 'ok', v);
@@ -69,7 +70,7 @@ if (isClaude) {
 			'make-api-key',
 			'missing',
 			'not set (Claude Code reads it from ~/.make-custom-app-skill-secrets)',
-			`Generate a token in Make → Profile → API (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have), then add to ${SECRETS_HINT}:\n  make-api-key: <token>\n  make-api-url: https://eu1.make.com/api/v2/admin   # optional — change for us1/us2/custom zone`,
+			`${SETUP_HINT}\nCreate a token at https://eu1.make.com/user/api (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have).`,
 		);
 	} else {
 		add('make-api-key', 'ok', `set (${readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin'})`);
@@ -111,10 +112,10 @@ if (isClaude) {
 			'make-apps-mockup-path',
 			'optional-missing',
 			'not set — test-component.js unavailable',
-			`Clone the make-apps-mockup repo, then add to ${SECRETS_HINT}:\n  make-apps-mockup-path: /absolute/path/to/make-apps-mockup`,
+			`${SETUP_HINT}\nOptional — the wizard will ask you to clone make-apps-mockup and paste the local path.`,
 		);
 	} else if (!fs.existsSync(v)) {
-		add('make-apps-mockup-path', 'optional-missing', `path does not exist: ${v}`, `Fix the make-apps-mockup-path line in ${SECRETS_PATH}.`);
+		add('make-apps-mockup-path', 'optional-missing', `path does not exist: ${v}`, `${SETUP_HINT}\nThe current make-apps-mockup-path does not exist on disk.`);
 	} else {
 		add('make-apps-mockup-path', 'ok', v);
 	}
@@ -129,7 +130,7 @@ if (isClaude) {
 			'jira credentials',
 			'optional-missing',
 			'jira-email / jira-api-token not set — attachment download and reviewer assignment unavailable',
-			`Create a token at https://id.atlassian.com/manage-profile/security/api-tokens, then add to ${SECRETS_HINT}:\n  jira-email: you@example.com\n  jira-api-token: <token>\n  jira-base-url: https://make.atlassian.net   # optional`,
+			`${SETUP_HINT}\nOptional — create a token at https://id.atlassian.com/manage-profile/security/api-tokens. The wizard fills jira-email from GET /rest/api/3/myself.`,
 		);
 	} else {
 		add('jira credentials', 'ok', email);
@@ -156,7 +157,7 @@ if (isClaude) {
 			'mcp-server',
 			'optional-missing',
 			`not installed at ${mcpDir}`,
-			`Re-run the installer (it copies and builds mcp-server), or add an mcp-server-path: line to ${SECRETS_PATH}.`,
+			`Re-run the installer (it copies and builds mcp-server), or add an mcp-server-path: line via:\n  ${SETUP_CMD}`,
 		);
 	} else if (!fs.existsSync(dist)) {
 		add('mcp-server', 'optional-missing', 'not built', `cd ${mcpDir} && npm install && npm run build`);
@@ -165,7 +166,7 @@ if (isClaude) {
 			'mcp-server',
 			'optional-missing',
 			'.env missing',
-			`cd ${mcpDir} && cp .env.example .env   # fill PINECONE_API_KEY, OPENAI_API_KEY, PINECONE_INDEX_NAME\nnpm run register                     # then restart the editor`,
+			`${SETUP_HINT}\nThe wizard can write mcp-server/.env (PINECONE_API_KEY, PINECONE_INDEX_NAME, OPENAI_API_KEY), then:\n  cd ${mcpDir} && npm run register`,
 		);
 	} else if (!registered) {
 		add(
@@ -187,7 +188,7 @@ if (isClaude) {
 			'legacy config in SKILL.md',
 			'optional-missing',
 			`still present in ${skillMd}: ${legacy.join(', ')} — SKILL.md is read by the AI agent every session`,
-			`Move these lines to ${SECRETS_PATH} and delete them from SKILL.md (re-running the installer does this automatically):\n  ${legacy.map((k) => `${k}: …`).join('\n  ')}`,
+			`Move these lines to ${SECRETS_PATH} (re-running the installer does this automatically) and delete them from SKILL.md:\n  ${legacy.map((k) => `${k}: …`).join('\n  ')}`,
 		);
 	}
 }
@@ -195,7 +196,7 @@ if (isClaude) {
 const ok = items.every((i) => i.status !== 'missing');
 
 if (args.has('--json')) {
-	process.stdout.write(JSON.stringify({ ok, editor: editorDir, skillRoot, items }, null, 2) + '\n');
+	process.stdout.write(JSON.stringify({ ok, editor: editorDir, skillRoot, setupCommand: SETUP_CMD, items }, null, 2) + '\n');
 } else {
 	const mark = { ok: 'OK      ', missing: 'MISSING ', 'optional-missing': 'OPTIONAL' };
 	console.log(`make-custom-app setup — ${editorDir} — ${skillRoot}\n`);
@@ -203,6 +204,7 @@ if (args.has('--json')) {
 	const fixes = items.filter((i) => i.fix);
 	if (fixes.length) {
 		console.log('\nFixes:');
+		console.log(`\nInteractive wizard (your terminal, not the agent):\n  ${SETUP_CMD}`);
 		for (const i of fixes) console.log(`\n[${i.status === 'missing' ? 'REQUIRED' : 'optional'}] ${i.key}\n${i.fix}`);
 	}
 	console.log(ok ? '\nSetup OK.' : '\nSetup INCOMPLETE — required items missing. Stop and apply the REQUIRED fixes above.');

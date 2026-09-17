@@ -70,7 +70,7 @@ cd make-custom-app-skill
 
 Both methods install skill files to `~/.cursor/skills/make-custom-app/` and one trigger rule to `~/.cursor/rules/make-custom-app/`. The one-liner downloads the repository archive once and copies `skill/`, `rules/`, and `mcp-server/` wholesale — there is no per-file list to keep in sync. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes rule files from 1.x releases and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
 
-After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js` to see what is still missing (`imt-app-runtime` path, Jira credentials, MCP server). User config lives in `~/.make-custom-app-skill-secrets` (one `key: value` per line, mode 600) — never inside the skill directory, so API keys are never loaded into the agent's context. Installs older than 2.0 kept these lines at the tail of `SKILL.md`; the installer moves them automatically. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
+After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/setup-secrets.js` in your own terminal to fill `~/.make-custom-app-skill-secrets` (and optionally `mcp-server/.env`). Check remaining gaps with `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js`. User config is one `key: value` per line, mode 600 — never inside the skill directory, so API keys are never loaded into the agent's context. Installs older than 2.0 kept these lines at the tail of `SKILL.md`; the installer moves them automatically. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
 
 ### Claude Code
 
@@ -115,7 +115,7 @@ cd make-custom-app-skill
 
 Use `-Mode update` or `-Mode force` for the equivalent update/clean-install behaviour.
 
-The installer places files under `~/.claude/` and **does not touch your Cursor installation**. After installation, **restart Claude Code**. The skill activates automatically when you ask about Make custom apps.
+The installer places files under `~/.claude/` and **does not touch your Cursor installation**. After installation, **restart Claude Code**, then run `node ~/.claude/skills/make-custom-app/scripts/setup-secrets.js` in your own terminal to fill `~/.make-custom-app-skill-secrets` (Make API key is required for Claude Code). The skill activates automatically when you ask about Make custom apps.
 
 ## What Gets Installed
 
@@ -172,7 +172,8 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 
 | File | Description |
 |------|-------------|
-| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, Jira credentials, MCP server. Exit 1 when a required item is missing; prints the fix. Run once per conversation (the skill's first action). |
+| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, Jira credentials, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
+| `setup-secrets.js` | Interactive terminal wizard. Writes `~/.make-custom-app-skill-secrets` (mode 600) and optionally `mcp-server/.env`. Run in your own terminal, never via the agent. |
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
 | `review-changes.js` | Fetches uncommitted changes for code review |
@@ -218,6 +219,7 @@ make-custom-app-skill/
 │   ├── references/                     #   Reference documents (on-demand)
 │   └── scripts/                        #   Automation scripts (editor auto-detected)
 │       ├── check-setup.js              #     Setup diagnosis (first action)
+│       ├── setup-secrets.js            #     Interactive secrets / MCP .env wizard
 │       └── lib/skill-root.js           #     Shared skill-root + editor-dir resolver
 ├── rules/                              # → installed to ~/.cursor/rules/make-custom-app/ (Cursor only)
 │   └── make-custom-app.mdc             #   Trigger rule (~600 bytes)
@@ -242,10 +244,11 @@ Claude Code has no separate rule file and no sub-agent. The installer writes a t
 
 ## First Use
 
-The skill's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints the exact fix and stops — typically:
+The skill's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints `scripts/setup-secrets.js` and stops — run that wizard **in your own terminal**:
 
-1. **Clone `imt-app-runtime`** (Make internal repo) and add `imt-app-runtime-path: /path/to/clone` to `~/.make-custom-app-skill-secrets`
-2. **Claude Code only:** add `make-api-key: <token>` to the same file
+1. **Make API key** — create a token at https://eu1.make.com/user/api (`make-api-url` defaults to `https://eu1.make.com/api/v2/admin`)
+2. **Clone `imt-app-runtime`** (Make internal repo; HTTPS or SSH) and paste the local path
+3. Optionally: `make-apps-mockup` path, Jira API token (email is filled from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get)), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
 
 App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
 

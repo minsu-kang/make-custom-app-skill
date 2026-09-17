@@ -561,10 +561,11 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     Write-Host ""
     Write-Host "  Next steps:"
     Write-Host "  1. Restart Claude Code"
-    Write-Host "  2. Ask any Make app question - the skill activates automatically"
-    Write-Host "  3. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
+    Write-Host "  2. Fill in API keys and paths in your terminal:"
+    Write-Host "     node $(Join-Path $SKILL_DIR 'scripts\setup-secrets.js')" -ForegroundColor Cyan
+    Write-Host "  3. Ask any Make app question - the skill activates automatically"
+    Write-Host "  4. Check your setup any time: node $checkSetupPath" -ForegroundColor Cyan
     Write-Host "     User config (paths, API keys) lives in $SECRETS_FILE - never in SKILL.md"
-    Write-Host "     (it tells you where to add imt-app-runtime-path and make-api-key)"
     Write-Host ""
     if ($McpConfigured) {
         Write-Host "  MCP Server: " -NoNewline
@@ -572,7 +573,7 @@ if ((Test-Path $skillMdPath) -and (Test-Path $downloadJsPath) -and (Test-Path $c
     }
     else {
         Write-Host "  MCP Server: " -NoNewline
-        Write-Host "Not configured - see check-setup.js output for the steps" -ForegroundColor Yellow
+        Write-Host "Not configured - run setup-secrets.js and opt in to MCP" -ForegroundColor Yellow
     }
     Write-Host ""
 }

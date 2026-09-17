@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1 — 2026-09-17
+
+- **New `skill/scripts/setup-secrets.js`** — interactive terminal wizard for first-run and missing config. Writes `~/.make-custom-app-skill-secrets` (mode 600): required `make-api-key` (https://eu1.make.com/user/api) and `imt-app-runtime-path` (HTTPS/SSH clone help), auto-fills `make-api-url` (`https://eu1.make.com/api/v2/admin`), optional `make-apps-mockup-path` and `jira-api-token` (jira-email from Jira `GET /rest/api/3/myself`). Optional MCP block writes `{skillRoot}/mcp-server/.env` (`PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `OPENAI_API_KEY`). TTY-only — the agent must not run it. `check-setup.js` now prints this command as the fix; installers list it in Next steps.
+
 ## 2.1.0 — 2026-09-16
 
 - **`endpoints-reference.md` § "UX & Naming Conventions" (new section)** — Sentence case labels (display labels follow sentence-style capitalization per UX best practices), endpoint descriptions (same UX requirements as modules), connection attachment guidance (only attach connections used by real modules or explicitly mentioned in AC), and coverage completeness check (verify endpoints cover all app functionality).

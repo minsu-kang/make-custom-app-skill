@@ -108,13 +108,9 @@ function failClaudeMissingKey() {
 	console.error('ERROR: Make API key not configured.');
 	console.error('');
 	console.error(`Claude Code requires \`make-api-key:\` in ${SECRETS_PATH}.`);
-	console.error('Add the following lines to that file (create it with mode 600 if missing):');
+	console.error('Run this in your own terminal:');
 	console.error('');
-	console.error('  make-api-key: <your-make-api-token>');
-	console.error('  # optional, defaults to https://eu1.make.com/api/v2/admin');
-	console.error('  make-api-url: https://eu1.make.com/api/v2/admin');
-	console.error('');
-	console.error('Generate the token at: https://www.make.com/en/help/api');
+	console.error(`  node ${path.join(getSkillRoot(), 'scripts', 'setup-secrets.js')}`);
 	process.exit(1);
 }
 
@@ -155,11 +151,9 @@ function loadJiraConfig() {
 	const baseUrl = readSkillConfig('jira-base-url') || 'https://make.atlassian.net';
 	if (!email || !apiToken) {
 		console.error('ERROR: Jira credentials not configured.');
-		console.error(`Add the following lines to ${SECRETS_PATH}:\n`);
-		console.error('  jira-email: you@example.com');
-		console.error('  jira-api-token: <token>');
-		console.error('  jira-base-url: https://make.atlassian.net  (optional)\n');
-		console.error('Generate an API token at: https://id.atlassian.com/manage-profile/security/api-tokens');
+		console.error('Run this in your own terminal:\n');
+		console.error(`  node ${path.join(getSkillRoot(), 'scripts', 'setup-secrets.js')}\n`);
+		console.error('The wizard asks for a Jira API token and fills jira-email from GET /rest/api/3/myself.');
 		process.exit(1);
 	}
 	return { email, apiToken, baseUrl };
