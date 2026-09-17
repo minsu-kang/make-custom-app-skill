@@ -12,6 +12,10 @@
 - **`endpoints-reference.md` § "Code Review Guidance" expanded** — new checks for sentence case labels, endpoint descriptions, connection attachment, coverage completeness, primitive array `help`, hardcoded value types, `stripEmpty`/`ifempty` on write endpoints.
 - **`create-endpoint.md` workflow updated** — expanded Regular Endpoint design guidance with write-endpoint guards, sentence case, coverage check, connection/description requirements, output completeness, and formatting conventions.
 
+## 2.0.1 — 2026-09-16
+
+- **Claude Code runs Make work in the main session.** Removed `subagents/make-integration-engineer.md` and stopped installing `~/.claude/agents/make-integration-engineer.md`. The old `~/.claude/CLAUDE.md` routing note delegated every Make app task to that sub-agent; the parent session then paraphrased the skill-shaped reply, which broke review format, confirmation gates, and developer-facing voice. Cursor already loaded `make-custom-app` in the main session; Claude Code now matches that. The CLAUDE.md sentinel is rewritten on every install/update (open + close markers) so existing installs drop the delegate instruction. `--update` deletes the leftover agent file. `.claude/settings.json` no longer pins `make-integration-engineer` as this repo's default agent.
+
 ## 2.0.0 — 2026-09-15
 
 **Harness slimming.** The prose the agent loads per session shrinks by roughly 70% while every check that can be enforced in code moves into code. Breaking for installs: the eight 1.x rule files are removed and the installers change mechanism — both handled automatically by `--update` (which `version-guard.js` triggers on the first script run). Restart the editor afterwards so Cursor drops the retired rules. Design and plan: `docs/superpowers/specs/2026-09-15-harness-slimming-design.md`, `docs/superpowers/plans/2026-09-15-harness-slimming.md`.

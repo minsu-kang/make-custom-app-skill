@@ -1,5 +1,4 @@
 {
-	"agent": "make-integration-engineer",
 	"permissions": {
 		"allow": [
 			"mcp__atlassian__getAccessibleAtlassianResources",

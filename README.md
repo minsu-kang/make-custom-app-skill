@@ -128,12 +128,11 @@ Skill files to `~/.cursor/skills/make-custom-app/` and the trigger rule to `~/.c
 | Target | Location |
 |--------|----------|
 | Skill files | `~/.claude/skills/make-custom-app/` |
-| Agent definition | `~/.claude/agents/make-integration-engineer.md` |
 | MCP server | `~/.claude/skills/make-custom-app/mcp-server/` |
-| MCP registration | `~/.claude/claude.json` (key: `make-custom-app`) |
-| Routing note | appended to `~/.claude/CLAUDE.md` |
+| MCP registration | `~/.claude.json` (key: `make-custom-app`) |
+| Routing note | rewritten in `~/.claude/CLAUDE.md` |
 
-The routing note tells the Claude Code orchestrator to delegate any Make app work to the `make-integration-engineer` sub-agent automatically — no manual invocation needed.
+The routing note tells the Claude Code main session to invoke the `make-custom-app` skill for Make app work — the same model as Cursor's trigger rule. Make work is not delegated to a sub-agent. `--update` replaces the sentinel block and deletes a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0.0 installs.
 
 > **Editor-aware paths:** Markdown workflow and reference files use `${SKILL_ROOT}` and `${CONTEXTS_DIR}` placeholders that resolve to either the `~/.cursor/...` or `~/.claude/...` tree depending on which editor invokes them. Node scripts share the same auto-detection through `skill/scripts/lib/skill-root.js`.
 
@@ -195,7 +194,7 @@ The routing note tells the Claude Code orchestrator to delegate any Make app wor
 |------|-------------|-------------|
 | `make-custom-app.mdc` | always (~600 bytes) | Trigger only: when the conversation involves a Make app, IMLJSON, the SDK, `make-app-contexts`, or an IEN app ticket, load the `make-custom-app` skill first. All behavioural rules live in `SKILL.md` § Hard rules and the workflows, so nothing else is loaded globally. |
 
-Claude Code does not install a rule file — the `make-integration-engineer` sub-agent calls `Skill('make-custom-app')` as its first action.
+Claude Code does not install a rule file — the installer writes the same trigger into `~/.claude/CLAUDE.md` so the main session invokes `make-custom-app`.
 
 ## Repository Structure
 
@@ -206,8 +205,6 @@ make-custom-app-skill/
 ├── install-cursor.ps1                 # Cursor installer (Windows)
 ├── install-claude.sh                  # Claude Code installer (macOS/Linux)
 ├── install-claude.ps1                 # Claude Code installer (Windows)
-├── subagents/
-│   └── make-integration-engineer.md  # Claude Code sub-agent definition
 ├── skill/                              # → installed to skills/make-custom-app/
 │   ├── SKILL.md                        #   Core domain knowledge + workflow routing
 │   ├── workflows/                      #   Workflow instructions (trigger-based)
@@ -239,26 +236,13 @@ make-custom-app-skill/
 | **Purpose** | Operating contract (SKILL.md), workflows, reference docs, scripts | Trigger: load the skill |
 | **Size** | SKILL.md ≤ 9 KB always; workflows/references on demand | ~600 bytes |
 
-## The `make-integration-engineer` Sub-Agent (Claude Code)
+## Claude Code routing
 
-When you install for Claude Code, the installer deploys a sub-agent definition to `~/.claude/agents/make-integration-engineer.md`. The orchestrator (your global `~/.claude/CLAUDE.md`) automatically delegates any Make app work to this agent — you do not invoke it explicitly.
-
-**What it is:** A thin Claude Code sub-agent whose first action is `Skill('make-custom-app')`. `SKILL.md` is its operating contract; it persists knowledge only through the app context files and the Pinecone MCP tools.
-
-**How invocation works:** The routing note appended to `~/.claude/CLAUDE.md` instructs the orchestrator: *"For any Make.com custom app work — building, debugging, reviewing, or managing Make integrations — delegate to the `make-integration-engineer` sub-agent."* The orchestrator routes matching requests automatically.
-
-**Tools available to the agent:**
-
-| Tool group | Tools |
-|------------|-------|
-| File system | `Read`, `Edit`, `Write`, `Bash`, `Glob`, `Grep` |
-| Web | `WebFetch`, `WebSearch` |
-| Atlassian MCP | `getJiraIssue`, `editJiraIssue`, `searchJiraIssuesUsingJql`, `createJiraIssue`, `getAccessibleAtlassianResources` |
-| Make MCP (Pinecone) | `upsert_app_context`, `search_app_knowledge`, `get_app_summary`, `list_apps`, `upsert_jira_ticket` |
+Claude Code has no separate rule file and no sub-agent. The installer writes a trigger into `~/.claude/CLAUDE.md` so the **main session** invokes `make-custom-app` for Make app work — the same contract Cursor loads via `rules/make-custom-app.mdc`. `--update` rewrites that sentinel block and deletes a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0.0 installs.
 
 ## First Use
 
-The agent's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints the exact fix and stops — typically:
+The skill's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints the exact fix and stops — typically:
 
 1. **Clone `imt-app-runtime`** (Make internal repo) and add `imt-app-runtime-path: /path/to/clone` to `~/.make-custom-app-skill-secrets`
 2. **Claude Code only:** add `make-api-key: <token>` to the same file
