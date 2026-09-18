@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.2 — 2026-09-18
+
+- Exclude public:false modules from endpoint generation
+
 ## 2.1.1 — 2026-09-17
 
 - **New `skill/scripts/setup-secrets.js`** — interactive terminal wizard for first-run and missing config. Writes `~/.make-custom-app-skill-secrets` (mode 600): required `make-api-key` (https://eu1.make.com/user/api) and `imt-app-runtime-path` (HTTPS/SSH clone help), auto-fills `make-api-url` (`https://eu1.make.com/api/v2/admin`), optional `make-apps-mockup-path` and `jira-api-token` (jira-email from Jira `GET /rest/api/3/myself`). Optional MCP block writes `{skillRoot}/mcp-server/.env` (`PINECONE_API_KEY`, `PINECONE_INDEX_NAME`, `OPENAI_API_KEY`). TTY-only — the agent must not run it. `check-setup.js` now prints this command as the fix; installers list it in Next steps.

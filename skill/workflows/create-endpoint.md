@@ -25,6 +25,7 @@
 ## Regular
 
 1. **Context.** Which operation(s) to wrap; fetch the vendor docs for each (hard rule 1); check related modules for naming, fields, scope; sync code and read `base.imljson` (lifecycle §2).
+   - **Filter the module list first.** When modules drive the endpoint list, drop every `public: false` module before designing — they are stripped from the compiled build, so they must not produce endpoints. See [endpoints-reference § Coverage Completeness](../references/endpoints-reference.md#coverage-completeness).
 2. **Design per operation** — [Pure API Wrapper Principle](../references/endpoints-reference.md#pure-api-wrapper-principle): no output transformation, minimal input transformation, schemas mirror the vendor's.
    - `api.imljson`: method, path relative to `baseUrl`, `qs`, `body`; `{{encodeURL(parameters.x)}}` for path params with `"encodeUrl": false`; PATCH bodies via `stripEmpty(omit(parameters, …))`; `response.output` is `{{body}}` (or `{{body.items}}` for lists).
    - `input_parameters.imljson`: every API parameter with the vendor's names and types; `help` **mandatory** on every field incl. nested; `select` (+ `multiple`) for enums; specific types (`email`, `date`, `url`, `number`, `boolean`); pagination/ordering params last; omit `required: false`; `validate` for min/max; array/collection spec per [reference](../references/endpoints-reference.md#array-and-collection-spec-structure).
@@ -42,6 +43,7 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 
 - [ ] Type detected; source module / vendor docs read
 - [ ] Connection identified (only connections used by real modules or mentioned in AC)
+- [ ] `public: false` modules excluded from the module list
 - [ ] Coverage verified (endpoints cover app functionality; gaps flagged)
 - [ ] Endpoint created with confirmation; context + annotations set
 - [ ] All labels in Sentence case; descriptions present
@@ -52,7 +54,7 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 
 When designing Regular Endpoints, follow these additional conventions beyond what the reference covers:
 
-- **Coverage check**: compare the vendor API surface and the app's modules against the planned endpoint list. Flag significant gaps to the user — don't just implement what the ticket lists.
+- **Coverage check**: compare the vendor API surface and the app's **visible** modules against the planned endpoint list — `public: false` modules are excluded and are not coverage gaps ([endpoints-reference § Coverage Completeness](../references/endpoints-reference.md#coverage-completeness)). Flag significant gaps to the user — don't just implement what the ticket lists.
 - **Connection**: only attach connections used by real modules or explicitly mentioned in the AC. Skip deprecated or unused connections.
 - **Sentence case**: all `label` values (endpoint and parameter) follow Sentence case per [UX best practices](https://make.atlassian.net/wiki/x/DAfcyg).
 - **Description**: every endpoint must have a `description` — concise sentence explaining what it does.
