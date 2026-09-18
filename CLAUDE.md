@@ -71,3 +71,14 @@ Required env vars for the MCP server: `PINECONE_API_KEY`, `OPENAI_API_KEY`. Opti
 ### Version sync
 
 Every commit must bump `version.json` → `skill/SKILL.md` front matter → `CHANGELOG.md` together (see `.claude/CLAUDE.md` for the exact protocol). The skill's auto-update logic compares the installed version against `version.json` fetched from the `master` branch on GitHub, so these three files must always agree.
+
+## Skill scripts
+
+Plain Node CommonJS under `skill/scripts/`. No `package.json`, no build, no TypeScript. Cursor loads the same invariants from `.cursor/rules/skill-scripts.mdc` when those files are in scope.
+
+- `require()`, not ESM `import`.
+- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`).
+- Resolve the skill root via `lib/skill-root.js` (`process.argv[1]`). Do not use `__dirname` for the skill root.
+- Read config through `lib/settings.js` → `~/.make-custom-app-skill-secrets`. Never print token values to logs or stdout.
+- Tests: `node --test skill/scripts/lib/__tests__/` (`node:test`, not the mcp-server vitest suite).
+- Adding or renaming a script: update the README Script Files table and the `SKILL.md` scripts line (installers copy `skill/` wholesale; there is no file list).

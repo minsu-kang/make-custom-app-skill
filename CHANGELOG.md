@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.3 — 2026-09-18
+
+- Add contributor invariants for `skill/scripts/` (Cursor glob rule + `CLAUDE.md`): CommonJS, `version-guard`, `skill-root.js`, secrets logging, `node:test`
+
 ## 2.1.2 — 2026-09-18
 
 - Exclude public:false modules from endpoint generation

@@ -1,0 +1,16 @@
+---
+description: Invariants when editing skill/scripts CommonJS CLIs in this repo
+globs: skill/scripts/**
+alwaysApply: false
+---
+
+# Skill scripts
+
+Plain Node CommonJS. No `package.json`, no build, no TypeScript.
+
+- `require()`, not ESM `import`.
+- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`).
+- Resolve the skill root via `lib/skill-root.js` (`process.argv[1]`). Do not use `__dirname` for the skill root.
+- Read config through `lib/settings.js` → `~/.make-custom-app-skill-secrets`. Never print token values to logs or stdout.
+- Tests: `node --test skill/scripts/lib/__tests__/` (`node:test`, not the mcp-server vitest suite).
+- Adding or renaming a script: update the README Script Files table and the `SKILL.md` scripts line (installers copy `skill/` wholesale; there is no file list).
