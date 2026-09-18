@@ -109,7 +109,13 @@ Only attach connections that are attached to the **real modules** in the app or 
 
 ### Coverage Completeness
 
-Verify that the suggested/implemented endpoints cover all of the app's functionality as much as possible. Compare the app's modules with the list of endpoints and the third-party API surface. If the app has 15 modules covering 12 distinct API operations, the endpoint list should aim to cover all 12 (minus any that require unsupported features like binary uploads).
+Verify that the suggested/implemented endpoints cover all of the app's functionality as much as possible. Compare the app's **visible** modules with the list of endpoints and the third-party API surface. If the app has 15 modules covering 12 distinct API operations, the endpoint list should aim to cover all 12 (minus any that require unsupported features like binary uploads).
+
+#### Exclude non-public modules before comparing
+
+**Only modules that ship in the app's usable surface may drive an endpoint.** `public: false` strips a module from the compiled build entirely (app-compilation-and-deployment-reference.md § "Module visibility & hiding"), so an endpoint derived from one wraps an operation the shipped app does not expose. Filter the module list **before** designing endpoints, not after: drop every module the SDK modules list reports as `public: false` (`GET .../{slug}/{version}/modules`, or MCP `app-modules_list` / `app-module_get`).
+
+Excluded modules are **not** coverage gaps: list them as excluded instead of reporting a missing endpoint. Conversely, an operation the vendor documents stays endpoint-worthy even when the only module using it was excluded — the filter removes *module-derived* endpoints, not documented API operations.
 
 ## `api.imljson` Shape
 
@@ -534,7 +540,7 @@ endpoints, required parameters, and response schemas.
 - **Sentence case labels**: verify all endpoint labels and parameter labels follow Sentence case (see § Sentence Case Labels).
 - **Endpoint descriptions**: every endpoint must have a `description` — same UX requirements as modules.
 - **Connection attachment**: only relevant connections should be attached — not deprecated or unused ones (see § Connection Attachment).
-- **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps.
+- **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps. Exclude `public: false` modules from that comparison (§ Coverage Completeness) — a missing endpoint for one is not a gap; an endpoint that exists only because a `public: false` module exposed the operation is a scope question for the user, not a Bug.
 - **Primitive array `help`**: check that even primitive array specs (e.g., `spec: { type: "text" }`) have `help` text.
 - **Hardcoded value types**: verify hardcoded values use correct JSON types (`true` not `"true"`, `1` not `"1"`).
 - **`stripEmpty()` / `ifempty()` on write endpoints**: POST/PUT/PATCH endpoints must guard optional body and QS params against sending empty values. Complex bodies → `stripEmpty()`, flat QS → `ifempty()`.
