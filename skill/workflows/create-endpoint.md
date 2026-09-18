@@ -27,7 +27,7 @@
 1. **Context.** Which operation(s) to wrap; fetch the vendor docs for each (hard rule 1); check related modules for naming, fields, scope; sync code and read `base.imljson` (lifecycle §2).
    - **Filter the module list first.** When modules drive the endpoint list, drop every `public: false` module before designing — they are stripped from the compiled build, so they must not produce endpoints. See [endpoints-reference § Coverage Completeness](../references/endpoints-reference.md#coverage-completeness).
 2. **Design per operation** — [Pure API Wrapper Principle](../references/endpoints-reference.md#pure-api-wrapper-principle): no output transformation, minimal input transformation, schemas mirror the vendor's.
-   - `api.imljson`: method, path relative to `baseUrl`, `qs`, `body`; `{{encodeURL(parameters.x)}}` for path params with `"encodeUrl": false`; PATCH bodies via `stripEmpty(omit(parameters, …))`; `response.output` is `{{body}}` (or `{{body.items}}` for lists).
+   - `api.imljson`: method, path relative to `baseUrl`, `qs`, `body`; `{{encodeURL(parameters.x)}}` for path params **only when the value may contain special characters** (not for simple IDs) with `"encodeUrl": false`; PATCH bodies via `stripEmpty(omit(parameters, …))`; `response.output` is `{{body}}` (or `{{body.items}}` for lists). For multi-API-call patterns from modules, consider the `condition` directive for conditional flow or a separate helper endpoint (see reference).
    - `input_parameters.imljson`: every API parameter with the vendor's names and types; `help` **mandatory** on every field incl. nested; `select` (+ `multiple`) for enums; specific types (`email`, `date`, `url`, `number`, `boolean`); pagination/ordering params last; omit `required: false`; `validate` for min/max; array/collection spec per [reference](../references/endpoints-reference.md#array-and-collection-spec-structure).
    - `output_parameters.imljson`: the **full** resource schema, vendor field names, `help` on every field.
    - `scope.imljson`: minimal scope. `context.md`: YAML frontmatter (`name`, `description`) + usage notes / limitations / PATCH semantics. Annotations accurate; `arbitraryCallHint` false or absent.
@@ -45,8 +45,13 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Connection identified (only connections used by real modules or mentioned in AC)
 - [ ] `public: false` modules excluded from the module list
 - [ ] Coverage verified (endpoints cover app functionality; gaps flagged)
+- [ ] Deprecated API operations checked; newer replacements used where available
+- [ ] Binary upload/download checked; skipped or URL variant used
 - [ ] Endpoint created with confirmation; context + annotations set
-- [ ] All labels in Sentence case; descriptions present
+- [ ] All labels in Sentence case; descriptions present; parameter naming consistent
+- [ ] All input parameters wired in `api.imljson` to correct vendor field names; validation directives applied
+- [ ] API docs URLs verified reachable (not 404)
+- [ ] Context files of other endpoints cross-referencing this one are up to date
 - [ ] `test-component.js` run (or skipped with a note if mockup path missing)
 - [ ] Verified (fetch or execute); public toggle requested
 - [ ] Context + Pinecone updated
@@ -69,3 +74,13 @@ When designing Regular Endpoints, follow these additional conventions beyond wha
 - **Output completeness**: all fields from API docs exhaustively; exclude write-only fields.
 - **API doc URLs**: prefer version-less URLs when the generic page works; keep version-specific when the exact version is relevant.
 - **Standard formatting**: each property on its own line, 4-space indentation for all JSON/JSONC blocks.
+- **Deprecated API check**: before implementing, verify each target API operation is not deprecated/removed in the vendor docs. Use the newer replacement if available, or flag to the user.
+- **Parameter naming consistency**: all `name` fields within one endpoint follow the vendor API's casing (snake_case or camelCase). Never mix conventions.
+- **Parameter-to-API wiring**: every input parameter must appear in the `api.imljson` (`url`, `qs`, `body`, or `headers`) **and must map to the correct vendor field name**. If an input parameter was renamed for disambiguation (e.g., `video_quality` to avoid collision), the `api.imljson` must still send it under the original API field name — not the renamed one.
+- **Validation**: check API docs for input constraints (length, min/max, format) and apply `validate` directives.
+- **Nested options**: prefer `select` + `nested` for dependent parameters when manageable; flat with clear `help` text if too complex.
+- **Binary check**: always verify whether an operation involves binary upload or binary response. Skip if binary-only; implement URL-based upload variant if available.
+- **`encodeURL()` restraint**: only for path params with special characters (emails, user strings). Do not apply to simple IDs.
+- **`ifempty()` restraint**: only on POST/PUT/PATCH — never on GET/DELETE query parameters.
+- **URL verification**: verify all API docs URLs in `context` and `help` are reachable (not 404).
+- **Acceptance verification**: cross-check the endpoint's `api.url` against the ticket acceptance criteria AND the actual module/vendor API docs. Do not pick a different API path than specified.
