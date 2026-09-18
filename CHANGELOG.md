@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.0 — 2026-09-18
+
+- **`endpoints-reference.md` § `condition` directive — conditional API flow**: clarified that while `condition` cannot validate inputs, it CAN implement conditional API routing for multi-API-call module patterns. Documents the Discord arbitraryCall ([IEN-16479](https://make.atlassian.net/browse/IEN-16479)) and Canva helper-endpoint ([IEN-16618](https://make.atlassian.net/browse/IEN-16618)) approaches.
+- **`endpoints-reference.md` — binary download/export limitation**: expanded the binary note to cover both upload and download. Endpoints returning binary responses (file exports, PDF downloads) cannot be implemented — skip them.
+- **`endpoints-reference.md` § `encodeURL()` — restricted usage**: clarified that `encodeURL()` should only be used on path parameters that may contain special characters (emails, user-provided strings). Simple alphanumeric IDs do not need encoding. Prevents unnecessary over-application.
+- **`endpoints-reference.md` § `ifempty()` — reinforced GET/DELETE exclusion**: added explicit warning against applying `ifempty()` to GET/DELETE query parameters. Added path parameters to the decision table (never need guards).
+- **`endpoints-reference.md` § "Other Schema Conventions" — 5 new rules**: parameter naming consistency (follow vendor API casing, don't mix snake_case/camelCase), validation completeness (check API docs for all constraints), nested options for dependent parameters (prefer `select` + `nested` when manageable), deprecated/removed API operation check (verify vendor docs before implementing, prefer newer replacements), and output verification against API docs (not just module outputs).
+- **`endpoints-reference.md` § "Arbitrary Call Checklist"**: API docs URL must be verified reachable (not 404).
+- **`endpoints-reference.md` § "Code Review Guidance" — 7 new checks**: `encodeURL()` overuse, URL reachability verification, endpoint URL correctness vs acceptance criteria, deprecated API operations, parameter naming consistency, parameter-to-API wiring completeness.
+- **`create-endpoint.md` workflow updated**: `encodeURL()` restricted to special-character cases, `condition` directive for multi-API patterns referenced, 11 new design conventions (deprecated API check, naming consistency, parameter wiring, validation, nested options, binary check, `encodeURL()` restraint, `ifempty()` restraint, URL verification, acceptance verification), expanded checklist with deprecation, binary, wiring, validation, and URL checks.
+
 ## 2.1.3 — 2026-09-18
 
 - Add contributor invariants for `skill/scripts/` (Cursor glob rule + `CLAUDE.md`): CommonJS, `version-guard`, `skill-root.js`, secrets logging, `node:test`

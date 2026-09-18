@@ -19,7 +19,7 @@ Everything in this document is verified against the live SDK admin API (google-d
 | **Consumables** | `centicreditsFormula` (+ description/documentation URL/meta) on the endpoint entity — the "Consumables" tab in the SDK UI. `null` when unset. Consumable edits are audited and versioned. |
 | **Feature-flagged** | All endpoint routes in `imt-web-api` are gated by the growthbook flag `IS_SDK_ENDPOINTS_ENABLED` — 404-class error on environments where it's off. |
 | **No endpoint aliasing** | There is no aliasing of endpoints in the current design. The fraction of apps using multiple APIs is small, and aliasing offers little benefit. Future options may enable complex app modules connecting multiple endpoints. |
-| **Binary/multipart uploads not supported** | SDK Endpoints do not yet support `buffer`-typed input parameters (file uploads). The Endpoint Execution API (`endpoint_execute`) always sends the payload as `application/json` — there is no way to pass binary data natively. **Workaround** (if burning): accept a `text` input expecting base64, then use `toBinary()` in the endpoint's `api.imljson` to convert. **Recommended**: skip binary-upload endpoints entirely until proper platform support is in place. If the third-party API also accepts a URL or file ID as an alternative to binary upload (e.g., Telegram media sends), implement only those non-binary paths. ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1789467764790229), [IEN-16615](https://make.atlassian.net/browse/IEN-16615)) |
+| **Binary upload and download not supported** | SDK Endpoints do not support `buffer`-typed parameters — neither for upload (input) nor download/export (output). The Endpoint Execution API (`endpoint_execute`) always sends/receives `application/json`. **Upload workaround**: if the third-party API supports URL-based upload (passing a URL instead of binary data), implement that variant. Skip the endpoint entirely if only binary upload is available. **Download/export**: endpoints that return binary responses (file downloads, PDF exports, etc.) cannot be implemented — skip them. ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1789467764790229), [IEN-16615](https://make.atlassian.net/browse/IEN-16615)) |
 | **Full API coverage** | Endpoints should cover **all** parameters from the third-party API docs — not just what the existing app modules implement. Modules may have omitted parameters for various reasons, but endpoints as true API wrappers should expose everything the API supports, excluding parameters flagged as deprecated or legacy in the API docs. |
 
 ## Component Files (local layout from `download-app.js`)
@@ -139,6 +139,7 @@ Endpoint-specific response behavior:
 
 - **Result unwrap** — because the RPC chain returns an array, an Endpoint's result is unwrapped when running *as an Endpoint*: single-element array → object, empty → `{}`. Opt out with `"response": { "unwrap": false }` or by declaring `response.iterate` (keeps the array). Source: `rpc.js` `_unwrapEndpointResult`, gated by the `endpointExecution` marker — identical embedded (inline `api.endpoint`) vs standalone.
 - **`condition` cannot implement validation** — `condition()` IS part of the ExecuteRpc chain, but its falsy path ends the chain returning `condition.default` **as output data** (or `false`); it cannot raise a typed error (source: `lib/core/middleware/condition.js`). IEN-16076 field-tested it as a required-field guard: not viable. Do not suggest `condition` for endpoint-level validation.
+- **`condition` CAN implement conditional API flow** — while `condition` cannot validate inputs, it **can** be used to replicate multi-API-call patterns from modules. Endpoints don't support multiple `api` calls, but the `condition` directive allows branching to different API paths or content types based on input. Examples: the Discord `arbitraryCall` endpoint ([IEN-16479](https://make.atlassian.net/browse/IEN-16479)) uses `condition` to handle different content types for POST/PUT/PATCH vs GET ([IEN-16648](https://make.atlassian.net/browse/IEN-16648)) and for bot-identity guards that the module implements via a preflight API call ([IEN-16649](https://make.atlassian.net/browse/IEN-16649)). For cases where an additional API call is needed for pre-checks (e.g., enterprise-gated operations), consider creating a separate helper endpoint and referencing it in the `context.md` — see the Canva implementation ([IEN-16618](https://make.atlassian.net/browse/IEN-16618)).
 - **No nested endpoint calls** — an Endpoint's own `api` may not use the `api.endpoint` directive (`InvalidConfigurationError`).
 
 ## Pure API Wrapper Principle
@@ -160,7 +161,7 @@ Some structural transformations are acceptable to ensure clean API requests:
 
 - **`stripEmpty()`** — a **custom** IML function (not built-in) that recursively removes `null`, `undefined`, empty strings, empty objects `{}`, and empty arrays `[]` from the request body. Required for PATCH endpoints and complex POST bodies where empty optional collections would cause `400 Bad Request` errors. Currently implemented in apps like Google Calendar (`google-calendar` v5) and Google Drive (`google-drive` v4) — it must be created as a custom IML function in each app that needs it. Example: `"body": "{{stripEmpty(omit(parameters, 'calendarId', 'sendUpdates'))}}"` (Google Calendar `createEvent`/`updateEvent`).
 - **`omit()`** — to remove URL path parameters and query-string-only parameters from the body: `omit(parameters, 'calendarId', 'sendUpdates')`.
-- **`encodeURL()`** — for path parameters: `"/calendars/{{encodeURL(parameters.calendarId)}}/events"` with `"encodeUrl": false` on the api block to prevent double encoding.
+- **`encodeURL()`** — **only** when a path parameter may contain special characters that would break the URL (e.g., email addresses, user-provided strings with slashes or spaces). Example: `"/calendars/{{encodeURL(parameters.calendarId)}}/events"` with `"encodeUrl": false` on the api block to prevent double encoding. **Do not** use `encodeURL()` on simple alphanumeric IDs or slugs — it adds unnecessary complexity. Most path parameters (resource IDs, numeric IDs) do not need encoding.
 - **`ifempty()` / `if(length())`** — for simple PATCH bodies where `stripEmpty` is overkill: wrap optional scalar fields with `{{ifempty(parameters.field, undefined)}}` and optional arrays with `{{if(length(parameters.field), parameters.field, undefined)}}` (because `ifempty` does not treat `[]` as empty).
 - **`toCollection()`** — for map/dictionary fields where the API expects a flat `{key: value}` object: define the input as an `array` of `{key, value}` pairs, then transform with `"{{toCollection(parameters.field, 'key', 'value')}}"` in the `api.imljson` body/qs. In output, represent these as `collection` with no spec (open/dynamic keys).
 - **`join()`** — when a `select` with `multiple: true` produces an array but the API expects a comma-separated string: `"{{join(parameters.field, ',')}}"`. Prefer this over free-text input when the set of values is known.
@@ -171,9 +172,12 @@ Some structural transformations are acceptable to ensure clean API requests:
 |---|---|---|
 | Complex nested request body (POST/PUT/PATCH) | `stripEmpty()` | Recursively cleans all empty values from deeply nested structures |
 | Simple flat QS parameters on write endpoints (POST/PUT/PATCH) | `ifempty()` | Lightweight — wraps individual params: `"field": "{{ifempty(parameters.field, undefined)}}"` |
-| QS parameters on GET/DELETE endpoints | Neither | GET/DELETE QS params don't need empty-value guards |
+| QS parameters on GET/DELETE endpoints | Neither | GET/DELETE QS params do **not** need empty-value guards — omitted params simply won't appear in the query string |
+| URL path parameters | Neither | Path parameters are always required; they don't need `ifempty()` guards |
 
 ⚠️ **QS params on write endpoints also need guards** — not just body fields. A POST endpoint with optional QS params should wrap them with `ifempty()` in the `qs` block.
+
+⚠️ **Do not over-apply `ifempty()`** — it is only needed on POST/PUT/PATCH endpoints where sending an empty value would cause errors. GET and DELETE endpoints should **never** use `ifempty()` on query string parameters.
 
 ### Always-true parameters — hardcode, don't expose
 
@@ -298,7 +302,12 @@ Arrays of **primitives** (strings, numbers) use a flat spec object:
 - **PATCH endpoint context**: always include a note advising AI callers to perform a GET first to retrieve current values, since omitted fields may be cleared.
 - **`mode: edit` has no effect** in endpoint parameter schemas — this directive is module-specific and does nothing for endpoints.
 - **Standard formatting**: use each property on its own line with 4-space indentation in `api`, `params`, and schema definitions. Do not cram multiple properties onto a single line.
-- **Output parameter completeness**: output definitions must cover **all** fields from the API docs — not just commonly used ones. Include all nested object fields exhaustively. **Write-only fields** ("never populated in responses") must be excluded from output definitions.
+- **Output parameter completeness**: output definitions must cover **all** fields from the API docs — not just commonly used ones. Include all nested object fields exhaustively. **Write-only fields** ("never populated in responses") must be excluded from output definitions. Always verify the output schema against the vendor API documentation — do not rely solely on what the existing module outputs, as modules may omit fields.
+- **Parameter naming consistency**: the `name` field of every parameter within one endpoint must follow a consistent casing convention — typically matching the third-party API's naming. If the API uses `snake_case`, use `snake_case`; if `camelCase`, use `camelCase`. Do not mix conventions within a single endpoint schema. Example: Canva's API uses `snake_case` (`attached_to.design_id`), so endpoint parameters should use `attached_to` / `design_id` — not `designId` ([IEN-16696](https://make.atlassian.net/browse/IEN-16696)). When creating extra parameters for disambiguation (e.g., two API fields named `quality` for different contexts), ensure **every** extra parameter is correctly wired in the `api.imljson` — both directions: (1) every input parameter must be mapped to the API request, and (2) it must be mapped to the **correct** vendor field name, not the disambiguation name. Sending a field name the API doesn't recognize (because the endpoint uses a renamed parameter but sends that renamed name instead of the original) causes silent failures or 400 errors.
+- **Validation completeness**: always check the third-party API documentation for input constraints — string length limits, numeric min/max ranges, format patterns. Apply the `validate` directive (e.g., `"validate": { "min": 0, "max": 100 }`) wherever the API enforces limits. Do not skip validation just because the module doesn't have it.
+- **Nested options for dependent parameters**: when API parameters have values that are only valid for a specific parent option (e.g., different sub-parameters depending on a `type` selector), prefer nesting them under a `select` + `nested` structure when the number of dependent values is manageable. If nesting would be too complex or the nested values are too many, a flat schema with clear `help` text explaining the dependencies is acceptable — but nesting is preferred for AI caller clarity.
+- **Deprecated/removed API operations**: before implementing any endpoint, verify the target API operation's status in the vendor's **current** documentation. Do not implement endpoints for API operations that are deprecated, removed, or flagged for sunset when a newer replacement exists — implement the replacement instead, or flag the deprecation to the user before proceeding. If a module wraps a deprecated API operation and a newer one is documented, prefer the newer API operation for the endpoint even if the module hasn't been updated yet. Example: Canva's `createCommentReply` used a legacy `/comments/{id}/replies` path that returned 404 — the current API uses a different endpoint ([IEN-16698](https://make.atlassian.net/browse/IEN-16698)).
+- **Context file freshness**: whenever an endpoint is modified, disabled, or its behavior changes during development, check whether any **other** endpoint contexts reference it (e.g., "use `getCalendar` first to retrieve current values before calling `updateCalendar`") and update those references accordingly. Context files can go stale when endpoints are renamed, removed, or have their semantics changed. This applies to any cross-references between endpoints — helper endpoints, prerequisite calls, related operations mentioned in usage notes, etc.
 
 ## Runtime Validation Caveats (critical — verified IEN-16076 / IEN-16082)
 
@@ -496,7 +505,7 @@ endpoints, required parameters, and response schemas.
 - [ ] `attachedAccounts` set to the app's connection
 - [ ] `context` set with YAML frontmatter (`name`, `description`) and descriptive body
 - [ ] URL example in both `help` text and `context` uses a simple GET path (ideally parameter-free, e.g., `/v1/models`, `/v1/users/me/calendarList`)
-- [ ] API docs URL included in `context`
+- [ ] API docs URL included in `context` — **verified reachable** (not a 404)
 - [ ] Endpoint toggled **public** (visible) after creation
 
 ### Known Gotchas
@@ -519,8 +528,12 @@ endpoints, required parameters, and response schemas.
 | Google Slides | `google-slides` v1 | `https://slides.googleapis.com/` | [IEN-16483](https://make.atlassian.net/browse/IEN-16483) |
 | Google Drive | `google-drive` v4 | `https://www.googleapis.com/` | [IEN-16256](https://make.atlassian.net/browse/IEN-16256) |
 | GitHub | `github` v2 | — (GraphQL example) | [IEN-16254](https://make.atlassian.net/browse/IEN-16254) |
+| Discord | `discord` v2 | `https://discord.com/api/` | [IEN-16479](https://make.atlassian.net/browse/IEN-16479) |
+| Canva | `canva` v1 | `https://api.canva.com/rest/v1` | [IEN-16618](https://make.atlassian.net/browse/IEN-16618) |
 
 > **Note on GitHub**: serves as an example for apps using GraphQL APIs, where the endpoint wraps a single GraphQL query/mutation rather than a REST path.
+> **Note on Discord**: demonstrates `condition` directive for content-type branching and bot-identity guards in an `arbitraryCall` endpoint.
+> **Note on Canva**: demonstrates deprecated API handling, helper endpoints for enterprise-gated operations, and vendor `snake_case` naming.
 
 ## Code Review Guidance for Endpoint Changes
 
@@ -543,4 +556,11 @@ endpoints, required parameters, and response schemas.
 - **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps. Exclude `public: false` modules from that comparison (§ Coverage Completeness) — a missing endpoint for one is not a gap; an endpoint that exists only because a `public: false` module exposed the operation is a scope question for the user, not a Bug.
 - **Primitive array `help`**: check that even primitive array specs (e.g., `spec: { type: "text" }`) have `help` text.
 - **Hardcoded value types**: verify hardcoded values use correct JSON types (`true` not `"true"`, `1` not `"1"`).
-- **`stripEmpty()` / `ifempty()` on write endpoints**: POST/PUT/PATCH endpoints must guard optional body and QS params against sending empty values. Complex bodies → `stripEmpty()`, flat QS → `ifempty()`.
+- **`stripEmpty()` / `ifempty()` on write endpoints**: POST/PUT/PATCH endpoints must guard optional body and QS params against sending empty values. Complex bodies → `stripEmpty()`, flat QS → `ifempty()`. Do **not** apply `ifempty()` to GET/DELETE query parameters.
+- **`encodeURL()` usage**: verify `encodeURL()` is only used on path parameters that may contain special characters. Simple alphanumeric IDs do not need encoding.
+- **URL verification**: API docs URLs in `context` and `help` text must be reachable (not 404). Verify before finalizing.
+- **Endpoint URL correctness**: verify the endpoint's `api.url` matches the correct API path — cross-check against both the ticket acceptance criteria and the actual module implementation / vendor API docs.
+- **Deprecated API operations**: verify the target API operation is not deprecated or removed in the vendor's current docs. If it is, a newer replacement should be used instead.
+- **Parameter naming consistency**: all parameter `name` fields within one endpoint should follow the same casing convention (matching the vendor API), with no mixing of `snake_case` and `camelCase`.
+- **Parameter-to-API wiring**: every input parameter must be properly mapped in `api.imljson` — check that no parameter is defined in the input schema but missing from the `url`, `qs`, `body`, or `headers` in the API block. Also verify the mapping uses the **correct vendor field name** — if a parameter was renamed for disambiguation, the `api.imljson` must still send it under the original API field name, not the renamed one.
+- **Context file freshness**: when an endpoint is modified or disabled, verify that other endpoint contexts referencing it are updated (e.g., cross-references to helper endpoints, prerequisite calls, related operations).
