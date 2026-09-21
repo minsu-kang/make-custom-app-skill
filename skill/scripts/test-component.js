@@ -3,7 +3,7 @@
  * Make Custom App Component Integration Test Runner
  *
  * Wrapper that delegates to the make-apps-mockup framework for running
- * module, RPC, connection, and webhook integration tests.
+ * module, RPC, connection, webhook, and endpoint integration tests.
  *
  * Usage:
  *   node test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
@@ -12,10 +12,11 @@
  *   node test-component.js monday 2 module                          # test all modules
  *   node test-component.js monday 2 module CreateItemV2             # test one module
  *   node test-component.js monday 2 rpc idFinderItem getBoards      # test multiple RPCs
+ *   node test-component.js google-docs 1 endpoint getDocument       # one endpoint
  *   node test-component.js monday 2 module CreateItemV2 --format=json  # JSON output for AI agents
  *   node test-component.js monday 2 module --debug                  # show HTTP request details
  *
- * Component types: module, rpc, connection, webhook
+ * Component types: module, rpc, connection, webhook, endpoint
  *
  * Requires:
  *   - make-apps-mockup repo path configured in ~/.make-custom-app-skill-secrets (make-apps-mockup-path: /path/to/repo)
@@ -42,7 +43,7 @@ const [slug, version, componentType, ...componentNames] = positional;
 if (!slug || !version || !componentType) {
 	console.log('Usage: node test-component.js <app-slug> <app-version> <component-type> [component-name ...] [options]');
 	console.log('');
-	console.log('Component types: module, rpc, connection, webhook');
+	console.log('Component types: module, rpc, connection, webhook, endpoint');
 	console.log('');
 	console.log('Options:');
 	console.log('  --format=console|json   Output format (default: console)');
@@ -52,11 +53,12 @@ if (!slug || !version || !componentType) {
 	console.log('  node test-component.js monday 2 module                          # all modules');
 	console.log('  node test-component.js monday 2 module CreateItemV2             # one module');
 	console.log('  node test-component.js monday 2 rpc idFinderItem getBoards      # multiple RPCs');
+	console.log('  node test-component.js google-docs 1 endpoint getDocument       # one endpoint');
 	console.log('  node test-component.js monday 2 module --format=json            # JSON output');
 	process.exit(1);
 }
 
-const validTypes = ['module', 'rpc', 'connection', 'webhook'];
+const validTypes = ['module', 'rpc', 'connection', 'webhook', 'endpoint'];
 if (!validTypes.includes(componentType)) {
 	console.error(`Invalid component type: "${componentType}". Must be one of: ${validTypes.join(', ')}`);
 	process.exit(1);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.4 — 2026-09-21
+
+- **Endpoint component tests.** `make-apps-mockup` now runs standalone SDK Endpoint tests (`endpoint` type, `EndpointExecutor` via `ExecuteRpc` with `endpointExecution: { embedded: false }`). `test-component.js` accepts `endpoint`; fixtures live at `data/{slug}/v{version}/endpoints/{name}/test.js`; expected output is the unwrapped object, not an RPC-style array. `component-test-guide.md`, `endpoints-reference.md` (tooling table was ❌), `create-endpoint.md`, and code-review auto-run now include this path. Live execute via MCP `endpoint_execute` / platform Run Endpoint still works.
+
 ## 2.1.3 — 2026-09-18
 
 - Add contributor invariants for `skill/scripts/` (Cursor glob rule + `CLAUDE.md`): CommonJS, `version-guard`, `skill-root.js`, secrets logging, `node:test`

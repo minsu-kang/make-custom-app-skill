@@ -169,13 +169,13 @@ node ${SKILL_ROOT}/scripts/test-function.js <app-slug> <app-version>
 
 **Before running or writing component tests**, re-read `${SKILL_ROOT}/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
 
-When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks), **automatically run `test-component.js`** after `download-app.js` completes:
+When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks, endpoints), **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
 node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
 ```
 
-- Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`)
+- Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`; `endpoints/getDocument/api.imljson` → `endpoint getDocument`)
 - Run `test-component.js` for each affected component type
 - If tests exist for the changed component (`test.js` in mockup data) → include results in the review under **Component Test**
 - If tests **fail** → flag in the review. Distinguish between:

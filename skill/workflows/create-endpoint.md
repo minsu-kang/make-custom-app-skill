@@ -20,7 +20,7 @@
 5. **Create** (confirmation first): `custom-apps_endpoints-configure { mode: CREATE, endpointName: arbitraryCall, label: "Arbitrary call", description: "Performs an arbitrary authorized API call.", attachedAccounts: [conn], sections: { api, inputParameters, outputParameters, scope } }` with the template, substituting `BASE_URL` / `EXAMPLE_PATH`, scope from the source module.
 6. **Context + annotations** — mandatory follow-up, CREATE does not apply them: `mode: UPDATE` with `annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: false, destructiveHint: false, arbitraryCallHint: true }` and `context` from the template (`APP_NAME`, `BASE_URL`, `EXAMPLE_PATH`, `API_DOCS_URL`).
 7. **Public.** The endpoint is created `public: false`; the MCP tool cannot flip it. Ask the user to toggle visibility in the SDK admin UI (or `POST .../endpoints/{name}/public`).
-8. **Verify** with `custom-apps_endpoints-fetch { endpointName, sections: [...] }`: `arbitraryCallHint: true`, `help` on every input/output parameter, `context` has YAML frontmatter + body, scope matches the source module, `attachedAccounts` set.
+8. **Verify** with `custom-apps_endpoints-fetch { endpointName, sections: [...] }`: `arbitraryCallHint: true`, `help` on every input/output parameter, `context` has YAML frontmatter + body, scope matches the source module, `attachedAccounts` set. Then run `test-component.js {slug} {ver} endpoint arbitraryCall` (add mockup `test.js` when missing).
 
 ## Regular
 
@@ -32,7 +32,7 @@
    - `output_parameters.imljson`: the **full** resource schema, vendor field names, `help` on every field.
    - `scope.imljson`: minimal scope. `context.md`: YAML frontmatter (`name`, `description`) + usage notes / limitations / PATCH semantics. Annotations accurate; `arbitraryCallHint` false or absent.
 3. **Create and push** via MCP `custom-apps_endpoints-configure` or `update-app.js endpoint/{name}/{section}` (confirmation first).
-4. **Verify** via MCP `endpoint_execute` or the platform "Run Endpoint" button.
+4. **Tests.** New or changed `api.imljson` → add `data/{slug}/v{version}/endpoints/{name}/test.js` in the mockup repo when missing, then `test-component.js {slug} {ver} endpoint {name}` ([component-test-guide.md](../references/component-test-guide.md)). Expected output is the unwrapped object, not an RPC-style array. Live smoke still available via MCP `endpoint_execute` or the platform "Run Endpoint" button.
 5. **Close out** (lifecycle §7): ask about public toggle, context file, Pinecone.
 
 ## Updating an existing endpoint
@@ -47,6 +47,7 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Coverage verified (endpoints cover app functionality; gaps flagged)
 - [ ] Endpoint created with confirmation; context + annotations set
 - [ ] All labels in Sentence case; descriptions present
+- [ ] `test-component.js` run (or skipped with a note if mockup path missing)
 - [ ] Verified (fetch or execute); public toggle requested
 - [ ] Context + Pinecone updated
 

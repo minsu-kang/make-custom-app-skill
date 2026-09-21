@@ -27,7 +27,7 @@ node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component
 
 | Option | Description |
 |---|---|
-| `component-type` | `module`, `rpc`, `connection`, `webhook` |
+| `component-type` | `module`, `rpc`, `connection`, `webhook`, `endpoint` |
 | `--format=json` | Structured JSON output (recommended for AI agent parsing) |
 | `--debug` | Show actual HTTP request payloads sent by the runtime |
 
@@ -36,6 +36,7 @@ Examples:
 node ${SKILL_ROOT}/scripts/test-component.js monday 2 module                    # all modules
 node ${SKILL_ROOT}/scripts/test-component.js monday 2 module CreateItemV2       # one module
 node ${SKILL_ROOT}/scripts/test-component.js monday 2 rpc listBoards getUsers   # multiple RPCs
+node ${SKILL_ROOT}/scripts/test-component.js google-docs 1 endpoint getDocument # one endpoint
 node ${SKILL_ROOT}/scripts/test-component.js monday 2 module --format=json      # JSON for AI
 ```
 
@@ -64,6 +65,7 @@ make-apps-mockup/
 │   ├── executors/
 │   │   ├── module-executor.ts       # action/search/trigger/instant/responder
 │   │   ├── rpc-executor.ts          # RPC execution
+│   │   ├── endpoint-executor.ts     # Endpoints (standalone ExecuteRpc + unwrap)
 │   │   ├── connection-executor.ts   # basic/oauth2 connection testing
 │   │   ├── webhook-executor.ts      # webhook parse testing
 │   │   └── hook-rpc-executor.ts     # attach/detach/update hook RPCs
@@ -76,6 +78,7 @@ make-apps-mockup/
     └── {app-slug}/v{version}/
         ├── modules/{ComponentName}/test.js
         ├── rpcs/{ComponentName}/test.js
+        ├── endpoints/{ComponentName}/test.js
         ├── connections/{ComponentName}/test.js
         └── webhooks/{ComponentName}/test.js
 ```
@@ -86,7 +89,7 @@ make-apps-mockup/
 2. **TestRunner** filters components: `public !== false` for modules; CLI names intersected with available components
 3. For each component, loads `test.js` from `data/` — skipped if file missing or no `capture()` call
 4. **TestParser** runs `test.js` in a Node VM sandbox, extracting `TestCase[]` via injected `it()` + `capture()`
-5. **Executor** (module/rpc/connection/webhook) creates runtime instance, sets recordings from `communications`, runs `initialize()` → `write/read/execute/parse`
+5. **Executor** (module/rpc/endpoint/connection/webhook) creates runtime instance, sets recordings from `communications`, runs `initialize()` → `write/read/execute/parse`
 6. **Assertion**: `assert.deepStrictEqual(transformOutput(result), expectedOutput)`
 7. **Reporter** (console or JSON) outputs results
 
@@ -101,7 +104,7 @@ The runtime version is controlled by `"imt-app-runtime-version"` in `package.jso
 
 ## Test File Structure
 
-Path (inside `make-apps-mockup`): `data/{app-slug}/v{version}/{modules|rpcs|connections|webhooks}/{ComponentName}/test.js`
+Path (inside `make-apps-mockup`): `data/{app-slug}/v{version}/{modules|rpcs|endpoints|connections|webhooks}/{ComponentName}/test.js`
 
 Each `test.js` runs in a Node VM sandbox (5s timeout) with `it()` and `capture()` injected. No imports, no test framework.
 
@@ -180,6 +183,18 @@ it('RPC: listProjects', () => {
         { label: 'Project Alpha', value: 'proj_1' },
         { label: 'Project Beta', value: 'proj_2' },
     ];
+    capture(parameters, communications, output, {}, {}, { expect: [] });
+});
+```
+
+**Endpoint** (standalone, same `capture()` as an RPC, but expected output is the **unwrapped object** — `EndpointExecutor` sets `instance.endpointExecution = { embedded: false }` so `ExecuteRpc` unwraps the one-element array):
+```js
+it('Endpoint: getDocument', () => {
+    const parameters = { __IMTCONN__: { accessToken: 'xxx' }, documentId: 'doc-1' };
+    const communications = [
+        { req: { url: '...', method: 'GET', ... }, res: { statusCode: 200, body: { id: 'doc-1', title: 'Notes' } } }
+    ];
+    const output = { id: 'doc-1', title: 'Notes' };  // object, not [{ ... }]
     capture(parameters, communications, output, {}, {}, { expect: [] });
 });
 ```
@@ -268,6 +283,10 @@ Arrays of objects. `transformOutput()` processes the raw result:
 
 Arrays of `{label, value}` for dropdowns, or structured objects.
 
+### Endpoints
+
+A **bare object** (or `{}` when the RPC array is empty). Do **not** wrap expected output in `[{...}]` the way modules do — the executor marks the run as a standalone endpoint execution so `ExecuteRpc` unwraps the one-element result. Opting out of unwrap (`response.unwrap: false` or `response.iterate`) keeps the array, same as production.
+
 ### Error Output
 
 To test expected errors (4XX/5XX), `output` can be either a **string** (message only) or an **object** (`errorType` + optional `message`).
@@ -302,7 +321,7 @@ Valid `errorType` values come from `RUNTIME_ERROR_TYPES` in `test-runner.ts`: `D
 The runner does NOT simply scan directories. The process is:
 
 1. **Adapter** provides the app's official component list (from Make API or local metadata)
-2. For modules: `public !== false` filter applied (explicitly non-public modules are skipped)
+2. For modules: `public !== false` filter applied (explicitly non-public modules are skipped). Endpoints, RPCs, connections, and webhooks are **not** filtered by `public` — a new endpoint created `public: false` still runs when named (or when testing all endpoints).
 3. If CLI specifies component names → intersection with available components; otherwise → all filtered components
 4. For each component: `data/{slug}/v{version}/{type}s/{name}/test.js` must exist — otherwise **skipped**
 5. File must contain `capture(` — otherwise **skipped**
@@ -314,7 +333,7 @@ The runner does NOT simply scan directories. The process is:
 npm start generate-test {slug} {version}
 ```
 
-Creates `test.js` templates for all public modules and all RPCs that don't have one yet. Does NOT generate connection or webhook scaffolds.
+Creates `test.js` templates for all public modules and all RPCs that don't have one yet. Does NOT generate connection, webhook, or endpoint scaffolds — write those by hand under `data/{slug}/v{version}/endpoints/{name}/test.js`.
 
 ## Executor Types
 
@@ -326,6 +345,7 @@ Creates `test.js` templates for all public modules and all RPCs that don't have 
 | `instant` (typeId 10) | ModuleExecutor | `ExecuteHookTrigger` | `fetch()` + `read()` |
 | `responder` (typeId 11) | ModuleExecutor | `ExecuteHookResponse` | `write()` |
 | RPC | RpcExecutor | `ExecuteRpc` | `execute()` |
+| Endpoint | EndpointExecutor | `ExecuteRpc` (`endpointExecution: { embedded: false }`) | `execute()` |
 | Connection (basic) | ConnectionExecutor | Account | `test()` |
 | Connection (oauth2) | ConnectionExecutor | OAuth2Account | `token()` / `refresh()` / `invalidate()` |
 | Webhook | WebhookExecutor | Hook | `parse(req)` |
@@ -372,6 +392,7 @@ Steps with `"type": "raw"` that don't set `"output": null` leak their raw body (
 | Action | Object only | Array, String, etc. |
 | Search | Object, Array\<Object\> | String |
 | RPC | Object, String, Array\<Object\|String\> | Number, Boolean, etc. |
+| Endpoint | Same as RPC, then unwrapped to a single object | Same as RPC |
 
 ### URL-less Steps
 

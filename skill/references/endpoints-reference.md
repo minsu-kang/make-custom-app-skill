@@ -325,7 +325,7 @@ All skill scripts handle endpoints:
 | `create-component.js` | `endpoint <name> <label> [connection] [description] [initMode]` (initMode `example`\|`blank`) |
 | `update-component.js` | `endpoint` type — `label`, `description` (PATCH), `public`, `deprecated`, `archived` (dedicated POST routes) |
 | `delete-component.js` | `endpoint` type — `DELETE .../endpoints/{name}` (public-app deletability left to the server) |
-| `test-component.js` | ❌ Not supported — endpoints run only via MCP `endpoint_execute` or platform Run Endpoint |
+| `test-component.js` | ✅ `endpoint` type — same mockup `test.js` + communications as modules/RPCs; expected output is the **unwrapped object** (see [component-test-guide.md](component-test-guide.md)). Live execute still available via MCP `endpoint_execute` / platform Run Endpoint |
 
 ## Arbitrary Call Endpoint
 
@@ -525,6 +525,7 @@ endpoints, required parameters, and response schemas.
 ## Code Review Guidance for Endpoint Changes
 
 - Changes surface as `endpoint/{name}/{code}` with codes `api`, `input_parameters`, `output_parameters`, `context` (and potentially `scope`).
+- **Component tests.** When `api` is changed, run `test-component.js {slug} {ver} endpoint {name}` after `download-app.js` (same auto-run as modules/RPCs — [component-test-guide.md](component-test-guide.md)). Missing `test.js` is a note, not a Bug.
 - **Breaking Changes: skip.** Endpoints cannot run in scenarios, so no existing scenario mappings can break. State the skip reason as usual. (A shared custom IML function edited for an endpoint CAN still break modules that reuse it — evaluate that under the function change, e.g. IEN-16083 `getDocumentResponse`.)
 - The Runtime Reference hard gate applies to endpoint `api` changes the same as module/RPC `api` changes.
 - **Pure API wrapper check**: verify the endpoint does not apply output transformations or unnecessary input transformations (see § Pure API Wrapper Principle). Structural cleanups like `stripEmpty()` and `omit()` are acceptable; data transformations are not.

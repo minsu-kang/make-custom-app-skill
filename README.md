@@ -182,7 +182,7 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 | `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
-| `test-component.js` | Runs component integration tests (module, RPC, connection, webhook) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
+| `test-component.js` | Runs component integration tests (module, RPC, connection, webhook, endpoint) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
 | `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in `~/.make-custom-app-skill-secrets`. |
 | `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
