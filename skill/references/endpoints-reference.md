@@ -117,6 +117,10 @@ Verify that the suggested/implemented endpoints cover all of the app's functiona
 
 Excluded modules are **not** coverage gaps: list them as excluded instead of reporting a missing endpoint. Conversely, an operation the vendor documents stays endpoint-worthy even when the only module using it was excluded — the filter removes *module-derived* endpoints, not documented API operations.
 
+#### Foreign API calls
+
+A module in this app may call a different product's API. Google Slides `createPresentation` copies a file with Drive `files.copy`, and `listPresentations` uses Drive `files.list`. Do not add an endpoint for that call in this app, and do not put that API's OAuth scope on any endpoint here. The operation belongs on the app whose base URL and scopes already cover it (`google-drive` in that example). Confirmed on [IEN-16686](https://make.atlassian.net/browse/IEN-16686) (2026-09-23): `copyPresentation` and `listPresentations` stay out of `google-slides`. This app's Arbitrary call cannot stand in for them either — its base URL is `https://slides.googleapis.com/`, so it never reaches Drive. This is separate from cross-API augmentation inside one endpoint (IEN-16077).
+
 ## `api.imljson` Shape
 
 A standard communication block, same directive family as RPCs (endpoint = compiled `IMTRPC`, standard `ExecuteRpc` chain): `url` (relative to `base.imljson` `baseUrl`), `method`, `qs`, `body`, `headers`, `temp`, `response.*` (`output`/`temp`/`valid`/`iterate`/`wrapper`/`limit`), pagination. Custom IML functions are fully usable (observed: `buildBatchRequests()`, `handleTabs()`, `omit()`).
@@ -554,7 +558,7 @@ endpoints, required parameters, and response schemas.
 - **Sentence case labels**: verify all endpoint labels and parameter labels follow Sentence case (see § Sentence Case Labels).
 - **Endpoint descriptions**: every endpoint must have a `description` — same UX requirements as modules.
 - **Connection attachment**: only relevant connections should be attached — not deprecated or unused ones (see § Connection Attachment).
-- **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps. Exclude `public: false` modules from that comparison (§ Coverage Completeness) — a missing endpoint for one is not a gap; an endpoint that exists only because a `public: false` module exposed the operation is a scope question for the user, not a Bug.
+- **Coverage completeness**: compare the app's module list and the third-party API surface against the implemented endpoints. Flag significant gaps. Exclude `public: false` modules from that comparison (§ Coverage Completeness) — a missing endpoint for one is not a gap; an endpoint that exists only because a `public: false` module exposed the operation is a scope question for the user, not a Bug. A module that calls a different product's API is not a gap either (§ Foreign API calls, IEN-16686): do not add that endpoint here, and do not add that API's scope. Missing it is not a review finding once the ticket marks it out of scope.
 - **Primitive array `help`**: check that even primitive array specs (e.g., `spec: { type: "text" }`) have `help` text.
 - **Hardcoded value types**: verify hardcoded values use correct JSON types (`true` not `"true"`, `1` not `"1"`).
 - **`stripEmpty()` / `ifempty()` on write endpoints**: POST/PUT/PATCH endpoints must guard optional body and QS params against sending empty values. Complex bodies → `stripEmpty()`, flat QS → `ifempty()`. Do **not** apply `ifempty()` to GET/DELETE query parameters.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.6 — 2026-09-23
+
+- **`endpoints-reference.md` § Foreign API calls**: a module that calls another product's API does not get an endpoint in this app, and that API's OAuth scope stays off every endpoint here. The call belongs on the app whose base URL and scopes already cover it. Confirmed on [IEN-16686](https://make.atlassian.net/browse/IEN-16686): Drive `files.copy` / `files.list` stay out of `google-slides`. This app's Arbitrary call cannot replace them because its base URL is `https://slides.googleapis.com/`.
+
 ## 2.1.5 — 2026-09-22
 
 - **`endpoints-reference.md` § `condition` directive — conditional API flow**: clarified that while `condition` cannot validate inputs, it CAN implement conditional API routing for multi-API-call module patterns. Documents the Discord arbitraryCall ([IEN-16479](https://make.atlassian.net/browse/IEN-16479)) and Canva helper-endpoint ([IEN-16618](https://make.atlassian.net/browse/IEN-16618)) approaches.
