@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.7 — 2026-10-01
+
+- **`parameters-reference.md` § Per-Option `nested` vs Store-Level Fallbacks**: store-level `options.nested` does not render while the field is empty; it applies only once a value is selected, mapped, or typed. Found on [IEN-16288](https://make.atlassian.net/browse/IEN-16288): an optional Tab select wrapping the rest of the google-docs form hid every child field until a tab was picked. When the children must always show, put the same spec in `options.placeholder.nested` as well.
+
 ## 2.1.6 — 2026-09-23
 
 - **`endpoints-reference.md` § Foreign API calls**: a module that calls another product's API does not get an endpoint in this app, and that API's OAuth scope stays off every endpoint here. The call belongs on the app whose base URL and scopes already cover it. Confirmed on [IEN-16686](https://make.atlassian.net/browse/IEN-16686): Drive `files.copy` / `files.list` stay out of `google-slides`. This app's Arbitrary call cannot replace them because its base URL is `https://slides.googleapis.com/`.

@@ -270,8 +270,10 @@ A `select` can attach nested fields from **multiple** places, resolved by a **pr
 
 1. **Per-option `nested` from an RPC store** — registered **asynchronously**, only after the store RPC has fetched its options. *(Highest precedence.)*
 2. **Per-option `nested` from a static-array store** — matched **synchronously** against the field value.
-3. **Store-level `options.nested`** — a sibling of `store`; always eligible, **not gated** by any value state.
-4. **`placeholder.nested`** — rendered **only** when the value is in a **placeholder state** (empty / no matched option), i.e. for mapped or manually typed values. *(Lowest precedence.)*
+3. **Store-level `options.nested`** — a sibling of `store`; eligible for any **non-empty** value (selected, mapped, or typed). It is **not rendered while the field is empty** — verified on an optional `rpc://` select with no per-option nested (google-docs IEN-16288).
+4. **`placeholder.nested`** — rendered **only** when the value is in a **placeholder state** (empty / no matched option), i.e. for an empty field or for mapped or manually typed values. *(Lowest precedence.)*
+
+> **Optional parent select whose children must always show** (e.g. an optional Tab select wrapping the rest of the form): put the same spec in both `options.nested` and `options.placeholder.nested`. `options.nested` alone hides the children until a value is picked (google-docs IEN-16288).
 
 **Critical distinction — RPC store vs static-array store:**
 
