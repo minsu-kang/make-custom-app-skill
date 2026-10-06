@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.1.7
+version: 2.1.8
 description: Build and edit Make.com custom app IMLJSON code. Use when working with Make Internal App extension, editing IMLJSON files, creating modules, connections, RPCs, webhooks, or any Make custom app development. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -36,7 +36,7 @@ Read [workflows/lifecycle.md](workflows/lifecycle.md) first for every task (app 
 1. **Vendor API claims need the vendor's docs.** Before stating that an external endpoint supports a parameter, field, header, or response shape, fetch the official docs. Existing app code is not proof. Unverifiable → say so; do not flag or implement on the assumption.
 2. **No invented runtime features.** Use only directives, IML functions, and spec properties documented in `references/` or present in the `imt-app-runtime` source. Otherwise ask.
 3. **Read before you flag or change.** Any `api.imljson` finding → read the matching [runtime-reference.md](references/runtime-reference.md) section first. Any label / hint / field change → read [app-ux-best-practices.md](references/app-ux-best-practices.md) first.
-4. **Write scripts need confirmation.** `update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`, `commit-changes.js` run only after the user has seen the change and approved. `commit-changes.js rollback` discards every pending change and runs only on an explicit rollback request — a returned review ticket is never rollback authorization.
+4. **Write scripts need confirmation.** `update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`, `commit-changes.js` run only after the user has seen the change and approved. Dev work ends at the push — `commit-changes.js commit|compile` only on an explicit user instruction, never as a proposed next step; `rollback` only on an explicit rollback request — a returned review ticket is never rollback authorization.
 5. **Review disposition gate.** In a code review, no context-file write, `upsert_*` call, or Jira transition until the user states the disposition (committed / compiled / returned).
 6. **Reviewers do not write Developer Notes**; sub-tasks in `Test` status belong to QA — never transition them.
 7. **Developer-facing text** (To Developer messages, Jira comments, Dev Notes) never mentions skill scripts, skill paths, Pinecone, or MCP tools. Speak in SDK / IMLJSON terms.
