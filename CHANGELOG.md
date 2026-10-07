@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.9 — 2026-10-07
+
+Lesson from Box v3 ([IEN-16854](https://make.atlassian.net/browse/IEN-16854), 21 endpoints): an empty-value stripper must remove only empty values.
+
+- **`endpoints-reference.md` § `stripEmpty()` must never drop a filled-in value** (new): the function's only job is to prune `null`, `undefined`, `""`, `{}`, `[]` and all-empty collections; anything the caller filled in (`false`, `0`, non-plain objects) must pass through unchanged, otherwise the request succeeds and the vendor silently keeps the old value. The known trap is `Date` — an object with no own enumerable keys that a naive `Object.keys` branch mistakes for `{}` — guarded with a realm-safe `[object Date]` check before the object branch (`instanceof Date` is unreliable in the IML sandbox). Rules: `test.js` asserts that filled-in values survive, not only that empties go; read an existing `stripEmpty`/`removeEmpty`/`clearEmpties` before reusing it and fix it in the same ticket if an endpoint input can reach the flaw; a custom function is shared with the app's modules, so check its callers first, keep the change strictly additive, run existing tests, note the module impact in Developer Notes — or add a separate function when the change would alter module behaviour; declaring a `date` as `text` to dodge the problem is not a fix.
+- **`endpoints-reference.md` § Allowed minimal transformations**: `stripEmpty()` entry rewritten — good examples to start from (Box v3 `stripEmpty`, Google Forms v2 `removeEmpty`) are a template, not a drop-in: read code and tests against the inputs of the app being built and the vendor's meaningful-empty semantics before pushing.
+- **`endpoints-reference.md` — review checklist**: new item — open the app's stripper and confirm it cannot discard a filled-in value reachable from an endpoint's inputs; if it can, Bug (silent data loss).
+
 ## 2.1.8 — 2026-10-05
 
 Endpoint lessons from monday v2 ([IEN-16757](https://make.atlassian.net/browse/IEN-16757), 42 GraphQL endpoints), Outlook ([IEN-16616](https://make.atlassian.net/browse/IEN-16616), one endpoint per vendor path), Microsoft Teams v1 ([IEN-16617](https://make.atlassian.net/browse/IEN-16617), 25 endpoints; `sendMessageCard` excluded — private module on a non-Graph webhook URL) and Calendly v2 ([IEN-16681](https://make.atlassian.net/browse/IEN-16681), 25 endpoints; `stripEmpty()` added next to the existing `removeEmptyObjects`, `uuid` inputs).
