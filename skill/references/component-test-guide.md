@@ -145,7 +145,7 @@ capture(parameters, communications, output, data, common, metadata, environment,
 
 ### Mocking `{{internal.*}}` (Make-Infrastructure Data)
 
-When component code — or a custom IML function it calls — reads `{{internal.*}}` (imt-app-runtime >= 1.103.0, admin-granted allowlist; see [runtime-reference.md § Make-Infrastructure Data](runtime-reference.md#make-infrastructure-data-internal--flagsexposeinternalproperties)), set **both** `options.internal` (the mock data) and `options.flags.exposeInternalProperties` (the mock grant) — `internal` alone has no effect without a matching grant path, exactly mirroring real runtime behavior:
+When component code — or a custom IML function it calls — reads `{{internal.*}}` (imt-app-runtime >= 1.103.0, admin-granted allowlist; see [runtime-reference.md § Make-Infrastructure Data](runtime-reference/environment-variables.md#make-infrastructure-data-internal--flagsexposeinternalproperties)), set **both** `options.internal` (the mock data) and `options.flags.exposeInternalProperties` (the mock grant) — `internal` alone has no effect without a matching grant path, exactly mirroring real runtime behavior:
 
 ```js
 it('Module: simpleTextPrompt - unrestricted org', () => {
@@ -158,7 +158,7 @@ it('Module: simpleTextPrompt - unrestricted org', () => {
 });
 ```
 
-Before writing a test that depends on `internal.*`, verify the app's **actual** granted paths via `GET /sdk/apps/{slug}/{version}?cols[]=flags` (see `runtime-reference.md`) so the mock matches production, not a guess.
+Before writing a test that depends on `internal.*`, verify the app's **actual** granted paths via `GET /sdk/apps/{slug}/{version}?cols[]=flags` (see `runtime-reference/environment-variables.md`) so the mock matches production, not a guess.
 
 ### Test Patterns by Component Type
 

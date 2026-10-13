@@ -85,7 +85,7 @@ Key points:
 
 ## OAuth Connection — authorize/token/refresh/info Pattern
 
-> `redirect_uri` uses `{{oauth.localRedirectUri}}` (host-aware — works on Make-hosted **and** self-hosted instances). Do not substitute `{{oauth.redirectUri}}` (legacy, integromat.com-only) or `{{oauth.makeRedirectUri}}` (make.com-only) in new code. The same value must appear in both `authorize.qs.redirect_uri` and `token[*].body.redirect_uri` (RFC 6749 § 4.1.3). See `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention".
+> `redirect_uri` uses `{{oauth.localRedirectUri}}` (host-aware — works on Make-hosted **and** self-hosted instances). Do not substitute `{{oauth.redirectUri}}` (legacy, integromat.com-only) or `{{oauth.makeRedirectUri}}` (make.com-only) in new code. The same value must appear in both `authorize.qs.redirect_uri` and `token[*].body.redirect_uri` (RFC 6749 § 4.1.3). See `component-patterns-reference/connection-oauth.md` § "OAuth2 Connection — `redirect_uri` Convention".
 
 ```json
 {

@@ -51,18 +51,18 @@ Breaking Changes are skipped in cases 1–4; case 5 also skips Bugs. State every
 1. **App-level** — `issuetype.name === "App"`: skip Breaking for the whole app (never deployed).
 2. **New component, no `old_value`** — files carry `new_value` only.
 3. **`old_value` is the SDK scaffold** — a new module/RPC is pre-filled with Make's boilerplate (`"url": "/users"` or `/users/{{parameters.id}}`, `"iterate": "{{body.users}}"`, `"qs": { "pageSize": 100 }`, default `response.trigger` `id:{{item.id}}` / `date:{{item.created}}` / `order:desc`, comments `// Relative to base URL`, `// Splits array from API response into bundles`; `blank` is `{}`). Decide from the ticket that this is new-component work, then confirm deterministically: compare `old_value` (whitespace/comment-insensitive) with the matching template in [component-scaffold-templates.md](../references/component-scaffold-templates.md) (refresh via `download-app.js model 1`). Match, or scaffold markers with only trivial edits → new component: skip Breaking **and** skip the `old_value` diff; judge `new_value` on its own. Ambiguous → run the Breaking evaluation.
-4. **Endpoint** — `group === "endpoint"`: SDK Endpoints are not scenario-runnable, so nothing can break. A shared custom function edited for an endpoint can still break modules — evaluate that under its `function/{name}/code` change. Missing `required`/`default` enforcement via MCP is a known platform gap, never a Bug. Details: [endpoints-reference.md](../references/endpoints-reference.md) § Code Review Guidance for Endpoint Changes.
+4. **Endpoint** — `group === "endpoint"`: SDK Endpoints are not scenario-runnable, so nothing can break. A shared custom function edited for an endpoint can still break modules — evaluate that under its `function/{name}/code` change. Missing `required`/`default` enforcement via MCP is a known platform gap, never a Bug. Details: [code-review-guidance.md](../references/endpoints-reference/code-review-guidance.md).
 5. **No production surface (Breaking and Bugs)** — the only consumers were never deployed (`private: true` / `private: null`, never public) **or** are unused (Investigation / Dev Notes / usage = 0 users, 0 scenarios, or a stub with `expect` and `parameters` both `[]`). The code may still be wrong; it is not a blocker. Do **not** skip when usage exists, even if labelled "(deprecated)" (e.g. `makeSoapApiCall` with 7 users / 3 scenarios). Shared functions: skip only the unused callers. Usage unknown → do not skip. Combined evidence is enough: `private: null` + empty expect/parameters + Dev Notes "skipped" (IEN-14893 `generateAccountReport`).
 
 Real existing components modified by the same ticket (`base`, a shared RPC, …) still get the full diff + Breaking evaluation unless #5 applies. A new module's `private`/publish state is **never** a finding — the deployer flips it after QA.
 
 ## Review each related change
 
-Evaluate against [code-review-criteria.md](../references/code-review-criteria.md): Breaking (per skips) · Bugs · Improvements · Security · ES6+ · Code quality / smells · Test coverage (`test.js` for every changed function) · UX (expect/parameters vs best practices) · Runtime behaviour · External API · Removed code (verify necessity before calling a removal a bug) · Polling triggers (order, date filter, epoch).
+Evaluate against [code-review-criteria.md](../references/code-review-criteria.md) (open the part its table names for each change type: `function/*/code` → `functions.md`, `expect` / `parameters` → `ux.md`, `api` / `base` / `epoch` / `attach` / `detach` or connection → `api-imljson.md`; endpoint changes → `endpoints-reference/code-review-guidance.md`): Breaking (per skips) · Bugs · Improvements · Security · ES6+ · Code quality / smells · Test coverage (`test.js` for every changed function) · UX (expect/parameters vs best practices) · Runtime behaviour · External API · Removed code (verify necessity before calling a removal a bug) · Polling triggers (order, date filter, epoch).
 
 ### Gate — runtime reference before any `api.imljson` finding
 
-Read the section of [runtime-reference.md](../references/runtime-reference.md) that covers the directive **before** flagging Bug / Breaking / Improvement on a `code === "api"` change. Intuition is not evidence.
+Read the section of [runtime-reference.md](../references/runtime-reference.md) that covers the directive **before** flagging Bug / Breaking / Improvement on a `code === "api"` change. Intuition is not evidence. Rows below name a file when the section lives in a `runtime-reference/` part; the Parts table at the top of runtime-reference.md covers the remaining topics (`isc`, `environment`, OAuth connection variables).
 
 | Directive | Section |
 |---|---|
@@ -70,11 +70,11 @@ Read the section of [runtime-reference.md](../references/runtime-reference.md) t
 | `headers`, `body`, `type`, `condition` | [communication-reference.md](../references/communication-reference.md) Full Spec (`headers`, `body`, `type`) + runtime-reference Middleware Details (condition) |
 | `temp` (request or response level) | temp |
 | `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | Response Parsing + Middleware Details (iterate, output, wrapper, limit, error, valid) |
-| `pagination` | Pagination Internals |
+| `pagination` | [runtime-reference/pagination.md](../references/runtime-reference/pagination.md) |
 | `trigger` | Trigger Internals + [polling-trigger-guide.md](../references/polling-trigger-guide.md) |
 | IML paths (`foo[]`, `foo[1]`, `body.results[].field`) | IML Variable Path Syntax |
-| `endpoint`, `input`, `pagination.endpoint`, `response.unwrap` | Inline Endpoint Calls (`api.endpoint`) + endpoints-reference.md |
-| `{{internal.*}}`, `flags.exposeInternalProperties` | Make-Infrastructure Data |
+| `endpoint`, `input`, `pagination.endpoint`, `response.unwrap` | [runtime-reference/inline-endpoint-calls.md](../references/runtime-reference/inline-endpoint-calls.md) + [endpoints-reference.md](../references/endpoints-reference.md) |
+| `{{internal.*}}`, `flags.exposeInternalProperties` | [runtime-reference/environment-variables.md](../references/runtime-reference/environment-variables.md) (Make-Infrastructure Data) |
 
 Not covered there → read the `imt-app-runtime` source. Known false positives this prevents: double-slash "bug" (runtime collapses `//`), `temp` "undefined in same request" (two-phase), `body.results[].field` "wrong array wrap" (1-based unwrap).
 

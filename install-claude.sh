@@ -335,7 +335,8 @@ if ! command -v node &>/dev/null; then
 else
     MCP_INDEX_JS="$MCP_SERVER_DIR/dist/index.js"
     MCP_ENV_FILE="$MCP_SERVER_DIR/.env"
-    CLAUDE_JSON_PATH="$CLAUDE_JSON" MCP_INDEX_JS="$MCP_INDEX_JS" MCP_ENV_FILE="$MCP_ENV_FILE" node - <<'NODEEOF'
+    REG_RESULT=0
+    CLAUDE_JSON_PATH="$CLAUDE_JSON" MCP_INDEX_JS="$MCP_INDEX_JS" MCP_ENV_FILE="$MCP_ENV_FILE" node - <<'NODEEOF' || REG_RESULT=$?
 const fs = require('fs');
 const path = require('path');
 const file = process.env.CLAUDE_JSON_PATH;
@@ -402,7 +403,6 @@ fs.mkdirSync(path.dirname(file), { recursive: true });
 fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
 console.log(existed ? (existingEntry ? 'updated' : 'added') : 'created');
 NODEEOF
-    REG_RESULT=$?
     if [ $REG_RESULT -eq 0 ]; then
         if [ -f "$CLAUDE_JSON" ] && grep -q '"make-custom-app"' "$CLAUDE_JSON"; then
             ok "MCP server registered (key 'make-custom-app' present in $CLAUDE_JSON)"

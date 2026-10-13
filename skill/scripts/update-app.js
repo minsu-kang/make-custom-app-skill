@@ -11,8 +11,9 @@
  *   rpc/<name>/<section>          - RPC section (api, parameters)
  *   webhook/<name>/<section>      - Webhook section (api, parameters, attach, detach, update, scope)
  *   function/<name>/<section>     - Function file (code, test)
- *   endpoint/<name>/<section>     - SDK Endpoint section (api, input_parameters, output_parameters, scope, context)
- *                                   context PATCHes endpoint metadata (markdown); the others PUT the section
+ *   endpoint/<name>/<section>     - SDK Endpoint section (api, input_parameters, output_parameters, scope, context, annotations)
+ *                                   context (markdown) and annotations (JSON object, e.g. { "readOnlyHint": true })
+ *                                   PATCH endpoint metadata; the others PUT the section
  *   base                          - App base
  *   common                        - App common data
  *   groups                        - App groups
@@ -23,6 +24,7 @@
  *   node update-app.js zoom 2 function/parseError/code ./parseError.js
  *   node update-app.js google-docs 1 endpoint/getDocument/input_parameters ./input_parameters.imljson
  *   node update-app.js google-docs 1 endpoint/getDocument/context ./context.md
+ *   node update-app.js google-docs 1 endpoint/getDocument/annotations ./annotations.json
  *
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
@@ -32,6 +34,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadSettings } = require('./lib/settings');
+const { parseAnnotations } = require('./lib/endpoint-annotations');
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
@@ -210,7 +213,7 @@ function buildApiUrl(baseUrl, appSlug, appVersion, componentPath) {
 		case 'function':
 			return `${verBase}/functions/${name}/${section}`;
 		case 'endpoint': {
-			// `context` has no section PUT path — handled separately via PATCH in updateComponent().
+			// `context` and `annotations` have no section PUT path — handled separately via PATCH in updateComponent().
 			const apiSection = ENDPOINT_SECTION_API_PATH[section];
 			if (!apiSection) {
 				console.error(`ERROR: Unknown endpoint section "${section}"`);
@@ -249,13 +252,14 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 	const content = fs.readFileSync(filePath, 'utf-8');
 	const [type, name, section] = componentPath.split('/');
 
-	// Endpoint `context` is metadata (markdown), not a section — no PUT code path exists
-	// for it (404). It is written via PATCH { context } on the endpoint entity instead.
-	if (type === 'endpoint' && section === 'context') {
+	// Endpoint `context` (markdown) and `annotations` (JSON) are metadata, not sections — no
+	// PUT code path exists for them (404). They are written via PATCH { <field> } on the endpoint entity instead.
+	if (type === 'endpoint' && (section === 'context' || section === 'annotations')) {
+		const value = section === 'annotations' ? parseAnnotations(content) : content;
 		const patchUrl = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}/endpoints/${name}`;
 		console.log(`  PATCH ${patchUrl}`);
-		console.log(`  Field: context (${content.length} bytes)\n`);
-		const patchResult = await apiPatch(patchUrl, auth, { context: content });
+		console.log(`  Field: ${section} (${content.length} bytes)\n`);
+		const patchResult = await apiPatch(patchUrl, auth, { [section]: value });
 		if (patchResult.ok) {
 			console.log(`  ✓ Updated successfully (HTTP ${patchResult.status})`);
 		} else {
@@ -295,7 +299,7 @@ if (!appSlug || !appVersion || !componentPath || !filePath) {
 	console.log('  rpc/<name>/<section>           RPC section (api, parameters)');
 	console.log('  webhook/<name>/<section>       Webhook section (api, parameters, attach, detach)');
 	console.log('  function/<name>/<section>      Function file (code, test)');
-	console.log('  endpoint/<name>/<section>      SDK Endpoint (api, input_parameters, output_parameters, scope, context)');
+	console.log('  endpoint/<name>/<section>      SDK Endpoint (api, input_parameters, output_parameters, scope, context, annotations)');
 	console.log('  base                           App base');
 	console.log('  common                         App common data');
 	console.log('  groups                         App groups');
@@ -305,6 +309,7 @@ if (!appSlug || !appVersion || !componentPath || !filePath) {
 	console.log('  node update-app.js zoom 2 base ./base.imljson');
 	console.log('  node update-app.js google-docs 1 endpoint/getDocument/input_parameters ./input_parameters.imljson');
 	console.log('  node update-app.js google-docs 1 endpoint/getDocument/context ./context.md');
+	console.log('  node update-app.js google-docs 1 endpoint/getDocument/annotations ./annotations.json');
 	process.exit(1);
 }
 

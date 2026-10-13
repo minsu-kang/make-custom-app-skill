@@ -14,7 +14,8 @@
  *   connection label
  *   webhook    label, connection, altConnection
  *   endpoint   label, description, public, deprecated, archived
- *              (context is markdown — update it via update-app.js endpoint/<name>/context)
+ *              (context is markdown and annotations is a JSON object — update them via
+ *              update-app.js endpoint/<name>/context and endpoint/<name>/annotations)
  *   function   (not supported — functions have no patchable metadata)
  *
  * The "public" field (modules, endpoints) uses a separate API endpoint (POST .../public or
@@ -314,7 +315,7 @@ if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
 	console.log('  rpc        label, connection, altConnection');
 	console.log('  connection label');
 	console.log('  webhook    label, connection, altConnection');
-	console.log('  endpoint   label, description, public, deprecated, archived (context → update-app.js)');
+	console.log('  endpoint   label, description, public, deprecated, archived (context, annotations → update-app.js)');
 	console.log('  function   (not supported)');
 	console.log('');
 	console.log('Examples:');

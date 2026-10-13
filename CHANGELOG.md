@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.0 — 2026-10-13
+
+Endpoint `annotations` can be written with a script, so creating an Arbitrary Call endpoint no longer needs the Make MCP server. The five largest references are split into a main file plus topic parts that are opened only when needed. Plus three small fixes found in the 2.1.10 audit.
+
+- **Split references** (`runtime-reference`, `endpoints-reference`, `component-patterns-reference`, `code-review-criteria`, `app-ux-best-practices`): each keeps its old file name as the main file and gains a same-named folder of parts. The main file holds what almost every task needs and starts with a `## Parts` table that says when to open each part. Main file sizes: 68 → 28 KB, 71 → 21 KB, 51 → 19 KB, 38 → 14 KB, 34 → 18 KB. Sections were moved verbatim by script and re-assembled byte-for-byte against the originals; only links, section pointers and the `Read when` lines changed. Workflows now name the part to read: `code-review.md` (directive table, `functions.md` / `ux.md` / `api-imljson.md` per change type, `code-review-guidance.md` for endpoints), `create-endpoint.md` (Arbitrary Call and Regular), `task-refinement.md`. Links to the old section anchors were retargeted.
+- **`update-app.js`**: new section `endpoint/{name}/annotations` takes a JSON file and PATCHes `{ annotations }` on the endpoint, like `context` already does. The file is checked before sending: it must be a JSON object, only the five documented hints are allowed (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`, `arbitraryCallHint`), and every value must be `true` or `false`. The check lives in `lib/endpoint-annotations.js` with unit tests. `update-component.js` help points to it.
+- **`lifecycle.md`, `create-endpoint.md`, `endpoints-reference.md`**: the "no script writes annotations yet, use MCP" text now uses `update-app.js … endpoint/{name}/annotations`. The Make MCP tools remain only for what no script does (live `endpoint_execute`).
+- **`delete-component.js`**: without `--force` and without a terminal (the agent's Bash tool) it now exits 1 with a message before any API call. Before, it printed the y/N prompt and exited 0, which looked like a successful delete.
+- **`install-claude.sh`**: a failing MCP registration (for example an unparseable `~/.claude.json`, exit 2) no longer aborts the whole install under `set -e`; the installer prints its warning and continues.
+- **Repo `CLAUDE.md`**: `~/.claude.json` path fixed, and the `mcp-server/` layout line lists both Cursor and Claude Code destinations.
+
 ## 2.1.10 — 2026-10-13
 
 Fixes from an audit of the skill against its own scripts: commands that did not match the scripts, a stale credential instruction, gate tables that pointed at sections that do not exist, and two install-time bugs.

@@ -153,20 +153,20 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 | `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
 | `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
 | `references/parameters-reference.md` | Parameters, Interface, RPC Dynamic Options, Conditional RPCs, nested inheritance |
-| `references/component-patterns-reference.md` | Base, Connection, Error Handling, Webhook, Trigger, Responder patterns |
+| `references/component-patterns-reference.md` | Base, Connection, Error Handling, Webhook, Trigger, Responder patterns. Main file plus parts in `component-patterns-reference/` (install params, OAuth2, aliased connections, webhooks, agency modules) |
 | `references/custom-functions-reference.md` | Custom IML function code conventions, test.js requirements, size limits |
 | `references/developer-notes-templates.md` | Developer Notes templates for Bug Fix and Feature tickets |
-| `references/app-ux-best-practices.md` | App UX best practices — naming, hints, fields, messages, patterns |
+| `references/app-ux-best-practices.md` | App UX best practices — naming, hints, fields, messages, patterns. Main file (naming, writing) plus parts in `app-ux-best-practices/` |
 | `references/polling-trigger-guide.md` | Polling trigger implementation — order selection, date filtering, epoch, examples |
 | `references/examples.md` | Real-world Instagram for Business app examples |
-| `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases |
+| `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases. Main file plus parts in `runtime-reference/` (pagination, ISC, `api.endpoint`, environment, OAuth variables) |
 | `references/component-test-guide.md` | Component integration tests — `make-apps-mockup` architecture, test.js structure, debugging |
-| `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification |
+| `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification. Main file plus parts in `code-review-criteria/` (functions, UX, `api.imljson` and connections) |
 | `references/security-reference.md` | Security checklist — credentials, OAuth flow, webhook signature, SSRF, injection, data exposure (cited as `[SECURITY][1.2]`) |
 | `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
 | `references/app-compilation-and-deployment-reference.md` | How SDK/DB code becomes a compiled PKR file package — compile pipeline, IPM registry, per-zone install, runtime resolution, and why `review-changes` is 0 for non-approved apps |
 | `references/component-scaffold-templates.md` | Default SDK component scaffolds (from the `model` app) — match a change's `old_value` against these to detect new components (then skip the old→new diff + Breaking Changes) |
-| `references/endpoints-reference.md` | SDK Endpoints (Endpoints RFC) — entity structure, admin API surface, Forman input/output schemas, `context.md`, annotations, runtime validation caveats, review guidance |
+| `references/endpoints-reference.md` | SDK Endpoints (Endpoints RFC) — entity structure, admin API surface, Forman input/output schemas, `context.md`, annotations, runtime validation caveats, review guidance. Main file plus parts in `endpoints-reference/` (`api.imljson` shape, pure wrapper, Forman schemas, Arbitrary Call, code review) |
 
 ### Script Files (`skill/scripts/` → `…/make-custom-app/scripts/`)
 
@@ -216,7 +216,7 @@ make-custom-app-skill/
 │   │   ├── app-task.md
 │   │   ├── task-refinement.md
 │   │   └── create-endpoint.md
-│   ├── references/                     #   Reference documents (on-demand)
+│   ├── references/                     #   Reference documents (on-demand); the five largest are a main file plus topic parts in a same-named folder
 │   └── scripts/                        #   Automation scripts (editor auto-detected)
 │       ├── check-setup.js              #     Setup diagnosis (first action)
 │       ├── setup-secrets.js            #     Interactive secrets / MCP .env wizard

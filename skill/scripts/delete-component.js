@@ -15,7 +15,7 @@
  *   module, rpc, function, connection, webhook, endpoint
  *
  * Options:
- *   --force    Skip confirmation prompt
+ *   --force    Skip confirmation prompt (required when there is no terminal)
  *
  * Examples:
  *   node delete-component.js monday 2 function buildAggregateSelect
@@ -174,6 +174,11 @@ async function deleteComponent(appSlug, appVersion, type, name, force) {
 		process.exit(1);
 	}
 
+	if (!force && !process.stdin.isTTY) {
+		console.error('ERROR: No terminal to confirm the deletion, nothing was deleted. Re-run with --force once the deletion is approved.');
+		process.exit(1);
+	}
+
 	let { baseUrl, auth } = loadSettings();
 
 	console.log(`Configured API: ${baseUrl}`);
@@ -233,7 +238,7 @@ if (!appSlug || !appVersion || !type || !name) {
 	console.log('Types: module, rpc, function, connection, webhook, endpoint');
 	console.log('');
 	console.log('Options:');
-	console.log('  --force    Skip confirmation prompt');
+	console.log('  --force    Skip confirmation prompt (required when there is no terminal)');
 	console.log('');
 	console.log('Examples:');
 	console.log('  node delete-component.js monday 2 function buildAggregateSelect');
