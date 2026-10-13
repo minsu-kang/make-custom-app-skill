@@ -108,7 +108,7 @@ function Set-ClaudeMdSkillSection {
     }
     $body = New-Object System.Collections.Generic.List[string]
     if ((Test-Path $CLAUDE_MD) -and ((Get-Item $CLAUDE_MD).Length -gt 0)) {
-        $body = Remove-SkillSection -Path $CLAUDE_MD
+        $body = @(Remove-SkillSection -Path $CLAUDE_MD)
     }
     if ($body.Count -gt 0) {
         $text = ($body -join "`n") + "`n`n" + $SkillSection + "`n"
