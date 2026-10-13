@@ -25,7 +25,7 @@ npx vitest run tools/__tests__/upsert.test.ts
 npm run test:watch
 ```
 
-The MCP server is never started in this repo directly — the installer copies source to `~/.claude/skills/make-custom-app/mcp-server/`, runs `npm install && npm run build` there, and registers it in `~/.claude/claude.json`.
+The MCP server is never started in this repo directly — the installer copies source to `~/.claude/skills/make-custom-app/mcp-server/`, runs `npm install && npm run build` there, and registers it in `~/.claude.json`. Cursor gets the same copy and build under `~/.cursor/skills/make-custom-app/mcp-server/`; `npm run register` there writes `~/.cursor/mcp.json`.
 
 ## Architecture
 
@@ -37,7 +37,8 @@ This repo ships a **two-target skill**: the same domain knowledge installs into 
 skill/      → ~/.cursor/skills/make-custom-app/ (Cursor)
               ~/.claude/skills/make-custom-app/ (Claude Code)
 rules/      → ~/.cursor/rules/make-custom-app/ (Cursor only — one ~600-byte trigger rule)
-mcp-server/ → ~/.claude/skills/make-custom-app/mcp-server/ (both)
+mcp-server/ → ~/.cursor/skills/make-custom-app/mcp-server/ (Cursor)
+              ~/.claude/skills/make-custom-app/mcp-server/ (Claude Code)
 ```
 
 Installers are split by target: `install-cursor.sh` / `install-cursor.ps1` write under `~/.cursor/`, `install-claude.sh` / `install-claude.ps1` under `~/.claude/`. Each downloads the GitHub archive once (or uses the local clone) and copies directories wholesale — no file lists to maintain. The `skill/` payload is identical between targets.
@@ -46,7 +47,7 @@ Installers are split by target: `install-cursor.sh` / `install-cursor.ps1` write
 
 - **Code-enforced**: `scripts/check-setup.js` (first action every conversation — version, `imt-app-runtime-path`, API credentials, optional mockup / Jira / MCP) and `scripts/lib/version-guard.js` (runs at the top of every script, auto-updates an outdated install).
 - **Always loaded**: `skill/SKILL.md` (≤ 9 KB) — first action, workflow routing, hard rules, component/module tables, reference index. It is the only prose loaded in every Make session.
-- **On demand**: `workflows/lifecycle.md` (shared skeleton: app identification → sync → context → Jira → work → push with confirmation → close-out) plus per-task deltas (`code-review.md`, `bug-investigation.md`, `feature-request.md`, `app-task.md`, `task-refinement.md`, `create-endpoint.md`), and `references/*.md`, each with a `> Read when:` header.
+- **On demand**: `workflows/lifecycle.md` (shared skeleton: app identification → sync → context → Jira → work → push with confirmation → close-out) plus per-task deltas (`code-review.md`, `bug-investigation.md`, `feature-request.md`, `app-task.md`, `task-refinement.md`, `create-endpoint.md`), and `references/*.md`, each with a `> Read when:` header. The five largest (`runtime-reference`, `endpoints-reference`, `component-patterns-reference`, `code-review-criteria`, `app-ux-best-practices`) are a main file plus topic parts in a same-named folder; the main file's `## Parts` table says when to open each part.
 
 ### Editor auto-detection
 

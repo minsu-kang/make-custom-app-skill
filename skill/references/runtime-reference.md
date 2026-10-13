@@ -1,9 +1,19 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # imt-app-runtime Internal Reference
 
-> Read when: writing or reviewing `api.imljson` — directive semantics, middleware chain, URL/QS normalization, `temp` two-phase evaluation, pagination, polling triggers, IML path syntax, `api.endpoint`, `environment` / `internal` roots, limits. Mandatory before flagging any `api.imljson` issue (hard rule 3).
+> Read when: writing or reviewing `api.imljson` — directive semantics, middleware chain, URL/QS normalization, `temp` two-phase evaluation, pagination, polling triggers, IML path syntax, `api.endpoint`, `environment` / `internal` roots, limits. Mandatory before flagging any `api.imljson` issue (hard rule 3). Topics used less often sit in `runtime-reference/` parts: open one only when its row in § Parts applies.
 
 Source: `imt-app-runtime` — the engine that executes Make custom app IMLJSON at runtime.
+
+## Parts (open every part whose trigger applies, skip the rest)
+
+| Part | Open when |
+|---|---|
+| [runtime-reference/pagination.md](runtime-reference/pagination.md) | `pagination` directive; search modules that page |
+| [runtime-reference/isc.md](runtime-reference/isc.md) | `isc` directive (Make-owned app calling an internal service); the AI Module Builder component set |
+| [runtime-reference/inline-endpoint-calls.md](runtime-reference/inline-endpoint-calls.md) | `api.endpoint`, `pagination.endpoint`, `response.unwrap` |
+| [runtime-reference/environment-variables.md](runtime-reference/environment-variables.md) | `environment`, `flags.environmentAccess` or `internal` roots; verifying what the platform really grants |
+| [runtime-reference/oauth-connection-variables.md](runtime-reference/oauth-connection-variables.md) | OAuth connection files (`authorize`, `token`): available variables, `token.response.scope` |
 
 ## Execution Flow
 
@@ -85,7 +95,7 @@ communication()
 
 **URL-less RPCs**: When there is no `url` in `api.imljson`, the `getRequestOptions()` function returns without `requestOptions`. The `request()` middleware then skips the HTTP call and calls `next()`, allowing the rest of the chain — including `temp('response.temp')` and `output()` — to execute normally. This makes it possible to build pure data RPCs that use only `temp` + `response.temp` + `response.output` without any API call.
 
-> **⚠️ This URL-less fallback does NOT apply when the `isc` directive is present.** `isc.initialize()` runs _before_ `prepareRequestOptions()` and hard-requires `url` — a url-less ISC component throws `RuntimeError: ISC directive requires a url field to specify the request path.` instead of silently skipping the call. See [§ ISC (Internal Service Communication)](#isc-internal-service-communication).
+> **⚠️ This URL-less fallback does NOT apply when the `isc` directive is present.** `isc.initialize()` runs _before_ `prepareRequestOptions()` and hard-requires `url` — a url-less ISC component throws `RuntimeError: ISC directive requires a url field to specify the request path.` instead of silently skipping the call. See [§ ISC (Internal Service Communication)](runtime-reference/isc.md#isc-internal-service-communication).
 
 Supports epoch data (`response.trigger.id/date/type`). Final output sorted by epoch type.
 
@@ -313,68 +323,6 @@ Validates response. Three forms:
 
 If validation fails and no custom error → default message: `"Response marked as invalid."`
 
-## Pagination Internals
-
-### Initial Values
-
-| Property | Default |
-| -------- | ------- |
-| `page`   | 1       |
-| `offset` | 0       |
-| `limit`  | 20      |
-
-### Auto-Scaling
-
-On each pagination cycle: `limit = Math.min(limit * 5, 500)`
-
-### Stop Conditions
-
-Pagination stops when **any** of these is true:
-
-1. `condition` evaluates to `false`
-2. `maxPaginationRequestCount` exceeded (default: 50)
-3. `maxRequestCount` exceeded (default: 100)
-4. `maxPastRecords` reached (triggers only, default: 3200)
-5. Module `limit` reached
-6. Empty batch received (when `stopOnEmptyBundles: true`)
-
-### mergeWithParent
-
-When `pagination.mergeWithParent` is `true`, pagination config is deep-merged with the parent request config (inherits headers, qs, etc.).
-
-### `pagination.condition` is Evaluated TWICE per cycle (Critical)
-
-`api.pagination.condition` is **not** a single after-response check. The runtime evaluates it at **two different points**, with **different `pagination.page` values**:
-
-1. **After the response** — in the `pagination` middleware (`lib/core/chainMiddleware/requester/middleware.ts`).
-    - Evaluated with `pagination.page = N` (the page that was just fetched).
-    - If `false` → `disablePagination()` → `mode = DISABLED` → loop exits.
-    - If `true` → `enablePagination()` → `mode = PAGINATION` and **`pagination.page++`** (to `N+1`).
-
-2. **Before the next request** — in `getPaginationRequestOptions()` (`lib/core/chainMiddleware/fetcher/request-options.ts` line 122–130, `lib/core/chainMiddleware/requester/_request.js` line 194–197).
-    - Evaluated with `pagination.page = N+1` (already incremented above).
-    - If `false` → `ctx.request.options = undefined`, response deleted, `request` middleware skips the HTTP call (`if (!requestOptions) return next();` in `fetcher/middleware.ts:35-38`), the chain bails on `!batch` (`init.ts` callback), and the loop exits cleanly. **No extra HTTP request is made.**
-    - If `true` → request is built with the new page and sent.
-
-This dual check is intentional (the second check is the actual stop gate; the first check just decides whether to enter the next iteration at all), but it produces **non-obvious off-by-one behavior** when the condition expression references `pagination.page` directly.
-
-#### Off-by-One Trap: `> pagination.page` vs `>= pagination.page`
-
-For a `total_pages`-style API (e.g. Aha!, where `body.pagination.total_pages` is the count of existing pages and `pagination.page` is used as the request's `qs.page`):
-
-| Condition                        | After response of page N (page=N)                                                                                                                                                                                   | Before request of page N+1 (page=N+1)                                                 | Effect on total_pages=3                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `total_pages > pagination.page`  | `3 > 3` → false on last page → stops _after_ fetching page 3. **But** the second check fires next iteration with page=N+1, and `total_pages > N+1` becomes false **one page early**, skipping the actual last page. | `3 > 3` → false on the LAST request → **request skipped → page 3 data NEVER fetched** | **❌ Loses last page** (2 HTTP requests, only pages 1–2 returned)                                     |
-| `total_pages >= pagination.page` | `3 >= 3` → true on last page → enable, increment to 4                                                                                                                                                               | `3 >= 4` → false → request skipped, loop exits                                        | **✅ Correct** (3 HTTP requests for 3 pages, then one chain iteration with no HTTP call to terminate) |
-
-**Rule**: when the condition expression is built around `pagination.page` (the runtime-incremented variable), use `>=`, not `>`. Using `>` produces a silent off-by-one — the **last page is never fetched** because the second condition check sees the post-increment page number.
-
-The same rule applies to inverted forms: prefer `pagination.page <= total_pages` over `pagination.page < total_pages`. The runtime's own pagination tests (`test/pagination.spec.ts:921`) use `pagination.page <= headers['x-totalpages']` — equivalent to `total_pages >= pagination.page`.
-
-**Body-driven conditions are immune** to this trap because they reference fields on the just-received response (`body.current_page`, `body.has_more`, `body.next_cursor`), not the runtime-incremented `pagination.page`. Both checks see the same value, so `<` / `>` / `==` behave intuitively. See `communication-reference.md` § "Pagination Patterns" for body-driven examples.
-
-Source: `lib/core/chainMiddleware/requester/middleware.ts` (pagination middleware: condition check line 473–477, `enablePagination` call line 505), `lib/core/chainMiddleware/requester/utils.ts` (`enablePagination` line 113–130, `pagination.page++` at line 127), `lib/core/chainMiddleware/fetcher/request-options.ts` line 117–130 (request-prep condition re-check), `lib/core/chainMiddleware/fetcher/middleware.ts` line 35–38 (skip HTTP when `!requestOptions`), `lib/core/chainMiddleware/requester/init.ts` line 49–65 (`!batch` exits the loop).
-
 ## Trigger Internals
 
 ### Epoch Types
@@ -447,176 +395,6 @@ Determined by `response.type`:
 | `automatic`  | Auto-detect from Content-Type |
 
 Wildcard matching: `"type": { "*": "json", "200-299": "json" }`
-
-## ISC (Internal Service Communication)
-
-Added in imt-app-runtime **v1.100.0** (2026-05-22, PR #663). Source: `lib/core/middleware/isc.ts`; spec doc: `ISC-SDK-APPS.md`; tests: `test/isc.spec.ts`.
-
-The `isc` directive lets a **Make-owned** SDK app call Make's own internal services (over the cluster network via JWT mutual auth, `@integromat/isc`) instead of a public third-party API. The first consumer is `ai-module-builder-api` (the "Polymorph" / AI Module Builder modules); initial apps: airtable, google-calendar, google-docs, google-drive, google-forms, google-sheets, instagram-business, jira-software-cloud, pinterest, telegram.
-
-### Directive shape
-
-```json
-{
-	"isc": { "service": "ai-module-builder-api" },
-	"url": "/v1/request",
-	"method": "POST",
-	"headers": { "Content-Type": "application/json" },
-	"body": { "targetService": "google-calendar" },
-	"qs": { "targetService": "google-calendar" },
-	"response": { "output": "{{body}}" }
-}
-```
-
-- `isc.service` — name of the target internal service. **Supports IML** (e.g. `{{parameters.svc}}`); must resolve to a **non-empty string** or the middleware throws.
-- `url` — **required**, treated as a **relative path** (e.g. `/v1/rpc/parameters`). The base URL is resolved from the `INTEGROMAT_ISC_<SERVICE>_URN` env var, NOT from `base.imljson` `baseUrl`. App type definition: `api.isc?: { service: string }` and `flags.allowISC?: string[]` (`imt-app-runtime/lib/types.ts`).
-
-### Middleware position & request bypass
-
-`isc.initialize()` is wired into **all** API entry points (action, search, trigger, hook, rpc), positioned **after `agency` and before `prepareRequestOptions`**:
-
-```
-... → accman.validate() → agency.initialize() → isc.initialize() → prepareRequestOptions() → request() → ...
-```
-
-When `api.isc` is present, the middleware makes the call itself, then sets `REQUEST_MODE.DISABLED` + `responsePrePopulated = true`, so the standard HTTP requester is skipped. The response is fed into the **normal** response chain — `response.valid`, `response.error`, `response.output`, `response.iterate`, `response.temp`, `response.wrapper`, `response.type` parsing all work transparently and behave exactly like a regular HTTP call.
-
-### Required preconditions (each throws `RuntimeError` if unmet)
-
-Validated in this order inside `isc.initialize()`:
-
-1. **`isc.service` resolves to a non-empty string** → else `ISC directive requires "isc.service" to resolve to a non-empty string.`
-2. **`flags.allowISC` (array) includes the target service** → else `ISC directive requires the app to have the target service listed in the allowISC flag.` Set via `POST /admin/sdk/apps/:app/:ver/flags/allowISC` (Make-owned apps only). **Not part of the SDK code download** — it is app-level deployment config, so it cannot be reviewed from `download-app.js` output.
-3. **No `pagination` directive** → ISC does not support pagination (fails loudly: `ISC directive does not currently support the "pagination" directive.`).
-4. **No `encodeUrl` / `encodeUrlMode`** → ISC bypasses `normalizeUrl`, so these throw if present.
-5. **`url` is present** → else `ISC directive requires a url field to specify the request path.` ⚠️ **This is the most common authoring bug** — commenting out / omitting `url` does NOT fall back to the benign URL-less-RPC behavior (that fallback lives in `prepareRequestOptions`, which never runs because `isc` short-circuits first).
-6. **`packageName` present** → becomes the JWT issuer (`app#` prefix stripped).
-7. **Per-service env vars present** → `INTEGROMAT_ISC_<SERVICE>_URN`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_NAME`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_VALUE` (service name normalized: uppercase, non-alphanumeric → `_`). Missing any → `Missing <KEY> environment variable...`.
-
-### Request building parity with the standard requester
-
-- `method` defaults to `GET`, uppercased. **GET never carries a body** even if `api.body` is set.
-- `headers` lower-cased (`mapKeysLower`); a caller-supplied `Content-Type` is respected and not duplicated; JSON body auto-sets `content-type: application/json`.
-- `qs` merged into the path; null/undefined stripped; array values expanded to repeated keys; an existing `?` in `url` is merged (no `?a=1?b=2`).
-- `body`: IML-transformed (`rootArray: true` preserves a top-level array body); JSON-serialized for non-GET.
-- `timeout`: `api.timeout` or default **40000 ms** (matches the standard requester).
-
-### Error handling
-
-All ISC failures are marked `imtExternalError = false` (platform errors, never surfaced as "external API error"):
-
-| Situation                    | Result                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| HTTP 4xx                     | Error carrying service name + status; routable through `response.error` (e.g. `error.404`) |
-| HTTP 429                     | `RateLimitError` (default mapping)                                                         |
-| HTTP 5xx                     | `ConnectionError` — `"Service is temporarily unavailable."`                                |
-| Network / connection failure | `RuntimeError` (`ISC call to "<service>" failed: <msg>`)                                   |
-
-### Security model (defense in depth)
-
-`allowISC` can only be set on Make-owned apps (system user or `@make.com`/`@integromat.com` author); blocked on ownership transfer; stripped on clone/version to non-Make owners. Runtime checks the allowlist; the JWT `iss` claim = the app's `packageName` (cannot be spoofed); the target service validates the issuer against its own `ALLOWED_ISSUERS` (deny-all when unset).
-
-### Limitations
-
-- **No `pagination`** and **no `encodeUrl`/`encodeUrlMode`** (throw if present).
-- **No recording/replay** — `REQUEST_MODE.DISABLED` skips the requester's recording logic.
-- **Make-owned apps only** — community/third-party SDK apps cannot use ISC.
-
-### Code-review implications
-
-- **A url-less ISC component is a blocking bug**, not a pure-data RPC. Flag it. (Real case: IEN-15506 — `google-calendar` `getParameters` RPC had `//"url": "/v1/rpc/parameters"` commented out; the module's dynamic `expect` failed to load every field at runtime.)
-- **Mocked component tests do NOT exercise ISC validation** — the test harness intercepts the call before `isc.initialize()` runs, so a passing module/RPC integration test does **not** prove `url`/`allowISC`/env are correct. ISC paths can only be validated against a real backend (typically `hqrelease`).
-- **`flags.allowISC` + the `INTEGROMAT_ISC_*` env vars are out of code-review scope** — they are deployment config, not in the SDK download. Note them as a pre-production verification item rather than a code finding.
-- **Do not false-flag** `isc`, `getFieldMapping`, or `safeSerialize` as unknown directives/functions — all are runtime-provided and verified.
-
-### AI Module Builder rollout — the canonical 9-change component set
-
-Epic IEN-15500 ports the same "AI Module Builder" (Polymorph) module into every Make-owned app one ticket at a time (google-sheets IEN-15502, google-forms IEN-15505, google-calendar IEN-15506, slack IEN-15987, …). Every one of those tickets produces the **same 9 changes**. Use this as the review checklist; anything missing is a gap, anything extra needs a reason.
-
-| #   | `group/item/code`                                              | Expected content                                                                                                                                                                                                                                                                                                                                                           |
-| --- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `app//groups`                                                  | New `AI` group containing only the new module. Existing groups must be untouched → pure addition, never a Breaking Change.                                                                                                                                                                                                                                                 |
-| 2   | `module/aiModuleBuilder/api`                                   | ISC `POST /v1/request` to `ai-module-builder-api`. Body: `organizationId={{scenario.organizationId}}`, `scenarioId={{scenario.id}}`, `instanceId={{scenarioModuleId}}`, `targetService="<app-slug>"`, `parameters.mappings={{safeSerialize(getFieldMapping('task'))}}` plus `forceRegenerate`/`safetyMode`/`executionMode`, `auth.accessToken={{connection.accessToken}}`. |
-| 3   | `module/aiModuleBuilder/expect`                                | `[ "rpc://parametersAiModuleBuilder" ]` — fields are owned by the backend, so field names cannot be verified from app code.                                                                                                                                                                                                                                                |
-| 4   | `module/aiModuleBuilder/interface`                             | `[ "rpc://interfaceAiModuleBuilder" ]`                                                                                                                                                                                                                                                                                                                                     |
-| 5   | `module/aiModuleBuilder/scope`                                 | **Must not stay `[]`.** Union of the scopes the backend needs to act on the user's behalf, matching the app's other modules.                                                                                                                                                                                                                                               |
-| 6–7 | `module/aiModuleBuilder/account_name` + `attached_accounts`    | The parent app's existing connection — the module never declares its own connection parameter.                                                                                                                                                                                                                                                                             |
-| 8–9 | `rpc/{interfaceAiModuleBuilder,parametersAiModuleBuilder}/api` | ISC `GET /v1/rpc/interface` / `/v1/rpc/parameters` + `qs.targetService=<app-slug>`, `response.iterate = {{body}}`, `output = {{item}}`, empty `parameters.imljson`.                                                                                                                                                                                                        |
-
-Two items are **not** in the ticket's reference snippet but belong in every implementation — both were added to earlier apps only after a production incident, so treat their absence as an Improvement:
-
-- **`log.sanitize: ["request.headers.authorization", "request.body.auth"]`** on the module `api`. Without it the OAuth access token is written in cleartext to run/debug logs, because the token is deliberately placed in `body.auth.accessToken`. (Root of google-calendar IEN-15714.)
-- **A non-empty module `scope`.** An empty `scope.imljson` means the connection token is minted without the permissions the backend needs → the backend's first call fails with the vendor's insufficient-scope error (google-calendar hit `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
-
-Recurring non-findings on these tickets — do not flag:
-
-- `api.timeout` (typically `300000`) on the module. ISC honors `api.timeout`; 300 s is the platform maximum.
-- `base.imljson` `baseUrl` pointing at the vendor API. ISC resolves its base from `INTEGROMAT_ISC_<SERVICE>_URN`, so there is no conflict.
-- A module `scope` entry that is absent from the connection's `scopes.imljson`. That file is the _additional-scope picker catalog_; the active scope set is a union that includes module scopes (see `component-patterns-reference.md` § "OAuth Scope Files").
-- `(beta)` in the module label — the lowercase parenthetical is the documented tag format (`app-ux-best-practices.md`).
-- Missing `make-apps-mockup` fixture for the new module. It is an AC gap worth reporting, but a mocked test cannot validate ISC anyway (see above), so it is never a blocker.
-
-## Inline Endpoint Calls (`api.endpoint`)
-
-Added in imt-app-runtime **v1.102.0** (2026-07-23, PR #694); reference-resolution changed in **v1.102.3** (2026-07-29, PR #713 — see § "Endpoint references are STATIC" below). Source: `imt-app-runtime` master `lib/core/chainMiddleware/endpoint.ts` + `lib/api/rpc.js` + `lib/types.ts` (verified 2026-08-06). SDK Endpoint entity itself: [endpoints-reference.md](endpoints-reference.md).
-
-A module or RPC `api.imljson` can delegate its HTTP request to a **named sibling Endpoint** instead of making the request itself:
-
-```json
-{
-	"endpoint": "getDocument", // or { "name": "getDocument", "connection": { ... } }; bare string = { name }
-	"input": { "documentId": "{{parameters.docId}}" }, // IML-evaluated against the CALLER's context → becomes the Endpoint's parameters
-	"response": { "output": "{{body}}" }
-}
-```
-
-The `endpoint()` middleware wraps the HTTP request cluster in every action/search/RPC chain (after `isc.initialize()`, before `prepareRequestOptions()`). No directive → byte-for-byte no-op for existing apps. Directive present → the named Endpoint runs via its own `.execute()` (standard `ExecuteRpc` chain) and its result is exposed exactly like an HTTP response: `{{body}}` = the result, `statusCode` = 200, and it **counts toward `requestsMade`** (so `maxPaginationRequestCount` still applies).
-
-### Rules (each violation throws `InvalidConfigurationError` / `RuntimeError`)
-
-| Rule                                | Detail                                                                                            |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `endpoint` + `url` forbidden        | Ambiguous (which path makes the request?)                                                         |
-| `endpoint` + `agency` forbidden     | The agency call has already fired by then — error surfaces instead of a silently discarded result |
-| Single object only                  | Arrays of endpoint calls rejected — orchestrate multi-call at the module level                    |
-| No nesting                          | An Endpoint may not itself use `api.endpoint` (`endpointExecution` marker guard)                  |
-| Not in triggers/webhook modules     | `rejectUnsupported()` raises a typed error                                                        |
-| Fan-out cap                         | Max **100** inline endpoint calls per top-level execution (`executionFlags.endpointBudget`)       |
-| `endpoint.name` = plain string      | Not IML-evaluated — see § "Endpoint references are STATIC" below                                  |
-| `endpoint.connection` = object only | A string raises `The 'endpoint.connection' directive must be a connection object; string (IML) values are not supported.` |
-
-### Endpoint references are STATIC (v1.102.3, PR #713)
-
-`endpoint.name` and `endpoint.connection` were IML-evaluated in v1.102.0 and **that evaluation is now disabled**: an Endpoint reference is a *component reference*, not runtime data, so evaluating it at execution time would make cross-component dependencies impossible to analyse statically. Both evaluations are commented out in place in `endpoint.ts` (restorable), not deleted.
-
-Consequences to enforce in review:
-
-- A template `"endpoint": "{{parameters.which}}"` is **not** resolved. It is used verbatim, misses the `app.endpoints` Map lookup, and fails with `Endpoint '{{parameters.which}}' not found.` There is no dedicated template guard — the error is the lookup miss.
-- A string `endpoint.connection` (including a template) is rejected with a typed `InvalidConfigurationError`. Pass a connection-shaped **object** instead. `string` deliberately stays in the type union so raw descriptors carrying one are still caught at runtime.
-- `api.input` / `pagination.input` are **untouched** — they carry runtime data and remain fully IML-evaluated every round.
-- Dynamic Endpoint selection therefore does not exist. A module that needs to choose between Endpoints must branch some other way (separate modules, or one Endpoint that branches internally).
-
-### Pagination interplay
-
-- Module-level `pagination` IS supported — `api.input` is re-evaluated each round (so `{{pagination.page}}` inside `input` advances).
-- `pagination.endpoint` (object or bare-string shorthand) overrides **which** Endpoint is called from round 2+ — whole-value override, never merged, and **static** like the base name.
-- `pagination.input` is IML-evaluated independently, then merged with the base input per `mergeWithParent` (default `true`) — mirrors `pagination.qs`/`body` semantics.
-- `pagination.endpoint.connection` is **NOT supported** (base `endpoint.connection` reused every round; rejected loudly).
-
-### What the embedded Endpoint inherits from the caller
-
-Own `input` as `parameters` (+ caller's connection as `__IMTCONN__`, overridable via `endpoint.connection`); `common`, `scenario`, `environment`, `metadata`, `data`, `instanceId`, `packageName`, `runtime`, `versions`; the record/replay tape **by reference**; the caller's `debug` sink. A `Warning` thrown by the Endpoint is folded into the caller's warnings channel (not a hard failure).
-
-### Endpoint result unwrap (`response.unwrap`)
-
-An Endpoint's `.execute()` runs the RPC chain, which naturally returns an **array**. When executing _as an Endpoint_ (embedded or standalone — gated by the `endpointExecution` marker), the result is unwrapped: single-element array → that object; empty array → `{}`. Opt out with `"response": { "unwrap": false }` or by declaring `response.iterate` (list output keeps the array). Plain RPCs never unwrap.
-
-### Endpoint execution chain & validation reality
-
-A standalone Endpoint runs the full RPC middleware chain — `temp` → `condition()` → requester (incl. `isc`/`agency`/`accman`/inline-`endpoint()` wrap) → `response.temp`/`valid`/`iterate`/`output`/`wrapper`/`filter`/`limit` — so most module `api` directives work. Two review-critical caveats:
-
-- **`condition` cannot implement required-field validation.** `condition()` IS in the chain, but its falsy path ends the chain returning `condition.default` **as data** (or `false`) — it cannot raise a typed error. IEN-16076 field-tested this as a validation workaround: not viable.
-- **Forman `required`/`default` are not enforced on the MCP path.** `make-mcp-server-host`'s `endpoint_execute` tool passes `input` straight to `executeEndpointThroughRpcWorker()` with no Forman validation (source-verified); the platform "Run Endpoint" form validates client-side as usual. Platform fix tracked under the Executor initiative — never flag this gap as an app bug.
 
 ## IML Custom Functions (Runtime-Provided)
 
@@ -712,196 +490,6 @@ Internally the engine stringifies `foo[]` as `` foo.`1` `` (the backtick-wrapped
 | Sandbox memory                    | 2,048MB                      | —                               |
 | Max redirects                     | 21                           | —                               |
 | Default trigger limit             | 1                            | `parameters.limit`              |
-
-## Environment Variables
-
-Two separate `environment`-related features exist in the runtime, plus a third flag-gated context root (`internal`) that is unrelated to either. Do NOT confuse them.
-
-### Scenario Environment (`environment`)
-
-The user's Make scenario runtime environment. Passed directly to the IML context — **always available without any flags**.
-
-Source: `buildContext()` in `runtime.js`:
-
-```js
-environment: instance.environment || {},
-```
-
-Available in IML as `{{environment.xxx}}`:
-
-| Property               | Description                                                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `environment.timezone` | Scenario timezone (from org settings). Also injected into IML function sandbox for `formatDate()`/`parseDate()` |
-| `environment.debug`    | Debug mode flag                                                                                                 |
-| `environment.audit`    | Audit logging flag                                                                                              |
-| `environment.verifier` | Verifier mode flag                                                                                              |
-
-Usage example in `api.imljson`:
-
-```json
-{
-	"temp": {
-		"tz": "{{environment.timezone}}"
-	}
-}
-```
-
-`environment.timezone` is also passed to the custom IML function sandbox context, so built-in IML functions (`formatDate`, `parseDate`, etc.) automatically use the scenario's timezone:
-
-```js
-const imlFunctionContext = {
-	timezone: (functionSandbox.environment || {}).timezone,
-	passthrough: manifestVersion >= 2,
-};
-```
-
-### Server Environment Access (`flags.environmentAccess`)
-
-A **separate, unrelated** feature for accessing **server-side `process.env` variables** via a frozen proxy object at `environment.system`.
-
-Source: `runtime()` in `runtime.js`:
-
-```js
-if (module.flags && module.flags.environmentAccess) {
-	// Must be an array — accessing the whole environment at once is a security risk
-	if (!Array.isArray(module.flags.environmentAccess))
-		throw new Error('Variables for the Environment Access should always be enumerated as an array of strings.');
-
-	const envProxyProperties = module.flags.environmentAccess;
-	const envProxyBase = {};
-	Object.defineProperties(
-		envProxyBase,
-		envProxyProperties.reduce((acc, property) => {
-			acc[property] = {
-				configurable: false,
-				enumerable: false,
-				get: () => process.env[property],
-				set: undefined,
-			};
-			return acc;
-		}, {}),
-	);
-	Object.freeze(envProxyBase);
-	module.environment.system = envProxyBase;
-}
-```
-
-- Requires `flags.environmentAccess` (array of strings) in `common.imljson`
-- Exposes enumerated `process.env` properties as `{{environment.system.VAR_NAME}}`
-- Frozen, non-enumerable, read-only — high security design
-- **NOT related to `{{environment.timezone}}`** — that comes from the scenario environment
-
-### Make-Infrastructure Data (`internal` / `flags.exposeInternalProperties`)
-
-Added in imt-app-runtime **v1.103.0** (2026-08-05, PRs #726 + #727). Source: `buildExposedInternal()` + `buildContext()` in `lib/core/runtime.js`, `APPContext.internal` / `flags.exposeInternalProperties` in `lib/types.ts`; tests: `test/expose-internal-properties.spec.ts`. Property catalog: [Environment Context in App](https://make.atlassian.net/wiki/spaces/IEN/pages/776536116/Environment+Context+in+App).
-
-A **third, separate** flag-gated root — not an `environment` feature despite living next to one. The Engine hands Make-infrastructure data (team identity, ISC service URNs) to the module instance as `internal` (generated by scenario finalization as `internalData`, handed over deep-frozen). Before v1.103.0 the runtime never read it — `buildContext()` builds the IML context from an explicit whitelist that omitted it, so `{{internal}}` always resolved to nothing.
-
-```js
-function buildExposedInternal(instance) {
-	const exposedProperties = instance.flags?.exposeInternalProperties;
-	if (exposedProperties === undefined) return undefined;
-	if (!Array.isArray(exposedProperties)) {
-		console.error(`App ${instance.packageName} has app flag 'exposeInternalProperties' that is not an array: ...`);
-		return undefined; // do NOT fail the execution
-	}
-	const exposedInternal = _.pick(instance.internal, exposedProperties);
-	Object.freeze(exposedInternal); // shallow
-	return exposedInternal;
-}
-```
-
-| Aspect                | Behavior                                                                                                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Grant                 | `flags.exposeInternalProperties` — **admin-granted**, a real trust boundary for internal Make apps. An app developer cannot self-grant it. No grant → `{{internal}}` is `undefined`, byte-for-byte as before. |
-| Must be enumerated    | Always an array of property paths. Dot paths supported (`'service.trigger'`); a whole key also works (`'service'` grants everything under it). Strings, numbers, booleans and `null` values all project.       |
-| Malformed grant       | A non-array (e.g. `true` — a wholesale grant) is **refused**: `console.error` once per `runtime.run()`, exposure skipped, **execution keeps running**. Contrast `flags.environmentAccess`, which *throws*.    |
-| Empty grant           | `[]` → `{{internal}}` is `{}` (defined but empty), not `undefined`.                                                                                                                                          |
-| Engine sent nothing   | Older blueprints with no `internalData` → empty projection `{}`, never an error.                                                                                                                              |
-| Freeze                | The projection is **shallow**-frozen. Known limitation: when dot paths are granted, `_.pick()` recreates the intermediate containers and those are not frozen, so an app can add properties to them.          |
-| Custom IML functions  | Also a sandbox **global** named `internal`, fed via the `functionSandbox` of `buildImlFunctions()` — exactly like `environment`. Reachable from both IML templates and app function code (#727).               |
-
-Usage in `api.imljson` once granted:
-
-```json
-{
-	"temp": {
-		"triggerUrn": "{{internal.service.trigger.urn}}",
-		"teamId": "{{internal.team.id}}"
-	}
-}
-```
-
-**Code-review notes.** Treat any `flags.exposeInternalProperties` addition as a permission change, not a code change — it needs admin approval, so confirm the ticket carries it. Flag a boolean/non-array grant: it is silently degraded to no access (only a server log), so the app appears broken with no app-visible error. Flag `{{internal.*}}` reads with no matching grant path for the same reason — they resolve to nothing rather than failing loudly.
-
-**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured Make API key, loaded through `lib/settings.js` (never read the secrets file yourself; this prints only the flags):
-
-```bash
-node -e '
-const { loadSettings } = require(process.argv[1] + "/scripts/lib/settings.js");
-const { baseUrl, auth } = loadSettings();
-fetch(`${baseUrl}/sdk/apps/{slug}/{version}?cols[]=flags`, { headers: { Authorization: auth } })
-  .then(async (r) => console.log(r.ok ? JSON.stringify((await r.json()).app.flags ?? {}, null, 2) : `HTTP ${r.status}`));
-' ${SKILL_ROOT}
-# → { "exposeInternalProperties": ["organization"], ... }
-```
-
-(Same admin API the skill scripts already use; `${SKILL_ROOT}` is passed as an argument so the lib resolves the editor.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
-
-### Quick Reference
-
-| What you need              | IML expression                       | Flags required?                                                      |
-| -------------------------- | ------------------------------------ | -------------------------------------------------------------------- |
-| Scenario timezone          | `{{environment.timezone}}`           | No                                                                   |
-| Scenario debug mode        | `{{environment.debug}}`              | No                                                                   |
-| Server env var `FOO`       | `{{environment.system.FOO}}`         | Yes — `flags.environmentAccess: ["FOO"]` in common                   |
-| Team id / ISC service URNs | `{{internal.service.trigger.urn}}`   | Yes — `flags.exposeInternalProperties: ["service.trigger"]`, **admin-granted** |
-
-## OAuth Connection Variables
-
-Available inside `connections/{name}/api.imljson` (`authorize`, `token`, etc.). Sourced from `accounts/app-runtime-oauth2/lib/account.js` `get redirects()` (and the OAuth1 equivalent at `accounts/app-runtime-oauth1/lib/account.js`).
-
-| Variable                     | Resolves to                                                                                           | When to use                                                                                                                                                                   |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{{oauth.localRedirectUri}}` | `https://<environment.host>/oauth/cb/{connection-name}` — the **current instance's host**             | **Default for new connections.** Host-aware, works on Make-hosted **and** self-hosted instances.                                                                              |
-| `{{oauth.redirectUri}}`      | `https://<environment.redirects.integromat>/oauth/cb/{connection-name}` — **always `integromat.com`** | **Legacy.** Pre-Make-rebrand callback. Avoid in new code; migrate when touched.                                                                                               |
-| `{{oauth.makeRedirectUri}}`  | `https://<environment.redirects.make>/oauth/cb/{connection-name}` — **always `make.com`**             | Make-only deployment (breaks self-host). Use only when the upstream provider has a hard `make.com`-only redirect registered AND self-host support is explicitly out of scope. |
-| `{{oauth.scope}}`            | Array of scope strings declared in `scope.imljson` / `scopes.imljson`                                 | Joined into the authorize URL via `join(oauth.scope, ' ')` (Google) or `','` (others).                                                                                        |
-
-`oauth` IML context is **only** the object returned by `get redirects()` (`redirectUri`, `localRedirectUri`, `makeRedirectUri`) plus `oauth.scope` assigned in `authorize()`. There is **no** `{{oauth.state}}` variable.
-
-**OAuth2 CSRF `state` is injected by the runtime, not by IML.** After `authorize.qs` is IML-transformed, `accounts/app-runtime-oauth2/lib/account.js` always does `options.qs.state = crypto.randomBytes(12).toString('hex')` (overwriting any IML `qs.state`), then `IMTOAuthAccount.createToken(state, …)` (15 min). The callback validates via `getTokenFromRequest` → `request.query.state`. **Do not** add `"state": "{{oauth.state}}"` to `authorize.qs` — it is not an IML variable, and the runtime overwrites `qs.state` anyway. Omitting `state` from the app's `authorize.qs` is correct. Do not flag it in review ([SECURITY][2.2] is a false-positive trap, not a finding).
-
-When `environment.redirects` is unset (legacy environment configuration), all three redirect-URI variables collapse to the same host-based URI, so `localRedirectUri` is also the safest backward-compatible choice.
-
-**Cross-reference**: full convention + code-review checklist live in `component-patterns-reference.md` § "OAuth2 Connection — `redirect_uri` Convention" and `code-review-criteria.md` § "OAuth `redirect_uri` Convention".
-
-### `token.response.scope` — record the scope the provider actually granted
-
-Added in imt-app-runtime **v1.101.0** (2026-07-18, PR #693); follow-up fix **v1.101.1** (2026-07-20, PR #709). Source: `accounts/app-runtime-oauth2/lib/account.js` (`token()`, `saveScope()`, `_setScope()`, `_normalizeScope()`); tests: `test/account.spec.js` § "directive `token.response.scope`" + `test/account-set-scope.spec.ts`.
-
-```json
-"token": {
-	"url": "https://provider.example/oauth/token",
-	"method": "POST",
-	"response": {
-		"data": { "accessToken": "{{body.access_token}}" },
-		"scope": "{{body.scope}}"
-	}
-}
-```
-
-Before this directive the platform only knew the scopes it **requested**; if the user granted a subset, that was invisible (the source calls it out as a known limitation). `token.response.scope` lets the token endpoint report what was actually granted, per RFC 6749 § 3.3.
-
-| Aspect              | Behavior                                                                                                                                                                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Value               | IML-evaluated. Accepts a string array, a space-delimited string (RFC 6749 § 3.3), a comma-delimited string, or a mix — `_normalizeScope()` splits on `/[\s,]+/` and drops empties. Any other type → `[]` (treated as "not reported"). |
-| Precedence          | A non-empty result **overrides** the stored scope — it does **not** merge. The token response is authoritative, so a revoked scope drops off on the next exchange.                                                                    |
-| Fallback            | Empty / absent → previous behavior: `acceptedScope` (the scopes sent to the authorization server) is merged into the stored scope and deduplicated.                                                                                   |
-| `token` as an array | Each communication item is checked; the **last** item reporting a non-empty scope wins. A scope-less follow-up item (e.g. a long-token request) cannot erase an earlier item's scope.                                                 |
-| Client Credentials  | With no authorize/callback step there is no `acceptedScope`, so this directive is the **only** way to record scope for that flow.                                                                                                     |
-
-**Not supported under `refresh` — by design.** `saveScope()` is wired into `token()` only. A refresh renews the access token; it is not an authorization event, so it must not change the recorded grant. Changing scope requires re-authorizing the connection. `refresh.response.scope` is silently ignored — flag it in review.
 
 ## Security
 

@@ -8,7 +8,7 @@ Authoritative reference for **quantitative thresholds** and **IMLJSON-specific s
 
 | Concern | Location |
 |---|---|
-| JS design principles, code smells, review checklist | `code-review-criteria.md` § "Code Quality & Maintainability" |
+| JS design principles, code smells, review checklist | `code-review-criteria/functions.md` § "Code Quality & Maintainability" |
 | **Quantitative thresholds** for JS (length, complexity, params, nesting) | **This file § 1** |
 | **IMLJSON-specific smells** (api, parameters, expect, samples, interface) | **This file § 2** |
 | **Cross-file smells** (duplication, base drift, config fragmentation) | **This file § 3** |
@@ -60,7 +60,7 @@ These smells appear in `*.imljson` files and are **not** covered by the JS-focus
 |---|---|---|---|
 | P-01 | Type drift vs `interface.imljson` | Same field name: `expect.type = "number"` but `interface.type = "text"` | Align types; document transformation if intentional |
 | P-02 | Required field with no `help` and non-obvious format | `required: true` field for an ISO date, UUID, cron string, JSON, etc. without `help` | Add a one-line `help` with a concrete example |
-| P-03 | `nested` used where flat `rpc://` would do | Nested RPCs on Get / Update / Delete modules (users typically map IDs) | Flatten — see `code-review-criteria.md` § "ID Select Field Pattern" |
+| P-03 | `nested` used where flat `rpc://` would do | Nested RPCs on Get / Update / Delete modules (users typically map IDs) | Flatten — see `code-review-criteria/ux.md` § "ID Select Field Pattern" |
 | P-04 | `default` value duplicates API default | Explicit `default: 10` that also happens to be the API default | Either remove (reduce UI clutter) or add a hint explaining why it's exposed |
 | P-05 | Mixed casing conventions in the same file | `createdBy` and `created_by` both present | Pick one per module. Never rename existing params in published apps — add temp mapping in `api.imljson` instead (see `code-review-criteria.md` § "Breaking Changes") |
 | P-06 | `editable: true` in module expect | `editable` is a connection-only flag | Remove from expect |
@@ -88,7 +88,7 @@ These smells appear in `*.imljson` files and are **not** covered by the JS-focus
 | ID | Smell | Detect | Fix |
 |---|---|---|---|
 | X-01 | Helper logic duplicated across modules | Same 10+ line transformation exists in multiple `functions/` entries or inline in multiple `api.imljson` files | Extract one custom IML function and call it from each |
-| X-02 | Connection settings copied across multiple connection folders | Two connections with near-identical `api.imljson` (only scope differs) | Consider `aliasTo` or consolidate into one connection with dynamic scope — see `component-patterns-reference.md` |
+| X-02 | Connection settings copied across multiple connection folders | Two connections with near-identical `api.imljson` (only scope differs) | Consider `aliasTo` or consolidate into one connection with dynamic scope — see `component-patterns-reference/connection-aliased.md` |
 | X-03 | Base drift | `base.imljson` missing `baseUrl` / `headers.Authorization` while every module re-declares them | Move to base |
 | X-04 | Group fragmentation | Many single-module groups in `groups.imljson` | Consolidate logically related modules into one group |
 | X-05 | Orphan function | `functions/{name}` not referenced from any `api.imljson` or other function | Delete or document planned usage |

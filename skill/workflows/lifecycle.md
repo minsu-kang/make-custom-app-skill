@@ -70,15 +70,15 @@ required_permissions: ["all"], block_until_ms: 30000
 | `rpc/{name}/{section}` | `api`, `parameters` |
 | `webhook/{name}/{section}` | `api`, `parameters`, `attach`, `detach` |
 | `function/{name}/{section}` | `code`, `test` |
-| `endpoint/{name}/{section}` | `api`, `input_parameters`, `output_parameters`, `scope`, `context` (`.md`, PATCHes metadata) |
+| `endpoint/{name}/{section}` | `api`, `input_parameters`, `output_parameters`, `scope`, `context` (`.md`) and `annotations` (`.json`, a complete hint object) — both PATCH metadata |
 | `base` · `common` · `groups` | app-level files |
 
 Component lifecycle (same confirmation rule; positional args, `--force` is the only flag):
 
 - Create: `create-component.js {slug} {ver} module {name} {label} {type_id} [connection] [description]` · `rpc {name} {label} [connection]` · `function {name}` · `connection {label} {auth-type}` · `webhook {label} {webhook-type} [connection]` · `endpoint {name} {label} [connection] [description] [initMode]`. `type_id`: see Module types in SKILL.md. `webhook-type`: `web`, `web-shared`. `initMode`: `example` (default), `blank`.
 - Update metadata: `update-component.js {slug} {ver} {type} {name} key=value [key=value…]`, e.g. `label="New Label"`.
-- Delete: `delete-component.js {slug} {ver} {type} {name} --force`. Irreversible: run it only after the user's explicit approval. The Bash tool has no TTY, so without `--force` it prints the y/N prompt and exits 0 without deleting.
-- **Scripts first, MCP second.** Read the local copy (§2) and change components with these scripts. Use the Make MCP `custom-apps_*` tools only for what no script does yet (endpoint `annotations`, live `endpoint_execute`), with the same confirmation rule. Not connected: say so and ask the user to do it in the SDK UI.
+- Delete: `delete-component.js {slug} {ver} {type} {name} --force`. Irreversible: run it only after the user's explicit approval. The Bash tool has no TTY, so without `--force` it exits 1 without deleting.
+- **Scripts first, MCP second.** Read the local copy (§2) and change components with these scripts. Use the Make MCP `custom-apps_*` tools only for what no script does yet (e.g. live `endpoint_execute`), with the same confirmation rule. Not connected: say so and ask the user to do it in the SDK UI.
 
 On an **approved** app, pushes land as uncommitted change rows; on a non-approved app they write directly and `compile` is what the user or reviewer runs next. Dev work ends at the push: `commit|compile` only on an explicit user instruction, never as a proposed next step (SKILL.md hard rule 4).
 
