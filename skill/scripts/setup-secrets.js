@@ -11,7 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline/promises');
-const { getSkillRoot } = require('./lib/skill-root');
+const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 const { requireTty, upsertSecretsFile, upsertEnvFile } = require('./lib/secrets-file');
 const { fetchJiraEmail } = require('./lib/jira-myself');
@@ -302,7 +302,7 @@ async function main() {
 			if (openaiKey !== 'set') envUpdates.OPENAI_API_KEY = openaiKey;
 			upsertEnvFile(envPath, envUpdates);
 			console.log(`Wrote ${envPath}`);
-			console.log(`Then: cd ${mcpDir} && npm run register`);
+			console.log(`Then: cd ${mcpDir} && npm run register${getEditorDir() === '.claude' ? ' -- --claude' : ''}`);
 		} else {
 			console.log('MCP skipped.');
 		}

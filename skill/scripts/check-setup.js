@@ -11,7 +11,8 @@
  *   node check-setup.js --json          machine-readable report
  *   node check-setup.js --skip-version  skip the remote skill-version check
  *
- * Exit codes: 0 = every required item OK, 1 = a required item is missing.
+ * Exit codes: 0 = every required item OK, 1 = a required item is missing or the
+ * auto-update failed, 3 = the skill was just auto-updated (re-read SKILL.md, re-run).
  */
 const fs = require('fs');
 const os = require('os');
@@ -166,14 +167,14 @@ if (isClaude) {
 			'mcp-server',
 			'optional-missing',
 			'.env missing',
-			`${SETUP_HINT}\nThe wizard can write mcp-server/.env (PINECONE_API_KEY, PINECONE_INDEX_NAME, OPENAI_API_KEY), then:\n  cd ${mcpDir} && npm run register`,
+			`${SETUP_HINT}\nThe wizard can write mcp-server/.env (PINECONE_API_KEY, PINECONE_INDEX_NAME, OPENAI_API_KEY), then:\n  cd ${mcpDir} && npm run register${isClaude ? ' -- --claude' : ''}`,
 		);
 	} else if (!registered) {
 		add(
 			'mcp-server',
 			'optional-missing',
 			`built and configured but not registered in ${registryPath}`,
-			`cd ${mcpDir} && npm run register   # then restart the editor`,
+			`cd ${mcpDir} && npm run register${isClaude ? ' -- --claude' : ''}   # then restart the editor`,
 		);
 	} else {
 		add('mcp-server', 'ok', `registered (${registryPath})`);

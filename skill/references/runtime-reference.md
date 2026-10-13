@@ -1,3 +1,4 @@
+<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # imt-app-runtime Internal Reference
 
 > Read when: writing or reviewing `api.imljson` — directive semantics, middleware chain, URL/QS normalization, `temp` two-phase evaluation, pagination, polling triggers, IML path syntax, `api.endpoint`, `environment` / `internal` roots, limits. Mandatory before flagging any `api.imljson` issue (hard rule 3).
@@ -833,15 +834,19 @@ Usage in `api.imljson` once granted:
 
 **Code-review notes.** Treat any `flags.exposeInternalProperties` addition as a permission change, not a code change — it needs admin approval, so confirm the ticket carries it. Flag a boolean/non-array grant: it is silently degraded to no access (only a server log), so the app appears broken with no app-visible error. Flag `{{internal.*}}` reads with no matching grant path for the same reason — they resolve to nothing rather than failing loudly.
 
-**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured `make-api-key`:
+**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured Make API key, loaded through `lib/settings.js` (never read the secrets file yourself; this prints only the flags):
 
 ```bash
-curl -s "{make-api-url}/sdk/apps/{slug}/{version}?cols[]=flags" \
-  -H "Authorization: Token {make-api-key}"
-# → { "app": { "flags": { "exposeInternalProperties": ["organization"], ... } } }
+node -e '
+const { loadSettings } = require(process.argv[1] + "/scripts/lib/settings.js");
+const { baseUrl, auth } = loadSettings();
+fetch(`${baseUrl}/sdk/apps/{slug}/{version}?cols[]=flags`, { headers: { Authorization: auth } })
+  .then(async (r) => console.log(r.ok ? JSON.stringify((await r.json()).app.flags ?? {}, null, 2) : `HTTP ${r.status}`));
+' ${SKILL_ROOT}
+# → { "exposeInternalProperties": ["organization"], ... }
 ```
 
-(`{make-api-url}` / `{make-api-key}` come from the last lines of `SKILL.md`; same admin API the skill scripts already use.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
+(Same admin API the skill scripts already use; `${SKILL_ROOT}` is passed as an argument so the lib resolves the editor.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
 
 ### Quick Reference
 

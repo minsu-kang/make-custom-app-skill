@@ -14,12 +14,13 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
 2. **Design and get approval** *(gate)*. Cover: module type (SKILL.md § Module types — Search for many results, Action for one), API mapping, expect/parameters fields per [app-ux-best-practices.md](../references/app-ux-best-practices.md) and [parameters-reference.md](../references/parameters-reference.md), interface, RPC reuse or new RPCs, custom functions needed. Present, then wait for a yes.
 3. **Create components** (confirmation per component, lifecycle §6):
 
-   | Type | Command | Extra args |
+   | Type | Command (positional args, no flags) | Values |
    |---|---|---|
-   | Module | `create-component.js {slug} {ver} module {name} {label}` | `--type={1|4|9|10|11|12}`, `--connection={conn}`, `--crud={crud}` |
-   | RPC | `create-component.js {slug} {ver} rpc {name} {label}` | `--connection={conn}` |
-   | Webhook | `create-component.js {slug} {ver} webhook {name} {label}` | `--connection={conn}` |
-   | Function | `create-component.js {slug} {ver} function {name} {label}` | — |
+   | Module | `create-component.js {slug} {ver} module {name} {label} {type_id} [connection] [description]` | `type_id`: 1 trigger, 4 action, 9 search, 10 instant trigger, 11 responder, 12 universal |
+   | RPC | `create-component.js {slug} {ver} rpc {name} {label} [connection]` | — |
+   | Webhook | `create-component.js {slug} {ver} webhook {label} {webhook-type} [connection]` | `webhook-type`: `web`, `web-shared` |
+   | Connection | `create-component.js {slug} {ver} connection {label} {auth-type}` | `auth-type`: `tokenAuth`, `oAuth`, `basic`, `digest`, `apiCert`, `apiKey`, … |
+   | Function | `create-component.js {slug} {ver} function {name}` | — |
 
    Endpoints: see [create-endpoint.md](create-endpoint.md).
 4. **Write the code** in `${CONTEXTS_DIR}/{slug}-v{version}/` and push each section with `update-app.js`, in this order: RPCs → module `api` → `expect` → `parameters` → `interface` → `samples` → custom functions. Re-read [communication-reference.md](../references/communication-reference.md) / [runtime-reference.md](../references/runtime-reference.md) before each `api.imljson`.

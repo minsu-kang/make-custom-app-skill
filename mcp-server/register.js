@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync, renameSync, mkdirSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
-const SERVER_NAME = 'make-app-context';
-const MCP_CONFIG_PATH = path.join(os.homedir(), '.cursor', 'mcp.json');
+// --claude / --cursor pick the target explicitly. Without a flag, a copy installed under
+// ~/.claude/skills registers for Claude Code (as install-claude.sh does); anything else for Cursor.
+const FLAGS = process.argv.slice(2);
+const CLAUDE_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills') + path.sep;
+const IS_CLAUDE = FLAGS.includes('--claude') || (!FLAGS.includes('--cursor') && import.meta.dirname.startsWith(CLAUDE_SKILLS_DIR));
+const SERVER_NAME = IS_CLAUDE ? 'make-custom-app' : 'make-app-context';
+const MCP_CONFIG_PATH = IS_CLAUDE ? path.join(os.homedir(), '.claude.json') : path.join(os.homedir(), '.cursor', 'mcp.json');
 const ENV_PATH = path.join(import.meta.dirname, '.env');
 const DIST_ENTRY = path.join(import.meta.dirname, 'dist', 'index.js');
 
@@ -42,9 +47,16 @@ if (missing.length > 0) {
 }
 
 let mcpConfig = { mcpServers: {} };
+let fileMode = 0o600;
 if (existsSync(MCP_CONFIG_PATH)) {
-	mcpConfig = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8'));
+	try {
+		mcpConfig = JSON.parse(readFileSync(MCP_CONFIG_PATH, 'utf-8'));
+	} catch {
+		console.error(`❌ Could not parse ${MCP_CONFIG_PATH}; left untouched.`);
+		process.exit(2);
+	}
 	if (!mcpConfig.mcpServers) mcpConfig.mcpServers = {};
+	fileMode = statSync(MCP_CONFIG_PATH).mode & 0o777;
 }
 
 const alreadyExists = !!mcpConfig.mcpServers[SERVER_NAME];
@@ -63,7 +75,11 @@ mcpConfig.mcpServers[SERVER_NAME] = {
 	},
 };
 
-writeFileSync(MCP_CONFIG_PATH, JSON.stringify(mcpConfig, null, 2) + '\n');
+// Temp file + rename: a reader (Claude Code itself reads ~/.claude.json) never sees a half-written config.
+mkdirSync(path.dirname(MCP_CONFIG_PATH), { recursive: true });
+const tmpPath = `${MCP_CONFIG_PATH}.${process.pid}.tmp`;
+writeFileSync(tmpPath, JSON.stringify(mcpConfig, null, 2) + '\n', { mode: fileMode });
+renameSync(tmpPath, MCP_CONFIG_PATH);
 
 if (alreadyExists) {
 	console.log(`✅ Updated "${SERVER_NAME}" in ${MCP_CONFIG_PATH}`);
@@ -73,4 +89,4 @@ if (alreadyExists) {
 console.log(`   Command: ${NODE_BIN} ${DIST_ENTRY}`);
 console.log(`   Env vars: ${requiredKeys.join(', ')}`);
 console.log('');
-console.log('👉 Restart Cursor to activate the MCP server.');
+console.log(`👉 Restart ${IS_CLAUDE ? 'Claude Code' : 'Cursor'} to activate the MCP server.`);

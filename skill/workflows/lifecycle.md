@@ -11,7 +11,7 @@ Resolve `slug` + `version`, in this order:
 1. Inline from the user (`slack, 4`, "Google Docs v1").
 2. Open file path `…/sdk/apps/{slug}/{version}/…`.
 3. Jira ticket **App HQ URL** (`customfield_10268`): `https://{zone}/[admin/]apps/{slug}/{version}` → slug = segment after `/apps/`, version = next segment. A minimal `getJiraIssue` for just that field is fine here; the full fetch happens in §4.
-4. Slug known but no version → latest major via IPME: `curl -s "https://ipme.integromat.com/v3/search/apps" -H "x-imt-ipm-version: 3.20.0"`, match `name`, take the major of `version` (`2.52.56` → `2`).
+4. Slug known but no version → latest major via IPME. The response is huge, so filter it: `curl -s "https://ipme.integromat.com/v3/search/apps" -H "x-imt-ipm-version: 3.20.0" | node -e 'const s=process.argv[1];console.log(JSON.parse(require("fs").readFileSync(0,"utf8")).filter(a=>a.name===s).map(a=>a.version).join("\n"))' {slug}` prints the matching `version`(s); take the major (`2.52.56` → `2`). 0 matches → step 5; more than one → list them and ask.
 5. Otherwise ask.
 
 ## 2. Sync code
@@ -24,6 +24,10 @@ Run **without asking** when the folder is missing, `metadata.json.downloadedAt` 
 Shell: node ${SKILL_ROOT}/scripts/download-app.js {slug} {version}
 required_permissions: ["all"], block_until_ms: 120000
 ```
+
+If any skill script prints `Skill updated {old} -> {new}. Re-run your command.` and exits 3, the skill auto-updated: re-read SKILL.md, then re-run that same command.
+
+Before re-downloading an existing folder (not for code reviews, which are always fresh): `download-app.js` overwrites and never deletes. If any file other than `metadata.json` and `reviews/` is newer than `metadata.json.downloadedAt`, it may hold unpushed edits — ask the user or diff first. Components deleted remotely linger as local directories, so `metadata.json`, not the directory listing, is the component list.
 
 Between 1 h and 24 h old: mention the age, offer a re-download, continue. Do not answer questions about an app whose code you have not synced.
 
@@ -69,9 +73,14 @@ required_permissions: ["all"], block_until_ms: 30000
 | `endpoint/{name}/{section}` | `api`, `input_parameters`, `output_parameters`, `scope`, `context` (`.md`, PATCHes metadata) |
 | `base` · `common` · `groups` | app-level files |
 
-Component lifecycle: `create-component.js {slug} {ver} {module|rpc|webhook|function} {name} {label} [--type= --connection= --crud=]`, `update-component.js {slug} {ver} {type} {name} {json}` (metadata: label, public, connection …), `delete-component.js {slug} {ver} {type} {name}` (irreversible — require explicit approval). Same confirmation rule.
+Component lifecycle (same confirmation rule; positional args, `--force` is the only flag):
 
-On an **approved** app, pushes land as uncommitted change rows; on a non-approved app they write directly and the forward action is `compile`.
+- Create: `create-component.js {slug} {ver} module {name} {label} {type_id} [connection] [description]` · `rpc {name} {label} [connection]` · `function {name}` · `connection {label} {auth-type}` · `webhook {label} {webhook-type} [connection]` · `endpoint {name} {label} [connection] [description] [initMode]`. `type_id`: see Module types in SKILL.md. `webhook-type`: `web`, `web-shared`. `initMode`: `example` (default), `blank`.
+- Update metadata: `update-component.js {slug} {ver} {type} {name} key=value [key=value…]`, e.g. `label="New Label"`.
+- Delete: `delete-component.js {slug} {ver} {type} {name} --force`. Irreversible: run it only after the user's explicit approval. The Bash tool has no TTY, so without `--force` it prints the y/N prompt and exits 0 without deleting.
+- **Scripts first, MCP second.** Read the local copy (§2) and change components with these scripts. Use the Make MCP `custom-apps_*` tools only for what no script does yet (endpoint `annotations`, live `endpoint_execute`), with the same confirmation rule. Not connected: say so and ask the user to do it in the SDK UI.
+
+On an **approved** app, pushes land as uncommitted change rows; on a non-approved app they write directly and `compile` is what the user or reviewer runs next. Dev work ends at the push: `commit|compile` only on an explicit user instruction, never as a proposed next step (SKILL.md hard rule 4).
 
 ```
 node ${SKILL_ROOT}/scripts/commit-changes.js {slug} {ver} commit --message="{KEY} {summary}" [--change-ids=1,2] [--issue=KEY]

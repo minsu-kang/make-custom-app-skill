@@ -80,7 +80,7 @@ Endpoint name pattern: `^[a-zA-Z][0-9a-zA-Z]{1,126}[0-9a-zA-Z]$` (alphanumeric, 
 
 ### Change tracking (approved apps)
 
-`apps.change.table = 'endpoint'`. Versioned (→ pending change rows on an approved app, same § 5a semantics as modules):
+`apps.change.table = 'endpoint'`. Versioned (→ pending change rows on an approved app, same semantics as modules, see [app-compilation-and-deployment-reference.md](app-compilation-and-deployment-reference.md)):
 
 - Sections: `api`, `scope`, `input_parameters`, `output_parameters`
 - Metadata: `context`, `annotations`, `attached_accounts`

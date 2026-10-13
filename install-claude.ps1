@@ -127,19 +127,6 @@ function Remove-LegacyAgent {
     }
 }
 
-# Safety net: rewrite any leftover Cursor-path literal so files work under ~/.claude.
-# The skill uses ${SKILL_ROOT} placeholders, so this is normally a no-op.
-function Copy-MarkdownRewritten {
-    param([string]$Src, [string]$Dst)
-    $parentDir = Split-Path $Dst -Parent
-    if (-not (Test-Path $parentDir)) { New-Item -ItemType Directory -Force -Path $parentDir | Out-Null }
-    $content = Get-Content -Path $Src -Raw
-    if ($null -ne $content) {
-        $content = $content.Replace("~/.cursor/skills/make-custom-app", "~/.claude/skills/make-custom-app")
-    }
-    [System.IO.File]::WriteAllText($Dst, $content, (New-Object System.Text.UTF8Encoding $false))
-}
-
 Write-Host ""
 Write-Host "  ==================================================" -ForegroundColor White
 Write-Host "    Make Custom App Skill Installer for Claude      " -ForegroundColor White
@@ -247,7 +234,7 @@ else {
 Write-Host ""
 
 try {
-    # ── Install skill\ → $SKILL_DIR (markdown path-rewritten) ──
+    # ── Install skill\ → $SKILL_DIR ──
     Write-Info "Installing skill files..."
     New-Item -ItemType Directory -Force -Path $SKILL_DIR | Out-Null
     $skillSrc = Join-Path $SrcRoot "skill"
@@ -256,13 +243,8 @@ try {
         ForEach-Object {
             $rel = $_.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
             $dst = Join-Path $SKILL_DIR $rel
-            if ($_.Extension -eq ".md") {
-                Copy-MarkdownRewritten -Src $_.FullName -Dst $dst
-            }
-            else {
-                New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
-                Copy-Item -Force $_.FullName $dst
-            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+            Copy-Item -Force $_.FullName $dst
         }
     $legacyRules = Join-Path $SKILL_DIR "rules"   # 1.x installed rule copies here
     if (Test-Path $legacyRules) { Remove-Item -Recurse -Force $legacyRules }

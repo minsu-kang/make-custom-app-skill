@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.1.10 — 2026-10-13
+
+Fixes from an audit of the skill against its own scripts: commands that did not match the scripts, a stale credential instruction, gate tables that pointed at sections that do not exist, and two install-time bugs.
+
+- **`runtime-reference.md` § Verifying the real grant**: the flags lookup told the model to curl with a key from "the last lines of `SKILL.md`". That key now lives only in `~/.make-custom-app-skill-secrets`, which hard rule 10 forbids reading, so the text pushed the model toward the secrets file. It is now a node one-liner through `lib/settings.js` that prints only the flags. Added the missing `<!-- Variables -->` header.
+- **`lifecycle.md`, `feature-request.md`, `app-task.md`**: `create-component.js` usage matches the script (positional args, webhook takes `{label} {webhook-type}`, Connection row added). `update-component.js` takes `key=value`; module deprecation is not scriptable, so the user does it in the admin panel. `delete-component.js` is documented with `--force`: without it the Bash tool has no TTY and the script exits 0 without deleting. The IPME lookup is filtered instead of dumping the whole response. New guard before re-downloading over unpushed edits. "Dev work ends at the push" restated in section 6, an exit 3 re-run rule, and a common "scripts first, MCP second" rule for every component type.
+- **`SKILL.md`**: the description also covers review, bug, refinement, SDK Endpoints and IEN tickets. First action: exit 3 means re-read then re-run `check-setup.js`, and exit 1 after a failed update means relaying the printed manual update command. Adding a config line is a Bash append, because the Edit tool requires a prior Read that rule 10 forbids.
+- **`create-endpoint.md`**: Arbitrary Call steps read the local copy and use the skill scripts first, with the `custom-apps_*` calls as the MCP equivalents; only annotations and `endpoint_execute` need the Make MCP server. Fixed the step 3/4 numbering.
+- **`code-review.md`, `task-refinement.md`**: the runtime-reference gate rows point at real headings.
+- **`app-compilation-and-deployment-reference.md`, `component-test-guide.md`, `endpoints-reference.md`, `developer-notes-templates.md`**: dead cross-references fixed, test credential source corrected, and the Developer Notes template says when notes are written. Its Root Cause, Fix, Affected Components and Changed Files sections are now actual tables, as its Common Rules already required.
+- **`mcp-server/register.js`**: `npm run register` always wrote `~/.cursor/mcp.json` as `make-app-context`, so the `check-setup.js` fix for an unregistered MCP server never worked in Claude Code. A copy installed under `~/.claude/skills` now registers `make-custom-app` in `~/.claude.json`, like `install-claude.sh` does, and `--claude` / `--cursor` force the target (`check-setup.js` and `setup-secrets.js` print `npm run register -- --claude` for Claude). The config is written through a temp file and rename, keeps the file mode (new files get 0600), and an unparseable config is left untouched (exit 2). Cursor behavior is unchanged.
+- **`lib/skill-root.js`**: editor detection accepts `\` as well as `/`, so Windows Claude installs are no longer treated as Cursor by `check-setup.js` and the update command.
+- **`install-claude.sh`, `install-claude.ps1`**: dropped the markdown path rewrite. It changed nothing except the intentional Cursor path in the `<!-- Variables -->` and Path variables lines, which every Claude install then showed as `~/.claude/...` for Cursor too. The PowerShell installer now copies every file with `Copy-Item`, like `install-cursor.ps1`; its read-and-rewrite step used `Get-Content` without `-Encoding`, which Windows PowerShell 5.1 decodes as ANSI.
+- **`check-setup.js`**: the header comment documents exit 3 and the failed-update exit 1.
+
 ## 2.1.9 — 2026-10-07
 
 Lesson from Box v3 ([IEN-16854](https://make.atlassian.net/browse/IEN-16854), 21 endpoints): an empty-value stripper must remove only empty values.

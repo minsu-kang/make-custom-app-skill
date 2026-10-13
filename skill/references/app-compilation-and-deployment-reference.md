@@ -56,7 +56,7 @@ In `imt-web-api`, whether an edit becomes a tracked "change" depends on **`apps.
 
 A brand-new app (`issuetype: "App"`) is almost always `approved: false` / `compile: false` / `ipmDeployedToZone: false` — so its `review-changes.js` is structurally 0.
 
-> **Code-review consequence**: when `review-changes.js` returns 0, read `metadata.json` `approved`. If `approved: false` → **review the full app code** against the AC (the developer's edits are the current full state; there is no diff to show). Do **not** report "nothing to review" or "all committed via SDK." If `approved: true` and 0 → genuinely "No uncommitted changes found." See [code-review.md § 5a](../workflows/code-review.md).
+> **Code-review consequence**: when `review-changes.js` returns 0, read `metadata.json` `approved`. If `approved: false` → **review the full app code** against the AC (the developer's edits are the current full state; there is no diff to show). Do **not** report "nothing to review" or "all committed via SDK." If `approved: true` and 0 → genuinely "No uncommitted changes found." See [code-review.md § "0 changes" depends on `approved`](../workflows/code-review.md).
 
 ### Commit / compile lifecycle
 
@@ -202,8 +202,8 @@ The instance loader picks the source by app type (verified in `imt-web-api` work
 
 ## 8. What this means for skill workflows
 
-- **Code review of a new app** (`approved: false`): `review-changes.js` is structurally 0 → do a **full code review** of all SDK components against the AC. Never say "nothing to review." (See [code-review.md § 5a](../workflows/code-review.md) and [code-review-criteria.md](code-review-criteria.md).)
-- **Disposition wording**: for an uncompiled app the forward action is **compile**, not commit — ask "Did you compile the app, or return it?" (See code-review.md § "Post-Review Disposition Gate".)
+- **Code review of a new app** (`approved: false`): `review-changes.js` is structurally 0 → do a **full code review** of all SDK components against the AC. Never say "nothing to review." (See [code-review.md § "0 changes" depends on `approved`](../workflows/code-review.md) and [code-review-criteria.md](code-review-criteria.md).)
+- **Disposition wording**: for an uncompiled app the forward action is **compile**, not commit — ask "Did you compile the app, or return it?" (See code-review.md § "Disposition gate".)
 - **`download-app.js` always reads the SDK/DB code**, never the compiled package — so reviews are always against source, which is correct.
 - **A committed/compiled app's behavior in production** comes from the installed `imt_modules` package, which is regenerated from the SDK code at compile time. Reviewing the SDK code is therefore reviewing what will be compiled.
 

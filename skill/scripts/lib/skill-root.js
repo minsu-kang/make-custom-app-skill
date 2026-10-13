@@ -3,12 +3,13 @@ const os = require('os');
 
 /**
  * Derive the skill root from the invocation path (process.argv[1]).
- * Works for both ~/.cursor/skills/make-custom-app/ and ~/.claude/skills/make-custom-app/.
+ * Works for both ~/.cursor/skills/make-custom-app/ and ~/.claude/skills/make-custom-app/,
+ * with / or \ separators (Windows).
  * Do NOT use __dirname.
  */
 function getSkillRoot() {
 	const scriptPath = process.argv[1];
-	const match = scriptPath.match(/^(.+?(?:\.cursor|\.claude)\/skills\/make-custom-app)/);
+	const match = scriptPath.match(/^(.+?(?:\.cursor|\.claude)[\\/]skills[\\/]make-custom-app)/);
 	if (match) return match[1];
 	// fallback: prefer .claude if exists, else .cursor
 	const fs = require('fs');
@@ -21,7 +22,7 @@ function getSkillRoot() {
  */
 function getEditorDir() {
 	const scriptPath = process.argv[1];
-	if (scriptPath.includes('/.claude/')) return '.claude';
+	if (/[\\/]\.claude[\\/]/.test(scriptPath)) return '.claude';
 	return '.cursor';
 }
 

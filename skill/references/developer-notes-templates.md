@@ -2,7 +2,7 @@
 
 > Read when: writing Jira Developer Notes (`customfield_10483`) after a bugfix or feature — ADF table templates.
 
-Generate Developer Notes for any Jira ticket (bug, feature, or other) when work is completed. Use the appropriate template based on the ticket type.
+When the user approves writing Developer Notes (lifecycle §7 step 1; never for code reviews), use the Bug Fix or Feature template matching the ticket type.
 
 ## Common Rules
 
@@ -18,28 +18,32 @@ Generate Developer Notes for any Jira ticket (bug, feature, or other) when work 
 ```markdown
 ### Root Cause
 
-{Concise technical explanation of what causes the bug, including:
-
-- Which function/component has the bug
-- What condition triggers it
-- Why it produces the wrong result}
+| Item | Detail |
+|---|---|
+| Component | {Which function/component has the bug} |
+| Trigger | {What condition triggers it} |
+| Effect | {Why it produces the wrong result} |
 
 ### Fix
 
-{Description of the changes made:
-
-- What was changed and why
-- How the new logic works}
+| Item | Detail |
+|---|---|
+| Change | {What was changed and why} |
+| Logic | {How the new logic works} |
 
 ### Affected Components
 
-- {module/function name} — {label/description}
-- ...
+| Component | Description |
+|---|---|
+| {module/function name} | {label/description} |
+| ... | ... |
 
 ### Changed Files
 
-- {file path relative to app root} **(new)** or **(modified)**
-- ...
+| File | Change |
+|---|---|
+| {file path relative to app root} | **(new)** or **(modified)** |
+| ... | ... |
 ```
 
 ## Feature Template
@@ -69,8 +73,10 @@ Generate Developer Notes for any Jira ticket (bug, feature, or other) when work 
 
 ### Changed Files
 
-- {file path relative to app root} **(new)** or **(modified)**
-- ...
+| File | Change |
+|---|---|
+| {file path relative to app root} | **(new)** or **(modified)** |
+| ... | ... |
 
 ### Testing Notes
 

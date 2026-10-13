@@ -44,8 +44,8 @@ node ${SKILL_ROOT}/scripts/test-component.js monday 2 module --format=json      
 
 `test-component.js` delegates to the **`make-apps-mockup`** repository:
 
-1. Reads `make-apps-mockup-path` from the last lines of SKILL.md to locate the repo
-2. Loads `MAKE_API_KEY` from the repo's `.env`
+1. Reads `make-apps-mockup-path` from `~/.make-custom-app-skill-secrets` (via `scripts/lib/settings.js`) to locate the repo
+2. Sets `MAKE_API_KEY` for the child process: Claude Code uses `make-api-key` from the same file; Cursor uses the env var, then the repo's `.env`, then Cursor `settings.json`
 3. Runs `npx ts-node main.ts run {slug} {version} {componentType} [names] ...` inside the `make-apps-mockup` directory
 
 ### `make-apps-mockup` Architecture

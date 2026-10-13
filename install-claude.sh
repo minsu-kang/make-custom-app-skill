@@ -213,19 +213,12 @@ fi
 trap '[ -n "$CLEANUP_TMP" ] && rm -rf "$CLEANUP_TMP"' EXIT
 echo ""
 
-# Safety net: rewrite any leftover Cursor-path literal so files work under ~/.claude.
-# The skill uses ${SKILL_ROOT} placeholders, so this is normally a no-op.
-PATH_REWRITE_SED='s|~/.cursor/skills/make-custom-app|~/.claude/skills/make-custom-app|g'
-
-# ── Install skill/ → $SKILL_DIR (markdown path-rewritten) ──
+# ── Install skill/ → $SKILL_DIR ──
 info "Installing skill files..."
 mkdir -p "$SKILL_DIR"
 (cd "$SRC_ROOT/skill" && find . -type f ! -name '.DS_Store' -print0) | while IFS= read -r -d '' rel; do
     mkdir -p "$SKILL_DIR/$(dirname "$rel")"
-    case "$rel" in
-        *.md) sed -E "$PATH_REWRITE_SED" "$SRC_ROOT/skill/$rel" > "$SKILL_DIR/$rel" ;;
-        *)    cp "$SRC_ROOT/skill/$rel" "$SKILL_DIR/$rel" ;;
-    esac
+    cp "$SRC_ROOT/skill/$rel" "$SKILL_DIR/$rel"
 done
 rm -rf "$SKILL_DIR/rules"   # 1.x installed rule copies here; SKILL.md now carries the hard rules
 ok "skill/ ($(find "$SKILL_DIR" -type f | wc -l | tr -d ' ') files)"

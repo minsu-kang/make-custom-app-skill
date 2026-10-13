@@ -7,7 +7,7 @@
 ## Inputs
 
 - **slug + version** — required. Resolve per lifecycle §1 (inline → App HQ URL → IPME → ask: *"Please provide the app slug and version, e.g. `slug: slack`, `version: 4`."*).
-- **Jira ticket** — recommended. Without one, suggest attaching it (AC, change list, comments make the review accurate); if none exists, see § "Without a Jira ticket".
+- **Jira ticket** — recommended. Without one, suggest attaching it (AC, change list, comments make the review accurate); if none exists, see the "Without a Jira ticket" bullet under Output format.
 - Load context (lifecycle §3) **before** looking at code — prior reviews may hold unfixed findings.
 
 ## Reviewer assignment (parent ticket only)
@@ -51,7 +51,7 @@ Breaking Changes are skipped in cases 1–4; case 5 also skips Bugs. State every
 1. **App-level** — `issuetype.name === "App"`: skip Breaking for the whole app (never deployed).
 2. **New component, no `old_value`** — files carry `new_value` only.
 3. **`old_value` is the SDK scaffold** — a new module/RPC is pre-filled with Make's boilerplate (`"url": "/users"` or `/users/{{parameters.id}}`, `"iterate": "{{body.users}}"`, `"qs": { "pageSize": 100 }`, default `response.trigger` `id:{{item.id}}` / `date:{{item.created}}` / `order:desc`, comments `// Relative to base URL`, `// Splits array from API response into bundles`; `blank` is `{}`). Decide from the ticket that this is new-component work, then confirm deterministically: compare `old_value` (whitespace/comment-insensitive) with the matching template in [component-scaffold-templates.md](../references/component-scaffold-templates.md) (refresh via `download-app.js model 1`). Match, or scaffold markers with only trivial edits → new component: skip Breaking **and** skip the `old_value` diff; judge `new_value` on its own. Ambiguous → run the Breaking evaluation.
-4. **Endpoint** — `group === "endpoint"`: SDK Endpoints are not scenario-runnable, so nothing can break. A shared custom function edited for an endpoint can still break modules — evaluate that under its `function/{name}/code` change. Missing `required`/`default` enforcement via MCP is a known platform gap, never a Bug. Details: [endpoints-reference.md](../references/endpoints-reference.md) § review guidance.
+4. **Endpoint** — `group === "endpoint"`: SDK Endpoints are not scenario-runnable, so nothing can break. A shared custom function edited for an endpoint can still break modules — evaluate that under its `function/{name}/code` change. Missing `required`/`default` enforcement via MCP is a known platform gap, never a Bug. Details: [endpoints-reference.md](../references/endpoints-reference.md) § Code Review Guidance for Endpoint Changes.
 5. **No production surface (Breaking and Bugs)** — the only consumers were never deployed (`private: true` / `private: null`, never public) **or** are unused (Investigation / Dev Notes / usage = 0 users, 0 scenarios, or a stub with `expect` and `parameters` both `[]`). The code may still be wrong; it is not a blocker. Do **not** skip when usage exists, even if labelled "(deprecated)" (e.g. `makeSoapApiCall` with 7 users / 3 scenarios). Shared functions: skip only the unused callers. Usage unknown → do not skip. Combined evidence is enough: `private: null` + empty expect/parameters + Dev Notes "skipped" (IEN-14893 `generateAccountReport`).
 
 Real existing components modified by the same ticket (`base`, a shared RPC, …) still get the full diff + Breaking evaluation unless #5 applies. A new module's `private`/publish state is **never** a finding — the deployer flips it after QA.
@@ -67,13 +67,13 @@ Read the section of [runtime-reference.md](../references/runtime-reference.md) t
 | Directive | Section |
 |---|---|
 | `url`, `baseUrl`, path templates, slashes, `qs` | URL Normalization |
-| `headers`, `body`, `type`, `condition` | Communication directives |
-| `temp` (request or response level) | temp (two-phase evaluation) |
-| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | Response Parsing + Response directives |
-| `pagination` | Pagination |
-| `trigger` | Polling Triggers + [polling-trigger-guide.md](../references/polling-trigger-guide.md) |
-| IML paths (`foo[]`, `foo[1]`, `body.results[].field`) | IML Variable Path Syntax (1-based) |
-| `endpoint`, `input`, `pagination.endpoint`, `response.unwrap` | Inline Endpoint Calls (static references) + endpoints-reference.md |
+| `headers`, `body`, `type`, `condition` | [communication-reference.md](../references/communication-reference.md) Full Spec (`headers`, `body`, `type`) + runtime-reference Middleware Details (condition) |
+| `temp` (request or response level) | temp |
+| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | Response Parsing + Middleware Details (iterate, output, wrapper, limit, error, valid) |
+| `pagination` | Pagination Internals |
+| `trigger` | Trigger Internals + [polling-trigger-guide.md](../references/polling-trigger-guide.md) |
+| IML paths (`foo[]`, `foo[1]`, `body.results[].field`) | IML Variable Path Syntax |
+| `endpoint`, `input`, `pagination.endpoint`, `response.unwrap` | Inline Endpoint Calls (`api.endpoint`) + endpoints-reference.md |
 | `{{internal.*}}`, `flags.exposeInternalProperties` | Make-Infrastructure Data |
 
 Not covered there → read the `imt-app-runtime` source. Known false positives this prevents: double-slash "bug" (runtime collapses `//`), `temp` "undefined in same request" (two-phase), `body.results[].field` "wrong array wrap" (1-based unwrap).
