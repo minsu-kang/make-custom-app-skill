@@ -81,5 +81,6 @@ Plain Node CommonJS under `skill/scripts/`. No `package.json`, no build, no Type
 - New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`).
 - Resolve the skill root via `lib/skill-root.js` (`process.argv[1]`). Do not use `__dirname` for the skill root.
 - Read config through `lib/settings.js` → `~/.make-custom-app-skill-secrets`. Never print token values to logs or stdout.
-- Tests: `node --test skill/scripts/lib/__tests__/` (`node:test`, not the mcp-server vitest suite).
+- Tests: `node --test "skill/scripts/lib/__tests__/*.test.js"` (`node:test`, not the mcp-server vitest suite). Keep the quotes so Node expands the glob in any shell; the bare folder form finds no tests on Node 24.
+- Entry script and logic: a script that needs tests keeps its I/O (network, files, exit codes) in `scripts/<name>.js` and its decisions as pure functions in `scripts/lib/<name>-logic.js`, with a different file name. Tests: `lib/__tests__/<name>-logic.test.js` for the logic, `lib/__tests__/<name>.test.js` for the script against a mock server (example: `run-component.js`).
 - Adding or renaming a script: update the README Script Files table and the `SKILL.md` scripts line (installers copy `skill/` wholesale; there is no file list).

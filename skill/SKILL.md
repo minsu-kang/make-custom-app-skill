@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.2.0
+version: 2.3.0
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -36,7 +36,7 @@ Read [workflows/lifecycle.md](workflows/lifecycle.md) first for every task (app 
 1. **Vendor API claims need the vendor's docs.** Before stating that an external endpoint supports a parameter, field, header, or response shape, fetch the official docs. Existing app code is not proof. Unverifiable → say so; do not flag or implement on the assumption.
 2. **No invented runtime features.** Use only directives, IML functions, and spec properties documented in `references/` or present in the `imt-app-runtime` source. Otherwise ask.
 3. **Read before you flag or change.** Any `api.imljson` finding → read the matching [runtime-reference.md](references/runtime-reference.md) section first. Any label / hint / field change → read [app-ux-best-practices.md](references/app-ux-best-practices.md) first.
-4. **Write scripts need confirmation.** `update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`, `commit-changes.js` run only after the user has seen the change and approved. Dev work ends at the push — `commit-changes.js commit|compile` only on an explicit user instruction, never as a proposed next step; `rollback` only on an explicit rollback request — a returned review ticket is never rollback authorization.
+4. **Write scripts need confirmation.** `update-app.js`, `create-component.js`, `update-component.js`, `delete-component.js`, `commit-changes.js` run only after the user has seen the change and approved. `run-component.js` is the exception: it runs in one step and only with a connection the user created (lifecycle §6). Dev work ends at the push — `commit-changes.js commit|compile` only on an explicit user instruction, never as a proposed next step; `rollback` only on an explicit rollback request — a returned review ticket is never rollback authorization.
 5. **Review disposition gate.** In a code review, no context-file write, `upsert_*` call, or Jira transition until the user states the disposition (committed / compiled / returned).
 6. **Reviewers do not write Developer Notes**; sub-tasks in `Test` status belong to QA — never transition them.
 7. **Developer-facing text** (To Developer messages, Jira comments, Dev Notes) never mentions skill scripts, skill paths, Pinecone, or MCP tools. Speak in SDK / IMLJSON terms.
@@ -91,6 +91,4 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 
 ## Scripts (`${SKILL_ROOT}/scripts/`)
 
-`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.
-
-<!-- User config (imt-app-runtime-path, make-api-key, make-apps-mockup-path, jira-email, jira-api-token, mcp-server-path …) lives in ~/.make-custom-app-skill-secrets, never in this file. Run scripts/setup-secrets.js in a terminal to fill it; scripts/check-setup.js reports what is still missing. -->
+`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, lifecycle §6) · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.

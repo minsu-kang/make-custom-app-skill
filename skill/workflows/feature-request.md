@@ -25,7 +25,7 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
    Endpoints: see [create-endpoint.md](create-endpoint.md).
 4. **Write the code** in `${CONTEXTS_DIR}/{slug}-v{version}/` and push each section with `update-app.js`, in this order: RPCs → module `api` → `expect` → `parameters` → `interface` → `samples` → custom functions. Re-read [communication-reference.md](../references/communication-reference.md) / [runtime-reference.md](../references/runtime-reference.md) before each `api.imljson`.
 5. **Tests.** Every new or changed function gets `test.js` (core behaviour, edge cases, transformation correctness) → `test-function.js`. New or changed `api.imljson` → `test-component.js`, adding mockup data when missing.
-6. **Verify integration.** Connections referenced correctly, RPC references resolve, interface matches what downstream modules expect, no breaking change to any existing component you touched.
+6. **Verify integration.** Connections referenced correctly, RPC references resolve, interface matches what downstream modules expect, no breaking change to any existing component you touched. For a new or changed Endpoint or RPC, run it live once (lifecycle §6 "Run live").
 7. **Close out** per lifecycle §7 (Developer Notes use the feature template).
 
 ## Checklist
@@ -34,5 +34,5 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
 - [ ] Components created with confirmation
 - [ ] Code pushed in dependency order with confirmation
 - [ ] `test-function.js` / `test-component.js` run
-- [ ] Integration verified; no breaking change to existing components
+- [ ] Integration verified; no breaking change to existing components; Endpoint / RPC run live
 - [ ] Dev Notes asked; context + Pinecone updated

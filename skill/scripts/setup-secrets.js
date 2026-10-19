@@ -13,6 +13,7 @@ const path = require('path');
 const readline = require('readline/promises');
 const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
+const { isValidId } = require('./lib/run-component-logic');
 const { requireTty, upsertSecretsFile, upsertEnvFile } = require('./lib/secrets-file');
 const { fetchJiraEmail } = require('./lib/jira-myself');
 
@@ -181,6 +182,7 @@ async function main() {
 	console.log('── Make API (required) ──');
 	console.log(`Create a token at ${'https://eu1.make.com/user/api'}`);
 	console.log('Scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have.');
+	console.log('For run-component.js (live Endpoint / RPC runs) also add: teams:read organizations:read imt-forms:read, plus connections:read user:read for components with a connection. Optional: endpoints:run credential-requests:write');
 	console.log('');
 	const makeApiKey = await ask({
 		label: 'make-api-key',
@@ -210,6 +212,16 @@ async function main() {
 		validate: (raw) => validateDir(raw),
 	});
 	const mockupPath = mockupRaw ? expandPath(mockupRaw) : '';
+
+	console.log('');
+	console.log('── Live runs (optional) ──');
+	console.log('Default Make team id for run-component.js. Enter skips (the script then lists your teams and --team=<id> --save-team stores one); --team=<id> overrides it on every run.');
+	const teamId = await ask({
+		label: 'make-team-id',
+		current: readSkillConfig('make-team-id'),
+		optional: true,
+		validate: (raw) => (isValidId(raw) ? null : 'A team id is a positive integer up to 2147483647.'),
+	});
 
 	console.log('');
 	console.log('── Jira (optional) ──');
@@ -249,6 +261,7 @@ async function main() {
 		'make-api-url': makeApiUrl,
 		'imt-app-runtime-path': runtimePath,
 		'make-apps-mockup-path': mockupPath || null,
+		'make-team-id': teamId || null,
 		'jira-api-token': jiraToken || null,
 		'jira-email': jiraToken ? jiraEmail : null,
 		'jira-base-url': jiraToken ? jiraBaseUrl : null,

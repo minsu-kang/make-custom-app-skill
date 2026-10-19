@@ -19,6 +19,7 @@ const os = require('os');
 const path = require('path');
 const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 const { readSkillConfig, skillMdHasConfig, SECRETS_PATH } = require('./lib/settings');
+const { isValidId } = require('./lib/run-component-logic');
 
 const args = new Set(process.argv.slice(2));
 if (!args.has('--skip-version')) {
@@ -71,7 +72,7 @@ if (isClaude) {
 			'make-api-key',
 			'missing',
 			'not set (Claude Code reads it from ~/.make-custom-app-skill-secrets)',
-			`${SETUP_HINT}\nCreate a token at https://eu1.make.com/user/api (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have).`,
+			`${SETUP_HINT}\nCreate a token at https://eu1.make.com/user/api (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have; for run-component.js also teams:read organizations:read imt-forms:read, plus connections:read user:read for components with a connection; optional endpoints:run credential-requests:write).`,
 		);
 	} else {
 		add('make-api-key', 'ok', `set (${readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin'})`);
@@ -135,6 +136,23 @@ if (isClaude) {
 		);
 	} else {
 		add('jira credentials', 'ok', email);
+	}
+}
+
+// 4b. make-team-id (optional — default team for run-component.js)
+{
+	const v = readSkillConfig('make-team-id');
+	if (!v) {
+		add(
+			'make-team-id',
+			'optional-missing',
+			'not set — run-component.js lists your teams once and --team=<id> --save-team stores one',
+			`Optional — run-component.js lists your teams when none is set; then run it again with --team=<id> --save-team.\nOr add one line to ${SECRETS_PATH} (the team id is not a secret):\n  make-team-id: <team id>\n${SETUP_HINT}`,
+		);
+	} else if (!isValidId(v)) {
+		add('make-team-id', 'optional-missing', `not a team id: ${v}`, `Use one positive integer, e.g.\n  make-team-id: 12345`);
+	} else {
+		add('make-team-id', 'ok', v);
 	}
 }
 

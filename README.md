@@ -172,7 +172,7 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 
 | File | Description |
 |------|-------------|
-| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, Jira credentials, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
+| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, default team id, Jira credentials, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
 | `setup-secrets.js` | Interactive terminal wizard. Writes `~/.make-custom-app-skill-secrets` (mode 600) and optionally `mcp-server/.env`. Run in your own terminal, never via the agent. |
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
@@ -183,10 +183,12 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 | `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
 | `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
 | `test-component.js` | Runs component integration tests (module, RPC, connection, webhook, endpoint) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
+| `run-component.js` | Entry script: runs one SDK Endpoint or RPC live through the public API (Modules are not supported), in one step with the user's own Make connection. It does all the I/O (API calls, the `--input` file, the `make-team-id` write, exit codes) and leaves every decision to `lib/run-component-logic.js`. `--dry-run` sends no execution or credential request. Scopes and default team: see First Use. Tests: `lib/__tests__/run-component.test.js` (against a mock API server). |
 | `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in `~/.make-custom-app-skill-secrets`. |
 | `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
 | `lib/settings.js` | Shared settings loader — reads `~/.make-custom-app-skill-secrets` (paths, Make/Jira credentials; legacy SKILL.md tail as fallback) and Cursor `settings.json`. |
+| `lib/run-component-logic.js` | The decisions behind `run-component.js` as pure functions: argument parsing, request building, connection choice, response classification, the messages it prints. No network, file or `process` access. Tests: `lib/__tests__/run-component-logic.test.js`. |
 | `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). |
 
 ### Rule File (`rules/` → `~/.cursor/rules/make-custom-app/`, Cursor only)
@@ -246,9 +248,9 @@ Claude Code has no separate rule file and no sub-agent. The installer writes a t
 
 The skill's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints `scripts/setup-secrets.js` and stops — run that wizard **in your own terminal**:
 
-1. **Make API key** — create a token at https://eu1.make.com/user/api (`make-api-url` defaults to `https://eu1.make.com/api/v2/admin`)
+1. **Make API key** — create a token at https://eu1.make.com/user/api (`make-api-url` defaults to `https://eu1.make.com/api/v2/admin`). Scopes for `run-component.js`: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection (`user:read` finds your own connections), and optionally `endpoints:run` (without it Endpoints use the legacy route) and `credential-requests:write` (an authorization link when you have no connection yet)
 2. **Clone `imt-app-runtime`** (Make internal repo; HTTPS or SSH) and paste the local path
-3. Optionally: `make-apps-mockup` path, Jira API token (email is filled from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get)), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
+3. Optionally: `make-apps-mockup` path, a default Make team id (`make-team-id`, for `run-component.js`; the agent can store it with `--team=<id> --save-team`), Jira API token (email is filled from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get)), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
 
 App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
 

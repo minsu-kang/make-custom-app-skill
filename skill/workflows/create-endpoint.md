@@ -41,7 +41,7 @@ Before designing, read [api-imljson-shape.md](../references/endpoints-reference/
    - **Module parity (module-derived sets).** Before pushing, diff each module's `expect` names and response fields against the endpoint's inputs/outputs with a script, not by eye — expected deltas are UI-only switches and module-side transformations only ([reference § Scripted module-parity check](../references/endpoints-reference.md#scripted-module-parity-check-module-derived-apps)).
 3. **Create and push** with the skill scripts (confirmation first): `create-component.js {slug} {ver} endpoint {name} "{label}" {connection} "{description}"`, then `update-app.js {slug} {ver} endpoint/{name}/{api|input_parameters|output_parameters|scope|context|annotations}` from the local files (`annotations` = `annotations.json`, the complete hint object). New custom functions go first (`create-component.js … function {name}` + `update-app.js … function/{name}/code|test`).
 4. **Public.** `node ${SKILL_ROOT}/scripts/update-component.js {slug} {ver} endpoint {name} public=true` for each new endpoint (confirmation first; a single confirmation for the batch is fine). Ask the user to toggle in the UI only if the call fails.
-5. **Tests.** New or changed `api.imljson` → add `data/{slug}/v{version}/endpoints/{name}/test.js` in the mockup repo when missing, then `test-component.js {slug} {ver} endpoint {name}` ([component-test-guide.md](../references/component-test-guide.md)). Expected output is the unwrapped object, not an RPC-style array. Live smoke still available via MCP `endpoint_execute` or the platform "Run Endpoint" button.
+5. **Tests.** New or changed `api.imljson` → add `data/{slug}/v{version}/endpoints/{name}/test.js` in the mockup repo when missing, then `test-component.js {slug} {ver} endpoint {name}` ([component-test-guide.md](../references/component-test-guide.md)). Expected output is the unwrapped object, not an RPC-style array. Then run it live once (lifecycle §6 "Run live").
 6. **Close out** (lifecycle §7): Developer Notes, context file, Pinecone. **Do not run `commit-changes.js commit`** — development ends at the push; the reviewer/committer commits. Commit only on an explicit user instruction.
 
 ## Updating an existing endpoint
@@ -67,7 +67,7 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Module parity diffed by script (module-derived sets)
 - [ ] API docs URLs verified reachable (not 404)
 - [ ] Context files of other endpoints cross-referencing this one are up to date
-- [ ] `test-component.js` run (or skipped with a note if mockup path missing)
+- [ ] `test-component.js` run (or skipped with a note if mockup path missing); Endpoint run live
 - [ ] Public toggled via `update-component.js … public=true` (user asked only if it failed)
 - [ ] Pushed, **not committed**; Dev Notes + context + Pinecone updated
 

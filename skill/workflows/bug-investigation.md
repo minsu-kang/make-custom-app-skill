@@ -24,7 +24,8 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 4. **Check impact.** Search the app for every use of the affected function / pattern; assess side effects on other modules.
 5. **Present findings and wait for approval** *(gate)*: error flow, root cause, why it happens, affected components, reproduction evidence, proposed fix scope.
 6. **Fix minimally.** Only the bug — no refactoring, no "improvements", no touching unrelated logic. Write to `${CONTEXTS_DIR}/{slug}-v{version}/`, confirm the failing test now passes, and confirm zero behaviour change outside the bug scenario (otherwise the fix is too broad). Every changed function keeps `test.js` covering core behaviour, edge cases (null / undefined / empty / boundaries), the bug scenario, and regressions; run `test-function.js`. Changed `api.imljson` → `test-component.js`.
-7. **Push and close out** per lifecycle §6–7 (Developer Notes use the bugfix template).
+7. **Push** per lifecycle §6. For an Endpoint or RPC fix, then run it live with the bug's input (lifecycle §6 "Run live").
+8. **Close out** per lifecycle §7 (Developer Notes use the bugfix template).
 
 ## Recurring bug (component fixed recently per Work History)
 
@@ -40,4 +41,4 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 - [ ] Failing test reproduces the bug
 - [ ] Findings presented and approved
 - [ ] Minimal fix; failing test passes; `test-function.js` / `test-component.js` run
-- [ ] Pushed with confirmation; Dev Notes asked; context + Pinecone updated
+- [ ] Pushed with confirmation; Endpoint / RPC fix run live; Dev Notes asked; context + Pinecone updated
