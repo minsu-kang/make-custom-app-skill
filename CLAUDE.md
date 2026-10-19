@@ -73,6 +73,15 @@ Required env vars for the MCP server: `PINECONE_API_KEY`, `OPENAI_API_KEY`. Opti
 
 Every commit must bump `version.json` → `skill/SKILL.md` front matter → `CHANGELOG.md` together (see `.claude/CLAUDE.md` for the exact protocol). The skill's auto-update logic compares the installed version against `version.json` fetched from the `master` branch on GitHub, so these three files must always agree.
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and master push. Run the same commands locally before pushing.
+
+- `mcp-server` (Node 22): `npm ci`, `npm run lint`, `npm run build`, `npm test`.
+- `skill-scripts` (Node 22 and 24): the `node --test` command below plus `--experimental-test-coverage` with 90% line, branch, and function thresholds.
+- `skill-check`: `node .github/scripts/check-skill.js` checks version sync (`version.json`, `SKILL.md`, `CHANGELOG.md`), front matter, relative links in `skill/**/*.md` and `README.md`, `> Read when` headers, the `SKILL.md` index, the README and `SKILL.md` script lists, and syntax. The 9 KB `SKILL.md` size only warns.
+- `lint-misc`: `shellcheck --severity=warning` on the two `.sh` installers and `actionlint`.
+
 ## Skill scripts
 
 Plain Node CommonJS under `skill/scripts/`. No `package.json`, no build, no TypeScript. Cursor loads the same invariants from `.cursor/rules/skill-scripts.mdc` when those files are in scope.

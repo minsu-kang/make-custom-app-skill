@@ -14,7 +14,7 @@ When the user asks to commit and push, **always** perform these steps in order:
    - **Major** (X.0.0): Breaking changes, incompatible API/workflow changes
    - **Minor** (x.Y.0): New features, new files, significant additions
    - **Patch** (x.y.Z): Bug fixes, refactoring, documentation updates, small improvements
-2. **Bump version** in both `version.json` and `skill/SKILL.md` frontmatter
+2. **Bump version** in both `version.json` and `skill/SKILL.md` frontmatter, and set `released` in `version.json` to the date of the new CHANGELOG entry
 3. **Update `CHANGELOG.md`** — add a new version section at the top
 4. **Commit** all changes with a descriptive message
 5. **Push** to remote
@@ -31,7 +31,7 @@ When `version.json`'s `version` field is changed:
 ## CHANGELOG Format
 
 ```markdown
-## [x.y.z] - YYYY-MM-DD
+## x.y.z — YYYY-MM-DD
 
 - Change description 1
 - Change description 2
