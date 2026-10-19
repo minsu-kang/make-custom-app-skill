@@ -45,7 +45,7 @@ Installers are split by target: `install-cursor.sh` / `install-cursor.ps1` write
 
 ### Three layers
 
-- **Code-enforced**: `scripts/check-setup.js` (first action every conversation — version, `imt-app-runtime-path`, API credentials, optional mockup / Jira / MCP) and `scripts/lib/version-guard.js` (runs at the top of every script, auto-updates an outdated install).
+- **Code-enforced**: `scripts/check-setup.js` (first action every conversation — version, `imt-app-runtime-path`, API credentials, the `@make.com` account, optional mockup / MCP) and `scripts/lib/version-guard.js` (runs at the top of every script, auto-updates an outdated install, and through `lib/access-guard.js` refuses an Atlassian account that is not `@make.com`).
 - **Always loaded**: `skill/SKILL.md` (≤ 9 KB) — first action, workflow routing, hard rules, component/module tables, reference index. It is the only prose loaded in every Make session.
 - **On demand**: `workflows/lifecycle.md` (shared skeleton: app identification → sync → context → Jira → work → push with confirmation → close-out) plus per-task deltas (`code-review.md`, `bug-investigation.md`, `feature-request.md`, `app-task.md`, `task-refinement.md`, `create-endpoint.md`), and `references/*.md`, each with a `> Read when:` header. The five largest (`runtime-reference`, `endpoints-reference`, `component-patterns-reference`, `code-review-criteria`, `app-ux-best-practices`) are a main file plus topic parts in a same-named folder; the main file's `## Parts` table says when to open each part.
 
@@ -87,7 +87,7 @@ Every commit must bump `version.json` → `skill/SKILL.md` front matter → `CHA
 Plain Node CommonJS under `skill/scripts/`. No `package.json`, no build, no TypeScript. Cursor loads the same invariants from `.cursor/rules/skill-scripts.mdc` when those files are in scope.
 
 - `require()`, not ESM `import`.
-- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`).
+- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`; it and `setup-secrets.js` pass `{ access: false }` because they report and fix the account check themselves).
 - Resolve the skill root via `lib/skill-root.js` (`process.argv[1]`). Do not use `__dirname` for the skill root.
 - Read config through `lib/settings.js` → `~/.make-custom-app-skill-secrets`. Never print token values to logs or stdout.
 - Tests: `node --test "skill/scripts/lib/__tests__/*.test.js"` (`node:test`, not the mcp-server vitest suite). Keep the quotes so Node expands the glob in any shell; the bare folder form finds no tests on Node 24.

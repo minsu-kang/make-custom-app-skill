@@ -16,6 +16,7 @@ const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
 const { requireTty, upsertSecretsFile, upsertEnvFile } = require('./lib/secrets-file');
 const { fetchJiraEmail } = require('./lib/jira-myself');
+const { isInternalEmail } = require('./lib/access-guard-logic');
 
 const DEFAULT_MAKE_API_URL = 'https://eu1.make.com/api/v2/admin';
 const DEFAULT_JIRA_BASE_URL = 'https://make.atlassian.net';
@@ -168,7 +169,7 @@ async function main() {
 		throw err;
 	}
 
-	require('./lib/version-guard').ensureFreshSkill();
+	require('./lib/version-guard').ensureFreshSkill({ access: false });
 
 	const skillRoot = getSkillRoot();
 	const envPath = path.join(skillRoot, 'mcp-server', '.env');
@@ -224,14 +225,13 @@ async function main() {
 	});
 
 	console.log('');
-	console.log('── Jira (optional) ──');
-	console.log(`Create an API token at ${'https://id.atlassian.com/manage-profile/security/api-tokens'}`);
-	console.log('Used for ticket attachments and reviewer assignment. Enter skips this section.');
+	console.log('── Jira (required) ──');
+	console.log('Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens (choose "Create API token", not "Create API token with scopes").');
+	console.log('The skill is for Make employees: it confirms that this Atlassian account is a @make.com account. The token is also used for ticket attachments and reviewer assignment.');
 	console.log('');
 	const jiraToken = await ask({
 		label: 'jira-api-token',
 		current: readSkillConfig('jira-api-token'),
-		optional: true,
 		hidden: true,
 	});
 
@@ -250,9 +250,10 @@ async function main() {
 				token: jiraToken,
 			});
 			console.log(`  jira-email set from /myself: ${jiraEmail}`);
+			if (!isInternalEmail(jiraEmail)) console.log('  This is not a @make.com account, so the skill will refuse to run.');
 		} catch (err) {
 			jiraEmail = typedEmail;
-			console.log(`  /myself failed (${err.message}). Saving the typed email.`);
+			console.log(`  /myself failed (${err.message}). Saving the typed email. The skill will not run until the token works.`);
 		}
 	}
 

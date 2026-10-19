@@ -25,6 +25,9 @@ const { getSkillRoot, getEditorDir } = require('./skill-root');
  * Cheap by design: the remote version.json is fetched at most once per
  * CHECK_TTL_MS via a tmp-dir cache, so calling this at the top of every script
  * costs nothing on the common (already-fresh) path.
+ *
+ * ensureFreshSkill() then runs lib/access-guard.js. That check does block: the run stops unless the
+ * Atlassian account behind the saved Jira token is @make.com.
  */
 
 const REPO = 'minsu-kang/make-custom-app-skill';
@@ -91,12 +94,7 @@ function fetchRemoteVersion() {
 	}
 }
 
-/**
- * Enforce that the installed skill is at the latest version before real work
- * proceeds. Safe to call at the top of any entry script. May call process.exit()
- * when the skill is outdated.
- */
-function ensureFreshSkill() {
+function checkVersion() {
 	let skillRoot;
 	let editorDir;
 	try {
@@ -153,6 +151,18 @@ function ensureFreshSkill() {
 
 	process.stderr.write(`\nUpdate did not take (still ${after || 'unknown'}). Run manually, then retry:\n   ${cmd}\n`);
 	process.exit(1);
+}
+
+/**
+ * Enforce that the installed skill is at the latest version and that the user is a Make
+ * employee (lib/access-guard.js) before real work proceeds. Safe to call at the top of any
+ * entry script. May call process.exit() when the skill is outdated or the account is refused.
+ * `{ access: false }` skips the account check (setup-secrets.js and check-setup.js, which
+ * report it themselves).
+ */
+function ensureFreshSkill({ access = true } = {}) {
+	checkVersion();
+	if (access) require('./access-guard').ensureInternalUser();
 }
 
 module.exports = {

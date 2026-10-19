@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.1 — 2026-10-19
+
+The skill now runs only for Make employees. Every script under `skill/scripts/` except `setup-secrets.js` confirms that the Atlassian account behind the saved Jira token is a `@make.com` account, and `check-setup.js` reports the same check.
+
+- **Account check**: `lib/access-guard.js` calls Jira `GET /rest/api/3/myself` on `https://make.atlassian.net` with the saved token and accepts the run only when the account email ends in `@make.com`. The email comes from the Jira answer, so a `jira-email` line typed into `~/.make-custom-app-skill-secrets` does not count. `version-guard.js` runs the check inside `ensureFreshSkill()`, so every entry script gets it. A refused run exits 1 and prints the reason: no Jira token saved, an account outside `@make.com`, credentials Jira rejected with HTTP 401, or Jira not confirming the account (another HTTP status, no email address in the answer, or no connection, each named in the message). The messages ask for a token created with "Create API token", not "Create API token with scopes".
+- **Cache**: a confirmed account is cached for 24 hours in the temp directory, readable by its owner only and bound to the saved credentials. When Jira cannot confirm the account, an older entry for the same credentials is still accepted and Jira is asked again at most once an hour, so an offline machine is not slowed on every run. A run with no entry is refused. A 401 or an account outside `@make.com` removes the entry.
+- **Jira token is required**: `check-setup.js` reports it as the required item `make account` (it was the optional item `jira credentials`), and `setup-secrets.js` no longer lets you skip the Jira section. Both skip the guard's own check because they report and fix it. A test fails when another script skips the check or does not call the guard.
+- **Soft guard**: the repository is public and the scripts run on your machine, so editing them removes the check. It stops someone who installs the skill without a Make Atlassian account.
+- **Tests and fixes**: new `access-guard-logic`, `access-guard` (against a mock Jira in a separate process) and `settings` tests. Errors from `jira-myself.js` now carry `status` and `code`. `SKILL.md` tells the agent that a refusal for a non-`@make.com` account is final.
+
 ## 2.3.0 — 2026-10-19
 
 A new script, `run-component.js`, runs one SDK Endpoint or RPC live through Make's public API, so a developer can smoke test a change with a real connection. It uses only connections the user created, and the skill never sees a third-party token.

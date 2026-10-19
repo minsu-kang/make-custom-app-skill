@@ -8,11 +8,11 @@ async function fetchJiraEmail({ baseUrl, email, token, fetchFn = fetch }) {
 		},
 	});
 	if (!res.ok) {
-		throw new Error(`Jira /myself failed: HTTP ${res.status}`);
+		throw Object.assign(new Error(`Jira /myself failed: HTTP ${res.status}`), { status: res.status });
 	}
 	const body = await res.json();
 	if (!body || !body.emailAddress) {
-		throw new Error('Jira /myself response has no emailAddress');
+		throw Object.assign(new Error('Jira /myself response has no emailAddress'), { code: 'NO_EMAIL' });
 	}
 	return body.emailAddress;
 }

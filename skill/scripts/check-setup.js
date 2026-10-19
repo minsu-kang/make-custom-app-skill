@@ -20,10 +20,12 @@ const path = require('path');
 const { getSkillRoot, getEditorDir } = require('./lib/skill-root');
 const { readSkillConfig, skillMdHasConfig, SECRETS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
+const { checkAccess } = require('./lib/access-guard');
+const { denyMessage } = require('./lib/access-guard-logic');
 
 const args = new Set(process.argv.slice(2));
 if (!args.has('--skip-version')) {
-	require('./lib/version-guard').ensureFreshSkill();
+	require('./lib/version-guard').ensureFreshSkill({ access: false });
 }
 
 const skillRoot = getSkillRoot();
@@ -123,19 +125,14 @@ if (isClaude) {
 	}
 }
 
-// 4. Jira credentials (optional — attachment download, reviewer assignment)
+// 4. Make account (required): the skill is for Make employees; the Atlassian account behind the saved Jira token must be @make.com
 {
-	const email = readSkillConfig('jira-email');
-	const token = readSkillConfig('jira-api-token');
-	if (isPlaceholder(email, ['your-email', '@example.com']) || isPlaceholder(token, ['your-api-token', '<token>'])) {
-		add(
-			'jira credentials',
-			'optional-missing',
-			'jira-email / jira-api-token not set — attachment download and reviewer assignment unavailable',
-			`${SETUP_HINT}\nOptional — create a token at https://id.atlassian.com/manage-profile/security/api-tokens. The wizard fills jira-email from GET /rest/api/3/myself.`,
-		);
+	const access = checkAccess();
+	if (access.ok) {
+		add('make account', 'ok', access.email);
 	} else {
-		add('jira credentials', 'ok', email);
+		const [detail, ...fix] = denyMessage(access.code, { ...access, setupCommand: SETUP_CMD }).split('\n');
+		add('make account', 'missing', detail, fix.length ? fix.join('\n') : null);
 	}
 }
 

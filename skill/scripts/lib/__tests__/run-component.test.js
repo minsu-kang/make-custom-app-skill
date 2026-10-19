@@ -10,10 +10,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
 
 const SKILL_DIR = path.resolve(__dirname, '..', '..', '..');
 const FAKE_KEY = 'FAKEKEY_abc123SECRET';
 const VENDOR_TOKEN = 'VENDOR_TOKEN_xyz789';
+const JIRA_EMAIL = 'dev@make.com';
+const JIRA_TOKEN = 'FAKE_JIRA_TOKEN_k3y';
 const ME = 5;
 const WINDOWS = process.platform === 'win32';
 
@@ -119,12 +122,14 @@ function handle(req, res, data) {
 }
 
 function writeSecrets(extra = '', key = FAKE_KEY) {
-	fs.writeFileSync(secretsPath, `imt-app-runtime-path: /tmp\nmake-api-key: ${key}\nmake-api-url: http://127.0.0.1:${server.address().port}/api/v2/admin\n${extra}`, { mode: 0o600 });
+	fs.writeFileSync(secretsPath, `imt-app-runtime-path: /tmp\nmake-api-key: ${key}\nmake-api-url: http://127.0.0.1:${server.address().port}/api/v2/admin\njira-email: ${JIRA_EMAIL}\njira-api-token: ${JIRA_TOKEN}\n${extra}`, { mode: 0o600 });
 }
 
 function runScript(args, { secretsExtra = '', keepSecrets = false, key } = {}) {
 	if (!keepSecrets) writeSecrets(secretsExtra, key);
 	fs.writeFileSync(path.join(tmp, 'make-custom-app-version-check.json'), JSON.stringify({ ok: true, checkedAt: Date.now(), installed: 'x', remote: 'x' }));
+	const accessKey = cacheKey({ baseUrl: JIRA_BASE_URL, email: JIRA_EMAIL, token: JIRA_TOKEN });
+	fs.writeFileSync(path.join(tmp, 'make-custom-app-access-check.json'), JSON.stringify({ key: accessKey, email: JIRA_EMAIL, checkedAt: Date.now() }));
 	return new Promise((resolve) => {
 		const child = spawn(process.execPath, [script, ...args], { env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmp, TEMP: tmp, USERPROFILE: home } });
 		let stdout = '';
@@ -140,7 +145,7 @@ const credPosts = () => log.filter((e) => e.method === 'POST' && e.path.includes
 const firstLine = (r) => r.stderr.split('\n')[0];
 
 function noLeak(r, what) {
-	for (const secret of [FAKE_KEY, VENDOR_TOKEN]) {
+	for (const secret of [FAKE_KEY, VENDOR_TOKEN, JIRA_TOKEN]) {
 		assert.ok(!r.stdout.includes(secret) && !r.stderr.includes(secret), `${what}: secret leaked`);
 	}
 }

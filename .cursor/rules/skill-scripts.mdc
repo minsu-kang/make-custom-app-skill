@@ -9,7 +9,7 @@ alwaysApply: false
 Plain Node CommonJS. No `package.json`, no build, no TypeScript.
 
 - `require()`, not ESM `import`.
-- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`).
+- New entry script: `#!/usr/bin/env node` and `require('./lib/version-guard').ensureFreshSkill()` (`check-setup.js` may skip with `--skip-version`; it and `setup-secrets.js` pass `{ access: false }` because they report and fix the account check themselves).
 - Resolve the skill root via `lib/skill-root.js` (`process.argv[1]`). Do not use `__dirname` for the skill root.
 - Read config through `lib/settings.js` → `~/.make-custom-app-skill-secrets`. Never print token values to logs or stdout.
 - Tests: `node --test "skill/scripts/lib/__tests__/*.test.js"` (`node:test`, not the mcp-server vitest suite). Keep the quotes so Node expands the glob in any shell; the bare folder form finds no tests on Node 24.

@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.0
+version: 2.3.1
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -12,10 +12,10 @@ Path variables: `${SKILL_ROOT}` = `~/.cursor/skills/make-custom-app` (Cursor) or
 
 ## First action — once per conversation
 
-Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: ["all"]`). It checks the skill version (auto-updates when outdated), `imt-app-runtime-path`, Make API credentials, and optional mockup / Jira / MCP setup, and prints the fix for anything missing. User config (paths, API keys, Jira credentials) lives in `~/.make-custom-app-skill-secrets`; scripts read it, you never do.
+Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: ["all"]`). It checks the skill version (auto-updates when outdated), `imt-app-runtime-path`, Make API credentials, the `@make.com` Atlassian account behind the Jira token, and optional mockup / MCP setup, and prints the fix for anything missing. User config (paths, API keys, Jira credentials) lives in `~/.make-custom-app-skill-secrets`; scripts read it, you never do.
 
 - Exit `0` → continue. Exit `3` → skill just updated; re-read this file, then **re-run check-setup.js** (the guard exits before config checks).
-- Exit `1` → show its output and **stop** (no app code, scripts, or MCP calls) until fixed, then re-run check-setup.js. On "Auto-update failed" or "Update did not take", relay the printed manual update command. For MISSING config only, tell the user to run `node ${SKILL_ROOT}/scripts/setup-secrets.js` **in their own terminal**, never run it yourself (interactive, writes secrets). Exception: to add a config line check-setup reports as not set, append it with Bash (`printf '\n%s\n' 'key: value' >> ~/.make-custom-app-skill-secrets`; last match wins). Never Read/Edit/Write that file.
+- Exit `1` → show its output and **stop** (no app code, scripts, or MCP calls) until fixed, then re-run check-setup.js. On "Auto-update failed" or "Update did not take", relay the printed manual update command. A `make account` refusal for a non-`@make.com` account is final: offer no workaround. Other `make account` failures follow their printed fix. For MISSING config only, tell the user to run `node ${SKILL_ROOT}/scripts/setup-secrets.js` **in their own terminal**, never run it yourself (interactive, writes secrets). Exception: to add a config line check-setup reports as not set, append it with Bash (`printf '\n%s\n' 'key: value' >> ~/.make-custom-app-skill-secrets`; last match wins). Never Read/Edit/Write that file.
 
 ## Workflows
 
