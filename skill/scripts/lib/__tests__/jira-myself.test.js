@@ -35,7 +35,7 @@ describe('fetchJiraEmail', () => {
 					token: 'bad',
 					fetchFn: async () => ({ ok: false, status: 401, json: async () => ({}) }),
 				}),
-			/401/,
+			(err) => err.status === 401 && /401/.test(err.message),
 		);
 	});
 
@@ -48,7 +48,7 @@ describe('fetchJiraEmail', () => {
 					token: 'tok',
 					fetchFn: async () => ({ ok: true, status: 200, json: async () => ({ displayName: 'No Email' }) }),
 				}),
-			/emailAddress/,
+			(err) => err.code === 'NO_EMAIL' && /emailAddress/.test(err.message),
 		);
 	});
 });

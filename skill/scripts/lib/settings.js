@@ -15,7 +15,7 @@ const { getEditorDir, getSkillRoot } = require('./skill-root');
  *   make-api-url: https://eu1.make.com/api/v2/admin   (optional)
  *   make-apps-mockup-path: /abs/path      (optional — test-component.js)
  *   make-team-id: 12345                   (optional — default team for run-component.js)
- *   jira-email: you@example.com           (optional — Jira scripts)
+ *   jira-email: you@example.com           (required — account check, Jira scripts)
  *   jira-api-token: <token>
  *   jira-base-url: https://make.atlassian.net          (optional)
  *   mcp-server-path: /abs/path            (optional)

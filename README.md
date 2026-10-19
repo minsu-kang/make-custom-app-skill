@@ -14,6 +14,8 @@ Works with the **Make Apps SDK** VS Code/Cursor extension. The agent understands
 
 ## Prerequisites
 
+The skill is for Make employees. Every script confirms that the Atlassian account behind your Jira API token is a `@make.com` account and exits otherwise (see First Use).
+
 ### Cursor
 
 - [Cursor](https://cursor.sh/) installed
@@ -172,7 +174,7 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 
 | File | Description |
 |------|-------------|
-| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, default team id, Jira credentials, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
+| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, default team id, the `@make.com` account check, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
 | `setup-secrets.js` | Interactive terminal wizard. Writes `~/.make-custom-app-skill-secrets` (mode 600) and optionally `mcp-server/.env`. Run in your own terminal, never via the agent. |
 | `download-app.js` | Downloads full app source code from Make API |
 | `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
@@ -189,7 +191,9 @@ The routing note tells the Claude Code main session to invoke the `make-custom-a
 | `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
 | `lib/settings.js` | Shared settings loader — reads `~/.make-custom-app-skill-secrets` (paths, Make/Jira credentials; legacy SKILL.md tail as fallback) and Cursor `settings.json`. |
 | `lib/run-component-logic.js` | The decisions behind `run-component.js` as pure functions: argument parsing, request building, connection choice, response classification, the messages it prints. No network, file or `process` access. Tests: `lib/__tests__/run-component-logic.test.js`. |
-| `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). |
+| `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). `ensureFreshSkill()` then calls `lib/access-guard.js`; `{ access: false }` skips that (`check-setup.js`, `setup-secrets.js`). |
+| `lib/access-guard.js` | Account gate: the skill is for Make employees. Asks Jira `GET /rest/api/3/myself` (in a child process, token over stdin) and exits 1 unless the account email is `@make.com`. A verdict is cached for 24 hours per credentials; an older entry is accepted while Jira is unreachable. Tests: `lib/__tests__/access-guard.test.js` (mock Jira in a separate process). |
+| `lib/access-guard-logic.js` | The decisions behind `access-guard.js` as pure functions: the `@make.com` test, cache key and state, verdict mapping, the refusal messages. Tests: `lib/__tests__/access-guard-logic.test.js`. |
 
 ### Rule File (`rules/` → `~/.cursor/rules/make-custom-app/`, Cursor only)
 
@@ -250,7 +254,8 @@ The skill's first action in every conversation is `scripts/check-setup.js`. If a
 
 1. **Make API key** — create a token at https://eu1.make.com/user/api (`make-api-url` defaults to `https://eu1.make.com/api/v2/admin`). Scopes for `run-component.js`: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection (`user:read` finds your own connections), and optionally `endpoints:run` (without it Endpoints use the legacy route) and `credential-requests:write` (an authorization link when you have no connection yet)
 2. **Clone `imt-app-runtime`** (Make internal repo; HTTPS or SSH) and paste the local path
-3. Optionally: `make-apps-mockup` path, a default Make team id (`make-team-id`, for `run-component.js`; the agent can store it with `--team=<id> --save-team`), Jira API token (email is filled from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get)), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
+3. **Jira API token**: create it at https://id.atlassian.com/manage-profile/security/api-tokens with your `@make.com` Atlassian account (choose **Create API token**, not **Create API token with scopes**). The wizard fills `jira-email` from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get), and every script repeats that call (cached for 24 hours) and refuses any other account
+4. Optionally: `make-apps-mockup` path, a default Make team id (`make-team-id`, for `run-component.js`; the agent can store it with `--team=<id> --save-team`), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
 
 App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
 
