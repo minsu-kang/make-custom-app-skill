@@ -7,14 +7,6 @@ export default tseslint.config(
 	...tseslint.configs.recommended,
 	prettier,
 	{
-		languageOptions: {
-			parserOptions: {
-				projectService: {
-					allowDefaultProject: ['eslint.config.js'],
-				},
-				tsconfigRootDir: import.meta.dirname,
-			},
-		},
 		rules: {
 			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
 		},
