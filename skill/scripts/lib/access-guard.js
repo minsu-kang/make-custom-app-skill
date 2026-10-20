@@ -36,6 +36,7 @@ const CHILD_SOURCE = [
 function lookupJiraEmail({ baseUrl, email, token }) {
 	const run = spawnSync(process.execPath, ['-e', CHILD_SOURCE, path.join(__dirname, 'jira-myself.js')], {
 		input: JSON.stringify({ baseUrl, email, token }),
+		env: { ...process.env, ...logic.proxyEnv(process.env) },
 		encoding: 'utf8',
 		timeout: LOOKUP_TIMEOUT_MS + 4000,
 		stdio: ['pipe', 'pipe', 'ignore'],

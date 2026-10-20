@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.2 — 2026-10-20
+
+The account check now works behind an HTTP proxy.
+
+- **Proxy**: Node's `fetch` ignores `HTTPS_PROXY` and `HTTP_PROXY`, while the curl call in `version-guard.js` honours them. On a network that only allows traffic through a proxy, the version check passed and the account check failed with `Could not reach Jira`. The lookup child process now gets `NODE_USE_ENV_PROXY=1` when every proxy variable that is set starts with `http://` or `https://`. A value without a scheme (`proxy.corp:8080`) leaves it off, because Node exits at startup on it, and so does a `NODE_USE_ENV_PROXY` you set yourself. Node 24 and Node 22.21 or later honour the variable, older versions ignore it.
+- **Tests**: `proxyEnv` unit tests, and `lookupJiraEmail` runs against a mock proxy that tunnels to the mock Jira.
+
 ## 2.3.1 — 2026-10-19
 
 The skill now runs only for Make employees. Every script under `skill/scripts/` except `setup-secrets.js` confirms that the Atlassian account behind the saved Jira token is a `@make.com` account, and `check-setup.js` reports the same check.

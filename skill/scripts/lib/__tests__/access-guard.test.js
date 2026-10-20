@@ -199,6 +199,85 @@ describe('lookupJiraEmail (child process against a mock Jira)', () => {
 	});
 });
 
+// A CONNECT-only proxy that tunnels every target to the mock Jira and logs each request. Node's fetch sends CONNECT
+// for http:// targets too once NODE_USE_ENV_PROXY=1 is on.
+const MOCK_PROXY = `
+const http = require('http');
+const net = require('net');
+const server = http.createServer((req, res) => { res.writeHead(502); res.end(); });
+server.on('connect', (req, socket, head) => {
+	console.log('CONNECT ' + req.url);
+	const upstream = net.connect(Number(process.argv[1]), '127.0.0.1', () => {
+		socket.write('HTTP/1.1 200 Connection Established\\r\\n\\r\\n');
+		if (head.length) upstream.write(head);
+		upstream.pipe(socket);
+		socket.pipe(upstream);
+	});
+	upstream.on('error', () => socket.destroy());
+	socket.on('error', () => upstream.destroy());
+});
+server.listen(0, '127.0.0.1', () => console.log('PORT ' + server.address().port));
+`;
+
+const PROXY_ENV_NAMES = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy', 'NODE_USE_ENV_PROXY'];
+const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split('.').map(Number);
+const NODE_HAS_ENV_PROXY = NODE_MAJOR >= 24 || (NODE_MAJOR === 22 && NODE_MINOR >= 21);
+
+function withProxyEnv(vars, fn) {
+	const saved = Object.fromEntries(PROXY_ENV_NAMES.map((name) => [name, process.env[name]]));
+	for (const name of PROXY_ENV_NAMES) delete process.env[name];
+	Object.assign(process.env, vars);
+	try {
+		return fn();
+	} finally {
+		for (const name of PROXY_ENV_NAMES) {
+			if (saved[name] === undefined) delete process.env[name];
+			else process.env[name] = saved[name];
+		}
+	}
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+describe('lookupJiraEmail with a proxy in the environment', () => {
+	// .invalid never resolves, so only a request that goes through the proxy can reach the mock Jira.
+	const JIRA = 'http://jira.proxy-test.invalid';
+	let jira;
+	let proxy;
+	let proxyPort;
+	let proxyLog = '';
+
+	before(async () => {
+		jira = spawn(process.execPath, ['-e', MOCK_JIRA], { stdio: ['ignore', 'pipe', 'inherit'] });
+		const jiraPort = await new Promise((resolve) => jira.stdout.once('data', (c) => resolve(String(c).trim())));
+		proxy = spawn(process.execPath, ['-e', MOCK_PROXY, jiraPort], { stdio: ['ignore', 'pipe', 'inherit'] });
+		proxyPort = await new Promise((resolve) => proxy.stdout.once('data', (c) => resolve(/PORT (\d+)/.exec(String(c))[1])));
+		proxy.stdout.on('data', (c) => (proxyLog += c));
+	});
+
+	after(() => {
+		jira.kill();
+		proxy.kill();
+	});
+
+	it('sends the request through http:// proxy variables', { skip: !NODE_HAS_ENV_PROXY && 'this Node ignores NODE_USE_ENV_PROXY' }, async () => {
+		const seen = proxyLog;
+		const result = withProxyEnv({ HTTPS_PROXY: `http://127.0.0.1:${proxyPort}`, HTTP_PROXY: `http://127.0.0.1:${proxyPort}` }, () => guard.lookupJiraEmail({ baseUrl: JIRA, email: EMAIL, token: TOKEN }));
+		await settle();
+		assert.deepEqual(result, { ok: true, email: EMAIL });
+		assert.match(proxyLog.slice(seen.length), /CONNECT jira\.proxy-test\.invalid:80/);
+	});
+
+	it('does not crash on a proxy variable without a scheme and goes direct', async () => {
+		const seen = proxyLog;
+		const result = withProxyEnv({ HTTPS_PROXY: `127.0.0.1:${proxyPort}` }, () => guard.lookupJiraEmail({ baseUrl: JIRA, email: EMAIL, token: TOKEN }));
+		await settle();
+		assert.equal(result.ok, false);
+		assert.notEqual(result.reason, 'NO_OUTPUT');
+		assert.equal(proxyLog, seen);
+	});
+});
+
 function closedPort() {
 	return new Promise((resolve) => {
 		const s = net.createServer();

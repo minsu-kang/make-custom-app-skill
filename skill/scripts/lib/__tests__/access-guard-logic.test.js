@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { isInternalEmail, cacheKey, cacheState, retryTooSoon, parseLookupOutput, verdictFromLookup, denyMessage, CACHE_TTL_MS, RETRY_MS } = require('../access-guard-logic');
+const { isInternalEmail, cacheKey, cacheState, retryTooSoon, proxyEnv, parseLookupOutput, verdictFromLookup, denyMessage, CACHE_TTL_MS, RETRY_MS } = require('../access-guard-logic');
 
 describe('isInternalEmail', () => {
 	it('accepts @make.com addresses in any case, with surrounding whitespace', () => {
@@ -78,6 +78,39 @@ describe('retryTooSoon', () => {
 		assert.equal(retryTooSoon({}, NOW), false);
 		assert.equal(retryTooSoon({ lastAttemptAt: 'x' }, NOW), false);
 		assert.equal(retryTooSoon({ lastAttemptAt: NOW + 1000 }, NOW), false);
+	});
+});
+
+describe('proxyEnv', () => {
+	const ON = { NODE_USE_ENV_PROXY: '1' };
+
+	it('turns the Node proxy opt-in on when a proxy variable has an http or https scheme', () => {
+		for (const name of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) {
+			assert.deepEqual(proxyEnv({ [name]: 'http://proxy.corp:8080' }), ON, name);
+		}
+		assert.deepEqual(proxyEnv({ HTTPS_PROXY: 'https://user:pw@proxy.corp:8443' }), ON);
+		assert.deepEqual(proxyEnv({ HTTPS_PROXY: 'HTTP://proxy.corp:8080', http_proxy: 'http://proxy.corp:8080' }), ON);
+	});
+
+	it('leaves it off with no proxy variable, an empty one, or only ALL_PROXY', () => {
+		for (const env of [{}, { HTTPS_PROXY: '' }, { ALL_PROXY: 'http://proxy.corp:8080' }, { NO_PROXY: 'make.atlassian.net' }]) assert.deepEqual(proxyEnv(env), {}, JSON.stringify(env));
+	});
+
+	it('leaves it off when any proxy variable has no http(s) scheme, because Node exits at startup on it', () => {
+		for (const env of [
+			{ HTTPS_PROXY: 'proxy.corp:8080' },
+			{ http_proxy: '127.0.0.1:3128' },
+			{ HTTPS_PROXY: 'socks5://proxy.corp:1080' },
+			{ HTTPS_PROXY: 'http://proxy.corp:8080', HTTP_PROXY: 'proxy.corp:8080' },
+			{ HTTPS_PROXY: 'ftp://proxy.corp:21' },
+		]) {
+			assert.deepEqual(proxyEnv(env), {}, JSON.stringify(env));
+		}
+	});
+
+	it('keeps a NODE_USE_ENV_PROXY the user already set', () => {
+		assert.deepEqual(proxyEnv({ HTTPS_PROXY: 'http://proxy.corp:8080', NODE_USE_ENV_PROXY: '0' }), {});
+		assert.deepEqual(proxyEnv({ HTTPS_PROXY: 'http://proxy.corp:8080', NODE_USE_ENV_PROXY: '1' }), {});
 	});
 });
 
