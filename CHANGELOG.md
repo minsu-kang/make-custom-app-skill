@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.5 — 2026-10-20
+
+The live phase now sits before close-out and has a fixed review.
+
+- **Ownership.** Before the first live command, transfer the app to the acting user when they are not already the owner. Transfer it back to the original owner after fixtures, or when the user stops, and before close-out.
+- **Review.** After each run, delete vendor records this run created (the app's delete endpoint, or `arbitraryCall` when the vendor docs document a delete). Then show the live review table: component, type (`endpoint` or `rpc`), exit, what came back, schema mismatches, rejected inputs, and cleanup. Ask whether to fix the component and whether to add the same points to `context.md` or parameter `help`. A yes is the push confirmation. Live again after those edits.
+- **Fixtures after a pass.** Mockup `test.js` files are written only once the review passes and a mockup path is set, then `test-component.js` runs. `create-endpoint.md`, `feature-request.md`, `bug-investigation.md`, and `app-task.md` point at this loop.
+
 ## 2.3.4 — 2026-10-20
 
 Live endpoint runs were requesting a connection against the compiled app slug, and an empty endpoint section was written on the admin route.

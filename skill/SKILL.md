@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.4
+version: 2.3.5
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
