@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.4 — 2026-10-20
+
+Live endpoint runs were requesting a connection against the compiled app slug, and an empty endpoint section was written on the admin route.
+
+- **SDK app name on a missing connection.** `run-component.js` tells the agent to call Make MCP `connection_create` with `appName` `app#{slug}` and `endpointNames` for the endpoints in the run. The compiled slug does not list uncommitted SDK endpoints. The account type printed on the first line stays the form's connection type. `lifecycle.md` §6 and `create-endpoint.md` say the same.
+- **Empty `[]` save.** Admin PUT of an empty `input_parameters`, `output_parameters`, or `scope` returns HTTP 500 `42501`. The non-admin route accepts `[]` while the caller owns the app. `forman-schemas.md`, `create-endpoint.md`, and `code-review-guidance.md` describe the ownership transfer, the non-admin PUT, and the transfer back. A placeholder field is not a fix.
+- **Live check.** `create-endpoint.md` requires every input, required and optional, on the live run, then a comparison of the response keys and types with `output_parameters`.
+
 ## 2.3.3 — 2026-10-20
 
 Code reviews now check where an OAuth connection declares granular scopes. A review of Buffer v3 (IEN-15544) passed an app with all six vendor scopes in the connection default and `[]` in every module and endpoint, because no review step looked at scope placement.

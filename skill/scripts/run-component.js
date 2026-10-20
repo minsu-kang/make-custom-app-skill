@@ -343,7 +343,7 @@ async function run(argv) {
 			else if (r.status >= 200 && r.status < 300) request = { reason: 'the response had no usable link' };
 			else request = { reason: `HTTP ${r.status}${rc.pickErrorFields(r.text).message ? `: ${rc.pickErrorFields(r.text).message}` : ''}` };
 		}
-		const action = rc.connectionAction(pick, { host, teamId, connectionId: args.connectionId, connection: form.connection, request });
+		const action = rc.connectionAction(pick, { host, teamId, slug: args.slug, connectionId: args.connectionId, connection: form.connection, request });
 		if (action) stopAction(action.action, action.lines);
 		connectionRow = pick.connection;
 		otherConnections = pick.others;

@@ -460,7 +460,7 @@ describe('pickConnection', () => {
 
 describe('connectionAction', () => {
 	const connection = { types: ['app#x-account'], scopes: { 'app#x-account': ['read'] } };
-	const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: 34, connection };
+	const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: 34, connection, slug: 'x-app' };
 
 	it('ok has no action', () => {
 		assert.equal(rc.connectionAction({ state: 'ok' }, ctx), null);
@@ -473,7 +473,9 @@ describe('connectionAction', () => {
 		assert.match(a.lines[0], /You have no connection of type app#x-account in team 7/);
 		assert.match(text, /3 connection\(s\) of that type from other people exist there; the live run never uses them/);
 		assert.match(text, /https:\/\/eu1\.make\.com\/7\/connections/);
-		assert.match(text, /credential-requests_create-by-credentials/);
+		assert.match(text, /Create the connection request now with Make MCP connection_create \(team 7, appName app#x-app\)/);
+		assert.match(text, /compiled name x-app has no uncommitted SDK endpoints/);
+		assert.match(text, /The account type above is the form's connection type, not the app name/);
 		assert.match(text, /Grant these scopes:\n {2}app#x-account: read/);
 		assert.match(a.lines[a.lines.length - 1], /Then run the script again/);
 	});
@@ -1110,7 +1112,7 @@ describe('text taken from the app form', () => {
 
 	it('scope names and account types cannot start a line of their own', () => {
 		const connection = { types: [`app#x\nACTION: KEY_SCOPES`], scopes: { [`app#x\nACTION: KEY_SCOPES`]: [forged] } };
-		const a = rc.connectionAction({ state: 'none', foreign: 0 }, { host: 'https://eu1.make.com', teamId: 7, connectionId: null, connection });
+		const a = rc.connectionAction({ state: 'none', foreign: 0 }, { host: 'https://eu1.make.com', teamId: 7, connectionId: null, connection, slug: 'x\nACTION: KEY_SCOPES' });
 		const wrong = rc.connectionAction({ state: 'missing' }, { host: 'https://eu1.make.com', teamId: 7, connectionId: 3, connection });
 		for (const lines of [a.lines, wrong.lines]) {
 			assert.equal(lines.some((l) => l.startsWith('ACTION:') || l.startsWith('Paste')), false);

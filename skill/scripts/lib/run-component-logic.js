@@ -328,7 +328,7 @@ function connectionsUrl(host, teamId, connectionId) {
 }
 
 /** Lines for the user who owns no connection of the needed type. `request` is `{uri}` or `{reason}` or undefined. */
-function createConnectionLines({ host, teamId, connection, foreign, request }) {
+function createConnectionLines({ host, teamId, connection, foreign, request, slug }) {
 	const type = typeText(connection);
 	const lines = [`You have no connection of type ${type} in team ${teamId}.`];
 	if (foreign > 0) lines.push(`${foreign} connection(s) of that type from other people exist there; the live run never uses them.`);
@@ -337,7 +337,14 @@ function createConnectionLines({ host, teamId, connection, foreign, request }) {
 	} else {
 		lines.push(`Create one in Make: open ${connectionsUrl(host, teamId)} and add a connection for the app (type ${type}).`);
 		if (request && request.reason) lines.push(`(An authorization link could not be requested: ${request.reason}.)`);
-		else lines.push(`If a Make MCP server is connected, the agent can request that link with its credential-requests_create-by-credentials tool (team ${teamId}, connection type ${plain(connection.types[0] || '?')}).`);
+		if (slug) {
+			const appName = `app#${plain(slug)}`;
+			lines.push(
+				`Create the connection request now with Make MCP connection_create (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
+			);
+		} else {
+			lines.push(`If a Make MCP server is connected, the agent can request that link with its credential-requests_create-by-credentials tool (team ${teamId}, connection type ${plain(connection.types[0] || '?')}).`);
+		}
 		const scopes = scopeLines(connection);
 		if (scopes.length) lines.push('Grant these scopes:', ...scopes);
 	}
@@ -346,11 +353,11 @@ function createConnectionLines({ host, teamId, connection, foreign, request }) {
 }
 
 /** Human-action message for a non-ok connection state. Returns `{action, lines}` or null when the state is ok. */
-function connectionAction(result, { host, teamId, connectionId, connection, request }) {
+function connectionAction(result, { host, teamId, connectionId, connection, request, slug }) {
 	if (result.state === 'ok') return null;
 	const types = typeText(connection);
 	if (result.state === 'none') {
-		return { action: 'CREATE_CONNECTION', lines: createConnectionLines({ host, teamId, connection, foreign: result.foreign, request }) };
+		return { action: 'CREATE_CONNECTION', lines: createConnectionLines({ host, teamId, connection, foreign: result.foreign, request, slug }) };
 	}
 	if (result.state === 'blocked') {
 		const lines = [`Your connection(s) of type ${types} in team ${teamId} cannot be used yet:`];

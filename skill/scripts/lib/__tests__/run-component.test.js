@@ -629,7 +629,8 @@ describe('connections', () => {
 		assert.match(r.stderr, /2 connection\(s\) of that type from other people exist there; the live run never uses them/);
 		assert.match(r.stderr, /open http:\/\/127\.0\.0\.1:\d+\/7\/connections and add a connection/);
 		assert.match(r.stderr, /app#my-app-account: read/);
-		assert.match(r.stderr, /credential-requests_create-by-credentials/);
+		assert.match(r.stderr, /connection_create \(team 7, appName app#my-app\)/);
+		assert.match(r.stderr, /compiled name my-app has no uncommitted SDK endpoints/);
 		assert.equal(execPosts().length, 0);
 		assert.equal(credPosts().length, 0, 'no credential request without the scope');
 	});
