@@ -87,14 +87,16 @@ These two filenames look near-identical but have **opposite shapes** and **diffe
 
 | File | Shape | Purpose | Empty value |
 |---|---|---|---|
-| `connections/{name}/scope.imljson` | **Array** of strings: `["<scope-url>", ...]` | Default active scopes auto-requested at connection time. Joined into the OAuth `authorize` URL via the runtime's `oauth.scope` variable. | `[]` — no default scopes (only module/RPC scopes apply at request time) |
-| `connections/{name}/scopes.imljson` | **Object** keyed by scope: `{ "<scope-key>": "<description>", ... }` | **Catalog** of additional scopes the user can pick from in the connection form's `additionalScopes` UI. Acts as a dictionary mapping scope identifier → human-readable label shown in the picker. | `{}` — no extra scopes selectable beyond what `scope.imljson` and module/RPC scopes already request. **Common and valid.** |
+| `connections/{name}/scope.imljson` | **Array** of strings: `["<scope-url>", ...]` | Default active scopes auto-requested at connection time. Joined into the OAuth `authorize` URL via the runtime's `oauth.scope` variable. | `[]` — no default scopes (only module scopes apply at request time) |
+| `connections/{name}/scopes.imljson` | **Object** keyed by scope: `{ "<scope-key>": "<description>", ... }` | **Catalog** of additional scopes the user can pick from in the connection form's `additionalScopes` UI. Acts as a dictionary mapping scope identifier → human-readable label shown in the picker. | `{}` — no extra scopes selectable beyond what `scope.imljson` and module scopes already request. **Common and valid.** |
 
 The active set sent to the OAuth provider at `authorize` time is the union of:
 
 1. `connections/{name}/scope.imljson` (connection defaults)
-2. The triggering module / RPC's own `module/scope.imljson` (auto-merged when the user creates the connection from inside that module's settings)
+2. The triggering module's own `modules/{name}/scope.imljson` (auto-merged when the user creates the connection from inside that module's settings). RPCs have no scope file in the SDK, so the scopes an RPC call needs belong in the modules whose forms call it.
 3. Any user-selected scopes from `connection.parameters.additionalScopes` (which the picker UI populates from `scopes.imljson`)
+
+**Granular vendors.** When the vendor offers several scopes, keep the connection default to what every connection needs (the connection check, a refresh-token scope, and one scope at least when the vendor's authorize endpoint requires `scope`) and put per-operation scopes in each module and endpoint `scope.imljson`. Listing every scope in the default asks users for write access they may never use. Review rule and verdicts: [code-review-criteria/api-imljson.md § OAuth Scope Placement](../code-review-criteria/api-imljson.md#oauth-scope-placement-mandatory-for-oauth-connections-whose-vendor-documents-granular-scopes).
 
 **Examples of valid `scopes.imljson` shapes** (sampled across published apps):
 
@@ -124,7 +126,7 @@ The active set sent to the OAuth provider at `authorize` time is the union of:
 **Code-review heuristic** (false-positive guard):
 
 - An empty `scopes.imljson` `{}` is **NOT** a bug or an improvement — many production apps ship it empty. Do **not** suggest converting it to `[]`.
-- An empty `scope.imljson` `[]` is fine when the connection itself needs no default scope (module/RPC scopes will be merged in per request).
+- An empty `scope.imljson` `[]` is fine when the connection itself needs no default scope (module scopes will be merged in per request) and the vendor's authorize endpoint accepts an empty `scope`.
 - If you see `scopes.imljson` declared as `[]` (an array) — **that** is the bug. The runtime expects an object/dictionary, not an array, and the picker UI will fail to render.
 - Conversely, `scope.imljson` declared as `{}` (an object) is also a bug — the runtime expects an array of scope strings.
 

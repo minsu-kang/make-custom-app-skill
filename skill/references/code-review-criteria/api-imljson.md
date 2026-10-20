@@ -1,7 +1,7 @@
 <!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code review criteria: Checks for `api.imljson` and connections
 
-> Read when: the change set has an `api`, `base`, `epoch`, webhook `attach` / `detach` or connection change, or a new app (mandatory): component integration tests, runtime behavior verification (including branding consistency), polling trigger order and date filtering. Part of [code-review-criteria.md](../code-review-criteria.md).
+> Read when: the change set has an `api`, `base`, `epoch`, webhook `attach` / `detach` or connection change, or a new app (mandatory): component integration tests, runtime behavior verification (including branding consistency), OAuth scope placement, polling trigger order and date filtering. Part of [code-review-criteria.md](../code-review-criteria.md).
 
 ### Component Integration Tests (Mandatory for api.imljson changes)
 
@@ -90,6 +90,34 @@ When reviewing **any** connection (new app, new connection in an existing app, o
 - **Operational reminder to include in the Analysis** (regardless of verdict): when migrating from `oauth.redirectUri` → `oauth.localRedirectUri` on a connection that uses Make-managed common credentials (`installSpec`/`install` populated `common.clientId` / `common.clientSecret`), the new callback URL must also be registered on the upstream OAuth client (e.g. Google Cloud Console). Coordinate with whoever owns that client before flipping the production app.
 
 **Full pattern + variable table**: see `component-patterns-reference/connection-oauth.md` § "OAuth2 Connection — `redirect_uri` Convention" and `security-reference.md` § 2.5.
+
+### OAuth Scope Placement (Mandatory for OAuth connections whose vendor documents granular scopes)
+
+When the vendor lists more than one scope name (for example `posts:read`, `posts:write`, `ideas:write`), check where the app declares them. Make apps keep the connection default small and put per-operation scopes on the component that needs them. The runtime sends the union of connection default, the module the user creates the connection from, and `additionalScopes` at `authorize` time ([connection-oauth.md § OAuth Scope Files](../component-patterns-reference/connection-oauth.md#oauth-scope-files--scopeimljson-vs-scopesimljson)), so this split decides what a user is asked to consent to.
+
+| File | What it holds |
+|---|---|
+| `connections/{name}/scope.imljson` | Only what every connection needs: the scope of the connection check (`info` or the connection `api` test call), a scope the flow itself needs (a refresh-token scope such as `offline_access`), and at least one scope when the vendor's authorize endpoint requires `scope` to be non-empty |
+| `modules/{name}/scope.imljson` | The scopes of the module's own calls plus the scopes of the RPCs its form calls (RPCs have no scope file in the SDK) |
+| `endpoints/{name}/scope.imljson` | The scopes of the endpoint's single call, drawn from scopes the app already declares ([endpoints-reference.md § Scope rule](../endpoints-reference.md#scope-rule--only-scopes-the-app-already-declares)) |
+| `connections/{name}/scopes.imljson` | Catalog for `additionalScopes`, which the Make an API call module relies on |
+
+**Checklist:**
+
+1. Read `connections/{name}/scope.imljson`, then every module and endpoint `scope.imljson` (`find modules endpoints -name scope.imljson -size +4c` lists the non-empty ones).
+2. Red flag: the connection default is the union of every scope the vendor offers while the module and endpoint files are all `[]`. A read-only scenario then asks the user for write access. Flag it as `[SECURITY][2.3]`.
+3. Every module and endpoint that makes a call has a non-empty `scope.imljson`, and a module whose form uses an RPC includes that RPC's scopes. Report every component that misses one in a single item (cross-module check).
+4. The vendor docs decide which scope an operation needs (hard rule 1). When they do not map operations to scopes, do not name a "correct" scope. Say *"I couldn't verify which scope {operation} needs in {vendor}'s docs; please confirm with a connection that carries only that scope."* and ask the developer to run that check.
+5. Do not flag the trade-off: a connection created with the small default, or from a module with a narrow scope, lacks the scopes of other modules and must be re-created or re-authorized when the user adds one. Granular apps behave this way.
+
+**Skip:** vendors with a single scope or one full-access grant, aliased connections (see "Aliased Connections"), and API key / Basic connections (no scopes).
+
+**Verdict mapping:**
+
+- **New app / new connection** with the all-in-default pattern → **Changes Requested** (`[SECURITY][2.3]`, High), unless the ticket or Developer Notes documents why the vendor forces it.
+- **Existing connection** whose `scope.imljson` the change does not touch → **Improvement**.
+
+**Examples** (granular vendors in published apps): Airtable v3 (`airtable3` default `["schema.bases:read"]`, `listBases` → `["schema.bases:read"]`, `TriggerWatchRecords` → `["schema.bases:read","data.records:read"]`), Pinterest v2 (`pinterest2` default `["user_accounts:read"]`, `watchBoards` → `["boards:read","boards:read_secret","ads:read"]`), Google Docs v1 endpoints (`createDocument` → `["https://www.googleapis.com/auth/documents"]`, connection default `["https://www.googleapis.com/auth/userinfo.email"]`). Real case: IEN-15544 (Buffer v3) put six scopes in the connection default and `[]` in every module and endpoint.
 
 ### Branding Consistency for Apps in an Existing Family (Mandatory for new apps)
 

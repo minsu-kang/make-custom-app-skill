@@ -9,7 +9,7 @@
 |---|---|
 | [code-review-criteria/functions.md](code-review-criteria/functions.md) | **Mandatory** when the change set has `function/*/code`: test coverage, ES6+, code quality |
 | [code-review-criteria/ux.md](code-review-criteria/ux.md) | **Mandatory** when the change set has `expect` / `parameters` changes |
-| [code-review-criteria/api-imljson.md](code-review-criteria/api-imljson.md) | **Mandatory** when the change set has an `api`, `base`, `epoch` or webhook `attach` / `detach` change, or any connection change; also for a new app (branding consistency). Covers integration tests, runtime behavior checks, polling triggers (order, date filtering) |
+| [code-review-criteria/api-imljson.md](code-review-criteria/api-imljson.md) | **Mandatory** when the change set has an `api`, `base`, `epoch` or webhook `attach` / `detach` change, or any connection change; also for a new app (branding consistency). Covers integration tests, runtime behavior checks, OAuth scope placement, polling triggers (order, date filtering) |
 
 For every change type: IMLJSON-specific smells (`api.imljson`, `parameters.imljson`, `expect.imljson`, `samples.imljson`, `interface.imljson`) → `code-smells-reference.md` §§ 2–3. Cite with the smell ID, e.g. `[QUALITY][A-01]`.
 
@@ -58,6 +58,7 @@ Full catalogue with severity, detection patterns, and fix guidance lives in **`s
 High-impact triggers that must always force opening `security-reference.md`:
 
 - Any change touching `common.imljson`, `connections/*/install*`, `connections/*/authorize.imljson`, `connections/*/token.imljson`, `connections/*/refresh.imljson` → review §§ 1–2 end to end
+- Any change touching `connections/*/scope.imljson` or `scopes.imljson`, a module or endpoint `scope.imljson`, or a new OAuth connection → review § 2.3 and `code-review-criteria/api-imljson.md` § "OAuth Scope Placement"
 - Any webhook change (`webhooks/**`) → review § 3 (signature, replay, secret type)
 - Any `api.imljson` that takes a URL or hostname from user input → review § 4 (SSRF)
 - Any new/modified `functions/*/code.js` handling untrusted input, dynamic keys, or regex → review § 5

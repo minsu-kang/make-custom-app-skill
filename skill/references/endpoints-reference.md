@@ -153,7 +153,7 @@ Source-verified: `make-mcp-server-host`'s `endpoint_execute` tool (`lib/libs/mak
 
 ### Scope rule — only scopes the app already declares
 
-`scope.imljson` lists the OAuth scopes the operation needs, chosen **only from the scopes the app's connection/modules already request**. Never introduce a scope from the vendor docs that no module declares: the connection never asked the user for it, so the token lacks it and the call fails with a permission error at runtime, long after review. If the operation needs a scope the app does not have, the operation is out of scope for this app's endpoints — flag it. Foreign-API scopes are excluded for the same reason (§ Foreign API calls).
+`scope.imljson` lists the OAuth scopes the operation needs, chosen **only from the scopes the app's connection/modules already request**. Never introduce a scope from the vendor docs that no module declares: the connection never asked the user for it, so the token lacks it and the call fails with a permission error at runtime, long after review. If the operation needs a scope the app does not have, the operation is out of scope for this app's endpoints — flag it. Foreign-API scopes are excluded for the same reason (§ Foreign API calls). With a vendor that offers granular scopes, each endpoint declares the scopes of its one call and the connection default stays small ([code-review-criteria/api-imljson.md § OAuth Scope Placement](code-review-criteria/api-imljson.md#oauth-scope-placement-mandatory-for-oauth-connections-whose-vendor-documents-granular-scopes)).
 
 ## Skill Tooling Support
 

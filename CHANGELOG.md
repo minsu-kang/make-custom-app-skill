@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.3 — 2026-10-20
+
+Code reviews now check where an OAuth connection declares granular scopes. A review of Buffer v3 (IEN-15544) passed an app with all six vendor scopes in the connection default and `[]` in every module and endpoint, because no review step looked at scope placement.
+
+- **New check**: `code-review-criteria/api-imljson.md` gains "OAuth Scope Placement". The connection default holds only what every connection needs (the connection check, a refresh-token scope, one scope at least when the vendor requires `scope`). Each module and endpoint `scope.imljson` holds the scopes of its own call, and a module also holds the scopes of the RPCs its form calls. The section has a checklist, skips, verdicts (new app with the all-in-default pattern is Changes Requested), and examples from Airtable v3, Pinterest v2 and Google Docs v1. When the vendor docs do not map operations to scopes, the reviewer asks for a check with a single-scope connection and does not name a scope.
+- **Triggers**: `code-review-criteria.md` lists scope files as a trigger for `security-reference.md` § 2.3 and names the new section in its Parts table and in the `api-imljson.md` Read-when line. `workflows/code-review.md` adds "OAuth scope placement" to the categories a review evaluates.
+- **§ 2.3 reworded**: the red flag now includes the all-in-default pattern, not only wildcard scopes like `admin` or `*`, and the fix points to the new section.
+- **RPC scope correction**: `connection-oauth.md` said a module or RPC's own `scope.imljson` joins the authorize request. RPCs have no scope file in the SDK (`lifecycle.md` § 6 lists only `api` and `parameters`), so the text now says the scopes an RPC needs belong in the modules that call it. It also notes that an empty connection default needs a vendor that accepts an empty `scope`.
+- **Endpoints**: `endpoints-reference.md` § Scope rule links the new section.
+
 ## 2.3.2 — 2026-10-20
 
 The account check now works behind an HTTP proxy.

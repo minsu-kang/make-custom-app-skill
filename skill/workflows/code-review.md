@@ -58,7 +58,7 @@ Real existing components modified by the same ticket (`base`, a shared RPC, …)
 
 ## Review each related change
 
-Evaluate against [code-review-criteria.md](../references/code-review-criteria.md) (open the part its table names for each change type: `function/*/code` → `functions.md`, `expect` / `parameters` → `ux.md`, `api` / `base` / `epoch` / `attach` / `detach` or connection → `api-imljson.md`; endpoint changes → `endpoints-reference/code-review-guidance.md`): Breaking (per skips) · Bugs · Improvements · Security · ES6+ · Code quality / smells · Test coverage (`test.js` for every changed function) · UX (expect/parameters vs best practices) · Runtime behaviour · External API · Removed code (verify necessity before calling a removal a bug) · Polling triggers (order, date filter, epoch).
+Evaluate against [code-review-criteria.md](../references/code-review-criteria.md) (open the part its table names for each change type: `function/*/code` → `functions.md`, `expect` / `parameters` → `ux.md`, `api` / `base` / `epoch` / `attach` / `detach` or connection → `api-imljson.md`; endpoint changes → `endpoints-reference/code-review-guidance.md`): Breaking (per skips) · Bugs · Improvements · Security · ES6+ · Code quality / smells · Test coverage (`test.js` for every changed function) · UX (expect/parameters vs best practices) · Runtime behaviour · External API · Removed code (verify necessity before calling a removal a bug) · Polling triggers (order, date filter, epoch) · OAuth scope placement (granular vendors: small connection default, scopes per module and endpoint).
 
 ### Gate — runtime reference before any `api.imljson` finding
 
