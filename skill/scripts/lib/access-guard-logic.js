@@ -27,6 +27,19 @@ function retryTooSoon(cache, now) {
 	return typeof cache.lastAttemptAt === 'number' && age >= 0 && age < RETRY_MS;
 }
 
+const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
+
+/**
+ * Env to add for the lookup child. Node's fetch ignores the proxy variables unless NODE_USE_ENV_PROXY=1, while curl
+ * (version-guard) honours them. Node exits at startup on a proxy value without http:// or https://, so any other
+ * value leaves the opt-in off, as does a NODE_USE_ENV_PROXY the user already set.
+ */
+function proxyEnv(env) {
+	if (env.NODE_USE_ENV_PROXY) return {};
+	const proxies = PROXY_VARS.map((name) => env[name]).filter(Boolean);
+	return proxies.length > 0 && proxies.every((value) => /^https?:\/\//i.test(value)) ? { NODE_USE_ENV_PROXY: '1' } : {};
+}
+
 /** stdout of the lookup child process -> its result object, or { reason: 'NO_OUTPUT' } when it is not one. */
 function parseLookupOutput(text) {
 	try {
@@ -76,4 +89,4 @@ function denyMessage(code, { email, setupCommand, status, noEmail, reason } = {}
 	return unverifiedText({ status, noEmail, reason });
 }
 
-module.exports = { INTERNAL_EMAIL, JIRA_BASE_URL, CACHE_TTL_MS, RETRY_MS, isInternalEmail, cacheKey, cacheState, retryTooSoon, parseLookupOutput, verdictFromLookup, denyMessage };
+module.exports = { INTERNAL_EMAIL, JIRA_BASE_URL, CACHE_TTL_MS, RETRY_MS, isInternalEmail, cacheKey, cacheState, retryTooSoon, proxyEnv, parseLookupOutput, verdictFromLookup, denyMessage };
