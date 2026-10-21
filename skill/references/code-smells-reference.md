@@ -79,7 +79,7 @@ These smells appear in `*.imljson` files and are **not** covered by the JS-focus
 |---|---|---|---|
 | I-01 | Missing `label` on a non-trivial field | Field with `name: "crtdAt"`, no `label` | Add human-readable `label` (e.g., `"Created at"`) |
 | I-02 | `type: "collection"` with 20+ flat children | Very wide output collection dumps that could be grouped | Group semantically (e.g., `address.*`, `billing.*`) |
-| I-03 | Output labels in Title Case while the app uses Sentence case everywhere else (or vice versa) | Mixed capitalization conventions across modules | Normalize — follow the app's established style |
+| I-03 | Output labels in Title Case while the app uses Sentence case everywhere else (or vice versa) | Mixed capitalization conventions across modules | Normalize — follow the app's established style. Endpoint labels are always Sentence case, including when module labels are Title Case ([endpoints-reference.md § Sentence Case Labels](endpoints-reference.md#sentence-case-labels)) |
 
 ---
 

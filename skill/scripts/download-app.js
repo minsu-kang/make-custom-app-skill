@@ -185,7 +185,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	// --- Modules ---
 	console.log('\n=== Modules ===');
 	const modResp = await apiGetJson(
-		`${verBase}/modules?cols[]=name&cols[]=label&cols[]=typeId&cols[]=crud&cols[]=deprecated`,
+		`${verBase}/modules?cols[]=name&cols[]=label&cols[]=typeId&cols[]=crud&cols[]=deprecated&cols[]=public`,
 		auth,
 	);
 	const modules = modResp?.appModules || [];
@@ -388,17 +388,18 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		downloadedAt: new Date().toISOString(),
 		modules: modules.map((m) => {
 			const vis = moduleVisibility.get(m.name) || {};
-			// `deprecated` source of truth = SDK modules endpoint (m.deprecated).
+			// `deprecated` and `public` come from the SDK modules endpoint.
 			// The admin app endpoint (versions[].modules[].deprecated) is observed
 			// to return stale `false` even when the module is deprecated, which
 			// previously slipped through `vis.deprecated ?? m.deprecated` because
-			// `false` is not nullish. SDK endpoint stays authoritative; admin
-			// endpoint remains the source for `private` (SDK endpoint does not
-			// expose it).
+			// `false` is not nullish. SDK stays authoritative for those two.
+			// `private` exists only on the admin app endpoint. `null` means the
+			// module is absent from the deployed list, not that it is public.
 			return {
 				name: m.name,
 				label: m.label,
 				typeId: m.typeId,
+				public: m.public ?? null,
 				private: vis.private ?? null,
 				deprecated: m.deprecated ?? vis.deprecated ?? null,
 			};

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.6 — 2026-10-21
+
+Endpoint label, hidden-module, and upload rules now match between implementation and review.
+
+- **Sentence case.** Every endpoint label, including nested fields, is Sentence case. Module Title Case is not copied. The Arbitrary call template uses `Query string` and `Query parameter`.
+- **Hidden modules.** `public === false` or `private === true` does not get an endpoint, even when the AC names the module. `download-app.js` stores SDK `public` on each module. `private: null` is not treated as public. An endpoint built from an excluded module without confirmation is removed on review.
+- **Uploads.** The only endpoint uploads are a URL the vendor fetches, or base64 text inside JSON. A create-upload-session that returns `uploadUrl` for a later byte PUT is excluded, same as `buffer` and multipart. Review removes it instead of polishing the schema.
+- **Shared rules.** `endpoints-reference.md` holds one table for `context.md`, `pagination`, `"type": "json"`, `stripEmpty` filled values, the output schema, scripted module parity, and GraphQL. `create-endpoint.md` and `code-review-guidance.md` use that table's verdict.
+
 ## 2.3.5 — 2026-10-20
 
 The live phase now sits before close-out and has a fixed review.

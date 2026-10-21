@@ -115,12 +115,12 @@ To create an `arbitraryCall` endpoint for an app, derive everything from its exi
     },
     {
         "name": "qs",
-        "label": "Query String",
+        "label": "Query string",
         "type": "array",
         "help": "The HTTP request query parameters.",
         "spec": {
             "type": "collection",
-            "label": "Query Parameter",
+            "label": "Query parameter",
             "help": "The HTTP request query parameter.",
             "spec": [
                 { "name": "key", "label": "Key", "type": "text", "help": "The HTTP request query parameter's key." },

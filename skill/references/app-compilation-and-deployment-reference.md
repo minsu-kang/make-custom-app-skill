@@ -102,7 +102,7 @@ Two **different** endpoints expose two **different** visibility controls for a m
 
 **Rule for hiding a module that is already in production use**: set **`deprecated: true`** (or hide via the admin panel). **Never use `public: false`** for that purpose — it is a hard breaking change for existing scenarios, not a soft-hide. `public: false` is only appropriate for modules that were never released to users (owner-only / WIP).
 
-**Why `metadata.json` can mislead about hiding**: `download-app.js` reads the `/admin/apps` (deployed) view, so a module hidden via a *pending, uncompiled* `public: false` still shows `private: false` / `deprecated: false` there. To see the real pending visibility state, query the SDK `/modules` endpoint and read the `public` flag per module. Also note: **relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
+**Why `metadata.json` can mislead about hiding**: `download-app.js` stores SDK `public` on each module (`GET .../modules?cols[]=public`) and IPM `private` from `/admin/apps`. `private: null` means the module is absent from the deployed module list. It does not mean the module is public. Endpoint generation drops `public === false` or `private === true` ([endpoints-reference.md § Coverage Completeness](endpoints-reference.md#coverage-completeness)). A pending, uncompiled `public: false` can still show `private: false` on the deployed view until the next compile, which is why `public` is read from the SDK list. **Relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
 
 ### Module metadata surface — SDK `/modules` returns more than `public` (field-verified, IEN-15502)
 

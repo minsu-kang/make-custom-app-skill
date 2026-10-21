@@ -30,7 +30,7 @@ Everything in this document is verified against the live SDK admin API (google-d
 | **Consumables** | `centicreditsFormula` (+ description/documentation URL/meta) on the endpoint entity — the "Consumables" tab in the SDK UI. `null` when unset. Consumable edits are audited and versioned. |
 | **Feature-flagged** | All endpoint routes in `imt-web-api` are gated by the growthbook flag `IS_SDK_ENDPOINTS_ENABLED` — 404-class error on environments where it's off. |
 | **No endpoint aliasing** | There is no aliasing of endpoints in the current design. The fraction of apps using multiple APIs is small, and aliasing offers little benefit. Future options may enable complex app modules connecting multiple endpoints. |
-| **Binary upload and download not supported** | SDK Endpoints do not support `buffer`-typed parameters — neither for upload (input) nor download/export (output). The Endpoint Execution API (`endpoint_execute`) always sends/receives `application/json`. **Upload workarounds** (either is acceptable): (a) if the third-party API supports URL-based upload (passing a URL instead of binary data), implement that variant; (b) if the API accepts the file content as a **base64 string inside the JSON body** (Microsoft Graph `contentBytes`, Gmail `raw`, Jira/Confluence attachment-by-base64 variants), expose that field as a `text` input (not `buffer`) and pass it through — the AI caller supplies the base64. Skip the endpoint entirely if only `multipart/form-data` / raw-binary upload exists. **Download/export**: endpoints that return binary responses (file downloads, PDF exports, etc.) cannot be implemented — skip them. ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1789467764790229), [IEN-16615](https://make.atlassian.net/browse/IEN-16615)) |
+| **Binary upload and download not supported** | `endpoint_execute` sends and receives JSON. No `buffer` parameter, no multipart body, no raw byte body, no binary response (file download, PDF export). **The only uploads that may be endpoints:** (a) the request passes a URL and the vendor fetches the file; (b) the JSON body contains the file as base64 text (`contentBytes`, Gmail `raw`, Jira/Confluence attachment-by-base64), declared as `text`, not `buffer`. **Skip the whole operation** when the file moves as raw bytes. A create-upload-session call is that case: its `uploadUrl` still needs a byte PUT, Make MCP has no tool that can PUT those bytes, and `arbitraryCall` is pinned to the app's API host and attaches `Authorization` (Graph returns 401 on the upload host when that header is sent). Returning `uploadUrl` is not the URL-fetch upload in (a). Do not keep the session so a ticket row survives. Implementation and review use the same verdict: do not build it; if it was built, remove it. Do not review the session schema instead. ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1789467764790229), [IEN-16615](https://make.atlassian.net/browse/IEN-16615), IEN-16850) |
 | **Full API coverage** | Endpoints should cover **all** parameters from the third-party API docs — not just what the existing app modules implement. Modules may have omitted parameters for various reasons, but endpoints as true API wrappers should expose everything the API supports, excluding parameters flagged as deprecated or legacy in the API docs. |
 
 ## Component Files (local layout from `download-app.js`)
@@ -48,7 +48,9 @@ endpoints/{name}/
 
 ### `context.md`
 
-Markdown document served to AI callers. Frontmatter carries `name` and `description`; the body documents usage, options, and limitations (request-type examples, index semantics, classification limitations, etc.). Treat it as user-facing documentation in reviews — accuracy against actual behavior matters.
+Markdown document served to AI callers. Frontmatter carries `name` and `description`. The body documents usage, options, and limitations of **this call** (request-type examples, index semantics, classification limitations). Accuracy against actual behavior matters.
+
+How a scenario module differs ("the module rewrites…", "the scenario module sends…") belongs in Developer Notes, not here. Name another endpoint in plain text (`the searchDriveItems endpoint`). A relative link such as `[Search drive items](searchDriveItems)` points nowhere.
 
 ### `annotations`
 
@@ -102,13 +104,31 @@ Endpoint name pattern: `^[a-zA-Z][0-9a-zA-Z]{1,126}[0-9a-zA-Z]$` (alphanumeric, 
 
 `endpointInitMode: 'example'` (the default) clones the endpoint sections from the `model` template app (`endpoints/Endpoint/`). Same review rule as module scaffolds: an `old_value` matching the scaffold = effectively new component. Scaffold markers: `"url": "/users/{{parameters.id}}/action"`, `"body": "{{omit(parameters, 'id')}}"`, input params `id`/`email`/`name`, output param `id`, `scope: []`, and the boilerplate `# Context for the Endpoint` markdown. Snapshot lives in [component-scaffold-templates.md](component-scaffold-templates.md) § "Endpoint scaffold".
 
+## Shared rules
+
+`create-endpoint.md` and `code-review-guidance.md` apply this table. Do not restate a weaker version in either file. The verdict is the same for the person building the endpoint and the person reviewing it.
+
+| Rule | Requirement | Verdict |
+|---|---|---|
+| `context.md` | AI-caller document for this call. Module comparisons go to Developer Notes. Another endpoint is named in plain text. See [`context.md`](#contextmd). | Required fix |
+| No `pagination` directive | No `pagination`, no `iterate`, no `response.limit`. Paging controls are plain inputs. The continuation token is an output. A vendor continuation operation is its own endpoint. See [Core Facts](#core-facts). | Required fix. Remove the directive. |
+| `"type": "json"` | Omit it on a regular endpoint. An object body serializes as JSON by default. `arbitraryCall` keeps `"type": "text"`. See [api-imljson-shape.md](endpoints-reference/api-imljson-shape.md). | Required fix |
+| `stripEmpty` keeps filled values | The stripper removes only empty values. `false`, `0`, a `Date`, and a filled collection or facet `{}` survive, and `test.js` covers them. See [pure-api-wrapper.md](endpoints-reference/pure-api-wrapper.md#stripempty-must-never-drop-a-filled-in-value). | Bug when a filled value this endpoint can send would be dropped |
+| Output schema | `output_parameters` is the vendor resource for that call, minus write-only fields, with `help` on every field. `response.output` unwraps that same value (`{{body}}` or the list array). Every returned key is declared, and each value's type matches the field. | Required fix |
+| Module parity | When endpoints mirror modules, a script diffs module `expect` / response fields against endpoint input and output names. Allowed deltas are UI-only switches, module-side transformations, and deliberate extras from the vendor docs. See [Scripted module-parity check](#scripted-module-parity-check-module-derived-apps). | Required fix for any other gap |
+| GraphQL | Static operation document, typed `$variables` mapped 1:1, selection set equals the full resource. Argument types come from the schema, not from prose. See [GraphQL APIs](endpoints-reference/api-imljson-shape.md#graphql-apis-monday-v2-github-v4-shopify-linear). | Required fix |
+
 ## UX & Naming Conventions
 
 ### Sentence Case Labels
 
-Endpoint names and parameter labels follow the **Sentence case** naming convention (sentence-style capitalization; Verb + Item) — see [Apps UX best practices (Confluence)](https://make.atlassian.net/wiki/x/DAfcyg). Applies to the display `label`; the technical `name` stays camelCase.
+Every endpoint display `label` is **Sentence case**: the endpoint label, every input parameter, every output parameter, and every nested collection or array spec label. The technical `name` stays camelCase. See [Apps UX best practices (Confluence)](https://make.atlassian.net/wiki/x/DAfcyg).
 
-Examples: `List files` (not `List Files`), `Get a message` (not `Get A Message`), `File ID` (not `file ID`).
+Module labels are often Title Case. Do not copy them onto an endpoint. The module-field exception in [app-ux-best-practices](app-ux-best-practices.md) (follow the app when its labels are Title Case) does not apply to endpoints. [code-smells-reference.md](code-smells-reference.md) I-03 is a module-interface smell and does not relax this rule.
+
+Examples: `List files`, `Get a message`, `File ID`, `Application instance`, `Query string`, `Query parameter`.
+
+Implementation and review use the same verdict: a Title Case endpoint label is a required fix. The module's case is not a reason to keep it.
 
 ### Endpoint Descriptions
 
@@ -122,17 +142,24 @@ Only attach connections that are attached to the **real modules** in the app or 
 
 Verify that the suggested/implemented endpoints cover all of the app's functionality as much as possible. Compare the app's **visible** modules with the list of endpoints and the third-party API surface. If the app has 15 modules covering 12 distinct API operations, the endpoint list should aim to cover all 12 (minus any that require unsupported features like binary uploads).
 
-#### Exclude non-public modules before comparing
+#### Exclude hidden modules before comparing
 
-**Only modules that ship in the app's usable surface may drive an endpoint.** `public: false` strips a module from the compiled build entirely (app-compilation-and-deployment-reference.md § "Module visibility & hiding"), so an endpoint derived from one wraps an operation the shipped app does not expose. Filter the module list **before** designing endpoints, not after: drop every module the SDK modules list reports as `public: false` (`GET .../{slug}/{version}/modules`, or MCP `app-modules_list` / `app-module_get`).
+**Only modules on the app's usable surface may drive an endpoint.** Filter the module list **before** designing, using `metadata.json` `modules[]` (filled by `download-app.js`):
 
-Excluded modules are **not** coverage gaps: list them as excluded instead of reporting a missing endpoint. Conversely, an operation the vendor documents stays endpoint-worthy even when the only module using it was excluded — the filter removes *module-derived* endpoints, not documented API operations.
+| Drop when | Source | What it means |
+|---|---|---|
+| `public === false` | SDK `GET .../modules` (`modules[].public`) | Hard-disable. The compiled package drops the module. |
+| `private === true` | IPM `GET .../admin/apps/{slug}` (`modules[].private`) | Soft-hide. Hidden from the scenario picker. Existing scenarios still run. |
 
-**The ticket AC does not override this filter.** Acceptance criteria are often generated from the full module list and name `public: false` modules too. When an AC-listed module is non-public, do not build its endpoint silently — report it in the plan as *"listed in AC but `public: false` → excluded, confirm?"* and let the user decide. Building it first and discussing later is the failure mode this rule prevents.
+`private: null` means the module is absent from the deployed module list. It does not mean the module is public. Read `public`. A vendor doc for the operation, and an AC row that names the module, do not put the endpoint back. Excluded modules are not coverage gaps: list them as excluded.
+
+**The ticket AC does not override this filter.** Report the row as *"listed in AC but `public: false` or `private: true` → excluded, confirm?"* and wait. Building it first is the failure this rule prevents (IEN-16850 `createAPage`, SDK `public: false`).
+
+Implementation and review use the same verdict: an endpoint built from an excluded module without that confirmation is removed.
 
 #### Scripted module-parity check (module-derived apps)
 
-When the endpoint set mirrors an app's modules, finish the design with a scripted comparison instead of eyeballing: for each module, read `expect`/`parameters` names and the response-field tokens of its `api` (for GraphQL: the selection-set fields in `body.query`), and diff them against the endpoint's `input_parameters`/`output_parameters` names. Expected differences are only (a) UI-only switches (`omit`, `select` helpers, "advanced" toggles), (b) module-side transformations the endpoint must not replicate, and (c) deliberate extras from the vendor docs. Anything else is a gap. On monday v2 ([IEN-16757](https://make.atlassian.net/browse/IEN-16757)) this check caught two missing output sub-objects (`linked_items`, time-tracking `history`) that a manual pass had missed.
+When the endpoint set mirrors an app's modules, finish the design with a scripted comparison instead of eyeballing: for each module, read `expect`/`parameters` names and the response-field tokens of its `api` (for GraphQL: the selection-set fields in `body.query`), and diff them against the endpoint's `input_parameters`/`output_parameters` names. Expected differences are only (a) UI-only switches (`omit`, `select` helpers, "advanced" toggles), (b) module-side transformations the endpoint must not replicate, and (c) deliberate extras from the vendor docs. Anything else is a gap. On monday v2 ([IEN-16757](https://make.atlassian.net/browse/IEN-16757)) this check caught two missing output sub-objects (`linked_items`, time-tracking `history`) that a manual pass had missed. Review uses the same verdict: any other gap is a required fix.
 
 #### Foreign API calls
 
