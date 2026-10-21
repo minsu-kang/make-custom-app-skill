@@ -2,7 +2,7 @@
 
 # Task Lifecycle (shared by every workflow)
 
-Every Make app task runs through these steps. Task workflows (`code-review.md`, `bug-investigation.md`, …) add only what is specific to them and point back here for the rest. Track progress with a todo list built from the workflow's `## Checklist`; there is no fixed template.
+Every Make app task runs through these steps. Task workflows (`code-review.md`, `bug-investigation.md`, …) add only what is specific to them and point back here for the rest. Before the first local file write, edit, or write script, create a todo list from this file's `## Checklist` plus the task workflow's `## Checklist`. A shorter stand-in list does not count. Follow it strictly: mark one item in progress before starting it, finish it before the next, and do not write files for a later item. `Plan approved before editing` blocks every edit until that item is done.
 
 ## 1. Identify the app
 
@@ -52,7 +52,7 @@ One `getJiraIssue` call with `fields: ["summary","description","subtasks","comme
 
 ## 5. Do the work
 
-Read the task workflow. For bugfix, feature, and app-task work: **state the plan (root cause or design, files, components) and wait for approval before editing.** Edit the local copy under `${CONTEXTS_DIR}/{slug}-v{version}/`, then push (§6). Re-read the relevant reference before touching each file type (SKILL.md hard rule 3).
+Read the task workflow. The checklist todo from the intro already exists; do not start §5 by writing files under a shorter list. For bugfix, feature, and app-task work: **state the plan (root cause or design, files, components) and wait for approval before editing.** Mark `Plan approved before editing` done only after that approval, then edit. Edit the local copy under `${CONTEXTS_DIR}/{slug}-v{version}/`, then push (§6). Re-read the relevant reference before touching each file type (SKILL.md hard rule 3).
 
 ## 6. Push changes and run live (write scripts need user confirmation; Run live is the exception)
 

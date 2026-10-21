@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.7 — 2026-10-21
+
+Edits wait until the workflow checklist is the todo list.
+
+- **Todo before any edit.** Hard rule 11 and `lifecycle.md` require a todo list built from the lifecycle checklist plus the task workflow checklist before the first local file write, edit, or write script. A shorter stand-in list does not count.
+- **One item at a time.** Mark the current item in progress before starting it, finish it before the next, and do not write files for a later item. `Plan approved before editing` blocks every edit until that item is done.
+
 ## 2.3.6 — 2026-10-21
 
 Endpoint label, hidden-module, and upload rules now match between implementation and review.

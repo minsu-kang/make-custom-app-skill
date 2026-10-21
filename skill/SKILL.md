@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.6
+version: 2.3.7
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -43,6 +43,7 @@ Read [workflows/lifecycle.md](workflows/lifecycle.md) first for every task (app 
 8. **Stay inside the ticket's AC.** Anything outside it is proposed with a reason, not silently changed.
 9. **Function edits ship with tests.** `functions/{name}/code.js` change → update `test.js` + run `test-function.js`. `api.imljson` change outside a review → run `test-component.js`.
 10. **Never read `~/.make-custom-app-skill-secrets`** (or paste its contents). Scripts consume it; `check-setup.js` reports what you need to know (paths, Jira email) without the tokens.
+11. **Todo list before any edit.** Before the first local file write, edit, or write script, create a todo list whose items are the active workflow's `## Checklist` (the [lifecycle](workflows/lifecycle.md) checklist plus the task workflow checklist). A shorter stand-in list does not count. Follow that list strictly: mark one item in progress before starting it, finish it before the next, and do not write files for a later item. `Plan approved before editing` is one of those items — do not edit until it is done.
 
 ## App components
 
