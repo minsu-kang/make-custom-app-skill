@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.8 — 2026-10-23
+
+QA-returned subtask triage, app-owner lookup column, and endpoint `toCollection` / `arbitraryCall` guidance.
+
+- **QA subtask triage and close-out.** `lifecycle.md` and `bug-investigation.md` classify each `To Do` / `In Progress` QA subtask on a returned ticket as True Positive or False Positive against the skill references before any edit. On close-out, Developer Notes go on the parent ticket (`contentFormat: "markdown"`), while each subtask gets a comment explaining the fix or the false-positive rationale + doc update and transitions through `In Progress` to `Test` (True Positive) or `Canceled` (False Positive).
+- **App owner lookup query.** `lifecycle.md` §6 and `forman-schemas.md` include `&cols[]=email` on `GET /api/v2/admin/sdk/apps?all=true&name={slug}&cols[]=email` so the response actually returns the owner's `email`.
+- **`toCollection` null evaluation vs Forman `required`.** `pure-api-wrapper.md` documents that `ExecuteRpc` / `ExecuteEndpoint` workers evaluate an omitted `value` in a `{key, value}` entry as `null` (`passthrough: false`), while setting `required: true` on `value` rejects `null` and `""` in `@makehq/forman-schema` and blocks intentional field clearing.
+- **Absolute continuation URLs and write `Content-Type` in `arbitraryCall`.** `arbitrary-call.md` notes to instruct callers in `context.md` to strip `<BASE_URL>` when passing full continuation URLs (e.g. `@odata.nextLink`) to `arbitraryCall`, and to explicitly pass `Content-Type: application/json` in `headers` on write requests when running via MCP.
+
 ## 2.3.7 — 2026-10-21
 
 Edits wait until the workflow checklist is the todo list.
