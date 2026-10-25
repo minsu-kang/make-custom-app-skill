@@ -1,0 +1,4 @@
+{
+  "name": "make-custom-app-skill",
+  "install": "cd mcp-server && npm ci && npm run build"
+}
