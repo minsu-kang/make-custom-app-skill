@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.9 — 2026-10-26
+
+Endpoint schema/serialization hygiene, form-encoded `arbitraryCall` guidance, and `openWorldHint` / type accuracy checks.
+
+- **Type, `help`, and `api.imljson` serialization alignment.** `forman-schemas.md`, `code-review-guidance.md`, and `create-endpoint.md` require `help` text to match how `api.imljson` serializes the parameter (no copied "pass as a string" notes when `toJsonString()` runs on `type: any`; explicit JSON string examples on `type: text` fields in `urlencoded` requests where objects serialize as empty).
+- **Dynamic base URLs and form-encoded APIs in `arbitraryCall`.** `arbitrary-call.md` prohibits raw IML expressions (`{{connection.*}}`) in `url` `help` and `context.md` (use readable `{Placeholder}` tokens instead) and documents defaulting `Content-Type` to `application/x-www-form-urlencoded` and explaining form-encoded POST/PUT bodies for form-encoded vendor APIs.
+- **Obsolete/reserved parameters and OpenAPI prose hygiene.** `forman-schemas.md` and `code-review-guidance.md` exclude individual request parameters marked `[OBSOLETE]`, `Deprecated`, or `Reserved` in vendor docs, normalize sibling parameter names in `help` to `input_parameters[].name` casing, deduplicate `select` `options`, and preserve uppercase acronyms (`SIP`, `SID`, `URL`, `ID`) in Sentence case labels.
+- **Type accuracy and `openWorldHint`.** `forman-schemas.md` adds `password` for secrets and `text` (not `number`) for numeric-looking strings in JSON responses (`"0.00000"`); `code-review-guidance.md` and `create-endpoint.md` set `openWorldHint: true` on outbound external-world actions (calls, messages, flow executions).
+
 ## 2.3.8 — 2026-10-23
 
 QA-returned subtask triage, app-owner lookup column, and endpoint `toCollection` / `arbitraryCall` guidance.
