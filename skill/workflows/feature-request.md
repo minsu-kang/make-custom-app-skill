@@ -35,4 +35,4 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
 - [ ] Code pushed in dependency order with confirmation
 - [ ] `test-function.js` / `test-component.js` run
 - [ ] Integration verified; no breaking change to existing components; Endpoint / RPC run live
-- [ ] Dev Notes asked; context + Pinecone updated
+- [ ] Dev Notes asked + `In Progress` → `Commit`; context + Pinecone updated

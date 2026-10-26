@@ -25,7 +25,7 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 5. **Present findings and wait for approval** *(gate)*: error flow, root cause, why it happens, affected components, reproduction evidence, proposed fix scope. When working QA subtasks on a returned ticket, classify each subtask as **True Positive** or **False Positive** against the skill references (`endpoints-reference.md`, `code-review-criteria.md`, `runtime-reference.md`) first — do not blindly implement changes that violate skill conventions (e.g. `encodeURL()` on simple resource IDs, or app-level workarounds for platform MCP validation/default limits).
 6. **Fix minimally.** Only the bug — no refactoring, no "improvements", no touching unrelated logic. Write to `${CONTEXTS_DIR}/{slug}-v{version}/`, confirm the failing test now passes, and confirm zero behaviour change outside the bug scenario (otherwise the fix is too broad). Every changed function keeps `test.js` covering core behaviour, edge cases (null / undefined / empty / boundaries), the bug scenario, and regressions; run `test-function.js`. Changed `api.imljson` → `test-component.js`.
 7. **Push** per lifecycle §6. For an Endpoint or RPC fix, then run it live with the bug's input (lifecycle §6 "Run live": ownership, review, cleanup, fixtures after a pass, ownership back).
-8. **Close out** per lifecycle §7 (Developer Notes on the parent ticket use the bugfix template; each QA subtask gets a comment explaining the fix or the false-positive rationale + doc update, and transitions `In Progress` → `Test` for True Positive or `In Progress` → `Canceled` for False Positive).
+8. **Close out** per lifecycle §7 (Developer Notes on the parent ticket use the bugfix template; each QA subtask gets a comment explaining the fix or the false-positive rationale + doc update, and transitions `In Progress` → `Test` for True Positive or `In Progress` → `Canceled` for False Positive; parent in `In Progress` transitions to `Commit`).
 
 ## Recurring bug (component fixed recently per Work History)
 
@@ -41,4 +41,4 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 - [ ] Failing test reproduces the bug
 - [ ] Findings presented and approved
 - [ ] Minimal fix; failing test passes; `test-function.js` / `test-component.js` run
-- [ ] Pushed with confirmation; Endpoint / RPC fix run live; Dev Notes asked; context + Pinecone updated
+- [ ] Pushed with confirmation; Endpoint / RPC fix run live; Dev Notes asked + `In Progress` → `Commit`; context + Pinecone updated

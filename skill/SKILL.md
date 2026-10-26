@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.9
+version: 2.3.10
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -92,4 +92,4 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 
 ## Scripts (`${SKILL_ROOT}/scripts/`)
 
-`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, lifecycle §6) · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned`. Usage details are in the workflows.
+`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, lifecycle §6) · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned|commit`. Usage details are in the workflows.

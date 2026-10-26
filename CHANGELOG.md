@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.10 — 2026-10-26
+
+Transition `In Progress` parent tickets to `Commit` at close-out across all app code workflows.
+
+- **Close-out `In Progress` → `Commit` transition.** `lifecycle.md` §7 step 1 and the checklists of all four app-code workflows (`bug-investigation.md`, `feature-request.md`, `app-task.md`, `create-endpoint.md`; `code-review` and `task-refinement` excluded) transition an `In Progress` parent ticket to `Commit` (or `Compilation`) once Developer Notes are written.
+- **`post-review-transition.js <key> commit`.** Added the `commit` disposition (`In Progress` → `Commit`, falling back to `Compilation`). It preserves Jira's `Developer` post-function without re-assigning the ticket to the developer and automatically populates `customfield_10492` (`"Does this have an impact on customers?"` = `"No Impact"`) when unset, avoiding the transition-screen validator error and MCP nested-object stripping on `transitionJiraIssue`.
+
 ## 2.3.9 — 2026-10-26
 
 Endpoint schema/serialization hygiene, form-encoded `arbitraryCall` guidance, and `openWorldHint` / type accuracy checks.

@@ -70,7 +70,7 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Context files of other endpoints cross-referencing this one are up to date
 - [ ] Endpoint run live (every input, own connection, review shown, created records deleted); after a pass, mockup fixture + `test-component.js` (skipped with a note if no mockup path)
 - [ ] Public toggled via `update-component.js … public=true` (user asked only if it failed)
-- [ ] Pushed, **not committed**; Dev Notes + context + Pinecone updated
+- [ ] Pushed, **not committed**; Dev Notes + `In Progress` → `Commit` + context + Pinecone updated
 
 ## Design conventions (Regular Endpoints)
 

@@ -20,4 +20,4 @@
 - [ ] Scope listed and approved
 - [ ] Changes pushed with confirmation; tests run where code changed; refactored Endpoint / RPC run live
 - [ ] Breaking-change check passed (or user warned)
-- [ ] Dev Notes asked; context + Pinecone updated
+- [ ] Dev Notes asked + `In Progress` → `Commit`; context + Pinecone updated
