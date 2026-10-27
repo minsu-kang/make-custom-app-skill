@@ -18,6 +18,6 @@ A question about how an app, module, RPC, webhook, connection, function, or endp
 
 - [ ] App identified (slug + version, source stated), or the question needs no app
 - [ ] Code synced (`download-app.js` fresh) when an app is involved
-- [ ] Context loaded (file + `search_app_knowledge`)
+- [ ] Context loaded (file + `search_app_knowledge`) when an app is involved
 - [ ] Answer cites the source files and reference sections it relies on
 - [ ] No file edited, no write script run, no `upsert_*` call

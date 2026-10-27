@@ -22,5 +22,5 @@
 - [ ] Scope listed; plan approved before editing
 - [ ] Changes pushed with confirmation; tests run where code changed (hard rule 9)
 - [ ] Breaking-change check passed (or user warned)
-- [ ] Refactored Endpoint / RPC run live: ownership transferred to the acting user, run reviewed with the user, created vendor records deleted, fixtures added after a pass, ownership transferred back
+- [ ] Refactored Endpoint / RPC run live: ownership transferred to the acting user, created vendor records deleted, run reviewed with the user, fixtures added after a pass, ownership transferred back
 - [ ] Closed out: Dev Notes asked · `In Progress` → `Commit` · context file · Pinecone (post-commit sync when the user says the changes are committed)

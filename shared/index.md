@@ -2,7 +2,7 @@
 
 Component and module tables, quick facts, the reference list, and the script list. Docs: https://developers.make.com/custom-apps-documentation
 
-`<plugin root>` is the directory named on the `Plugin root:` line at the top of the skill that is running.
+A path written `<plugin root>/...` starts at the plugin root: the directory named on the `Plugin root:` line at the top of the skill that is running. When that line still shows a literal `${...}`, the plugin root is the directory two levels above the folder of the skill that is running. Write the full path in every command.
 
 ## App components
 

@@ -58,10 +58,10 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Coverage verified (endpoints cover app functionality; gaps flagged); one endpoint per vendor operation, no input-driven path switching
 - [ ] Deprecated API operations checked; newer replacements used where available; obsolete/deprecated/reserved individual parameters excluded
 - [ ] Upload is a URL the vendor fetches, or base64 text inside JSON. No `buffer`, no multipart, no raw byte PUT, no create-upload-session whose file is a later PUT to `uploadUrl`
-- [ ] Every IML function called in `api.imljson` exists (built-in or this app's `functions/`); new helper functions pushed first
+- [ ] Every IML function called in `api.imljson` exists (built-in or this app's `functions/`)
 - [ ] Optional JSON-body values guarded: scalars `ifempty`, arrays/collections/multi-selects `stripEmpty` (or app equivalent); no guards on `qs`. `stripEmpty` keeps `false`, `0`, `Date`, and a filled collection ([Shared rules](../references/endpoints-reference.md#shared-rules))
 - [ ] Design presented; plan approved before editing
-- [ ] Endpoint created with confirmation; context (with frontmatter) + annotations set on every endpoint (`openWorldHint: true` for outbound external actions); no raw IML (`{{...}}`) in `help` or `context.md`
+- [ ] Endpoint created with confirmation (new custom functions pushed first); context (with frontmatter) + annotations set on every endpoint (`openWorldHint: true` for outbound external actions); no raw IML (`{{...}}`) in `help` or `context.md`
 - [ ] Every endpoint label, including nested fields, is Sentence case with uppercase acronyms (`SIP`, `SID`, `URL`, `ID`). Module Title Case was not copied. Descriptions present; parameter naming consistent; sibling parameter names in `help` match `input_parameters[].name`; special-character vendor keys mapped from plain names
 - [ ] Inputs: enums are `select` (no duplicate `options`); `url`/`password`/`date`/`email` types accurate (`password` inputs masked in `api.imljson` `log.sanitize` alongside base entries — [component-patterns-reference.md](../references/component-patterns-reference.md#log-sanitize-best-practices)); complex objects fully declared; conditionally required parameter groups noted in `context.md`; `help` matches `api.imljson` serialization (no string/object, URL-encoding, or inline-operator mismatch on `urlencoded`/`qs`/`toJsonString()`); no UI-only props (`advanced`, `labels`, `mappable`, `mode`, `rpc://`, `omit` helpers)
 - [ ] [Shared rules](../references/endpoints-reference.md#shared-rules) applied: `context.md` has no module comparison, no `pagination` directive, no `"type": "json"` except `arbitraryCall`'s `"type": "text"`, output schema is the vendor resource minus write-only fields and matches `response.output`, module parity was diffed by script, GraphQL uses a static document and the full selection set
@@ -72,9 +72,9 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] API docs URLs verified reachable (not 404)
 - [ ] Context files of other endpoints cross-referencing this one are up to date
 - [ ] `test-function.js` / `test-component.js` run (hard rule 9)
-- [ ] Endpoint run live: ownership transferred to the acting user, every input used, own connection, run reviewed with the user, created vendor records deleted, fixtures added after a pass (`test-component.js`; skipped with a note when no mockup path), ownership transferred back
+- [ ] Endpoint run live: ownership transferred to the acting user, every input used, own connection, created vendor records deleted, run reviewed with the user, fixtures added after a pass (`test-component.js`; skipped with a note when no mockup path), ownership transferred back
 - [ ] Public toggled via `update-component.js … public=true` (user asked only if it failed)
-- [ ] Pushed, **not committed**; Dev Notes + `In Progress` → `Commit` + context + Pinecone updated
+- [ ] Pushed, **not committed**. Closed out: Dev Notes asked · `In Progress` → `Commit` · context file · Pinecone (post-commit sync when the user says the changes are committed)
 
 ## Design conventions (Regular Endpoints)
 

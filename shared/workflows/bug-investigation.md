@@ -41,5 +41,5 @@ Apply the recurring-bug rigor in [lifecycle.md](lifecycle.md) §3.
 - [ ] Findings presented; plan approved before editing
 - [ ] Minimal fix; failing test passes; `test-function.js` / `test-component.js` run (hard rule 9)
 - [ ] Pushed only after confirmation
-- [ ] Endpoint / RPC fix run live: ownership transferred to the acting user, run reviewed with the user, created vendor records deleted, fixtures added after a pass, ownership transferred back
+- [ ] Endpoint / RPC fix run live: ownership transferred to the acting user, created vendor records deleted, run reviewed with the user, fixtures added after a pass, ownership transferred back
 - [ ] Closed out: Dev Notes asked · `In Progress` → `Commit` · context file · Pinecone (post-commit sync when the user says the changes are committed)

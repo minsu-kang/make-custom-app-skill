@@ -37,5 +37,5 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
 - [ ] Code pushed in dependency order with confirmation
 - [ ] `test-function.js` / `test-component.js` run (hard rule 9)
 - [ ] Integration verified; no breaking change to existing components
-- [ ] New or changed Endpoint / RPC run live: ownership transferred to the acting user, run reviewed with the user, created vendor records deleted, fixtures added after a pass, ownership transferred back
+- [ ] New or changed Endpoint / RPC run live: ownership transferred to the acting user, created vendor records deleted, run reviewed with the user, fixtures added after a pass, ownership transferred back
 - [ ] Closed out: Dev Notes asked · `In Progress` → `Commit` · context file · Pinecone (post-commit sync when the user says the changes are committed)

@@ -1,8 +1,8 @@
 # Task Lifecycle (shared by every workflow)
 
-Every Make app task runs through these steps. Task workflows add only what is specific to them and point back here for the rest. Before the first local file write, edit, or write script, create a todo list from the task workflow's `## Checklist`; it already holds the lifecycle items. A shorter stand-in list does not count. Follow it strictly: mark one item in progress before starting it, finish it before the next, and do not write files for a later item. `Plan approved before editing` blocks every edit until that item is done.
+Every Make app task runs through these steps. Task workflows add only what is specific to them and point back here for the rest. Before the first local file write, edit, or write script, create a todo list from the task workflow's `## Checklist`; it already holds the lifecycle items. A shorter stand-in list does not count. Follow it strictly: mark one item in progress before starting it, finish it before the next, and do not write files for a later item. `Plan approved before editing` blocks every edit of the app until that item is done. The one write allowed before it is a failing test that reproduces a bug.
 
-A path written `<plugin root>/...` starts at the plugin root: the directory named on the `Plugin root:` line at the top of the skill that is running. Write the full path in every command.
+A path written `<plugin root>/...` starts at the plugin root: the directory named on the `Plugin root:` line at the top of the skill that is running. When that line still shows a literal `${...}`, the plugin root is the directory two levels above the folder of the skill that is running. Write the full path in every command.
 
 ## 1. Identify the app
 
@@ -44,7 +44,7 @@ Between 1 h and 24 h old: mention the age, offer a re-download, continue. Do not
 
 ## 4. Do the work
 
-Read the task workflow. The checklist todo from the intro already exists; do not start §4 by writing files under a shorter list. For bugfix, feature, and app-task work: **state the plan (root cause or design, files, components) and wait for approval before editing.** Mark `Plan approved before editing` done only after that approval, then edit. Edit the local copy under `~/.make-custom-app/contexts/{slug}-v{version}/`, then push ([push-changes.md](push-changes.md)). Re-read the relevant reference before touching each file type (hard rule 3).
+Read the task workflow. The checklist todo from the intro already exists; do not start §4 by writing files under a shorter list. For bugfix, feature, app-task, and endpoint work: **state the plan (root cause or design, files, components) and wait for approval before editing.** Mark `Plan approved before editing` done only after that approval, then edit. Edit the local copy under `~/.make-custom-app/contexts/{slug}-v{version}/`, then push ([push-changes.md](push-changes.md)). Re-read the relevant reference before touching each file type (hard rule 3).
 
 ## Other shared steps
 
@@ -57,3 +57,4 @@ Read each file when the work reaches that step.
 | Run an Endpoint or RPC live | [run-live.md](run-live.md) |
 | Commit, compile, or roll back (only on an explicit user instruction) | [commit-compile.md](commit-compile.md) |
 | Close out | [close-out.md](close-out.md) |
+| Look up component tables, module types, quick facts, the reference list, or the script folder | [index.md](../index.md) |

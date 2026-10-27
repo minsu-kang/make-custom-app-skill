@@ -171,5 +171,5 @@ Do not prompt for Developer Notes in a review, even if you ran a write script (e
 - [ ] Runtime-reference gate and vendor-docs gate satisfied for every finding
 - [ ] Cross-module check done for every "missing X"
 - [ ] Output emitted with Commit Checklist (+ To Developer if Changes Requested)
-- [ ] Disposition asked and answered before any context / Pinecone / Jira write
+- [ ] Disposition asked and answered before any context / Pinecone write or Jira transition
 - [ ] Transition run; context file + Pinecone updated; caveats recorded with sources
