@@ -54,7 +54,22 @@ test('the unresolved message says how to fix it', () => {
 	assert.throws(() => resolveEditor({ env: {} }), /editor: claude.*--editor claude\|cursor/s);
 });
 
-test('setupCommand points at setup-secrets.js in this scripts folder', () => {
-	assert.equal(setupCommand(), `node ${path.join(SCRIPTS_DIR, 'setup-secrets.js')}`);
-	assert.equal(setupCommand('cursor'), `node ${path.join(SCRIPTS_DIR, 'setup-secrets.js')} --editor cursor`);
+test('setupCommand quotes the script path', () => {
+	const script = path.join(SCRIPTS_DIR, 'setup-secrets.js');
+	assert.equal(setupCommand(), `node "${script}"`);
+	assert.equal(setupCommand('cursor'), `node "${script}" --editor cursor`);
+});
+
+test('setupCommand keeps a path with spaces in one argument', () => {
+	const dir = '/home/First Last/plugin/shared/scripts';
+	assert.equal(setupCommand('claude', dir), `node "${path.join(dir, 'setup-secrets.js')}" --editor claude`);
+	assert.equal(setupCommand(undefined, dir), `node "${path.join(dir, 'setup-secrets.js')}"`);
+});
+
+test('setupCommand escapes an embedded double quote', () => {
+	const dir = path.join('/home', 'say "hi"', 'scripts');
+	assert.equal(
+		setupCommand('cursor', dir),
+		`node "${path.join('/home', 'say \\"hi\\"', 'scripts', 'setup-secrets.js')}" --editor cursor`,
+	);
 });
