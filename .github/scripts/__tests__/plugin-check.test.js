@@ -67,8 +67,8 @@ test('old install paths fail, other uses of the old names do not', () => {
 
 test('the make-app-setup skill may name old install paths, other skills may not', () => {
 	const body = 'remove ~/.cursor/make-app-contexts/foo and ~/.claude/skills/make-custom-app/scripts\n';
-	assert.equal(run(withFile('skills/make-app-setup/SKILL.md', body)).status, 0);
-	const r = run(withFile('skills/make-app-question/SKILL.md', body));
+	assert.equal(run(withFile('skills/make-app-setup/SKILL.md', body), '--scope=skills').status, 0);
+	const r = run(withFile('skills/make-app-question/SKILL.md', body), '--scope=skills');
 	assert.equal(r.status, 1);
 	assert.match(r.out, /skills\/make-app-question\/SKILL\.md:1: old install path/);
 });
@@ -130,7 +130,7 @@ test('a pointer at SKILL.md fails in shared files and passes in skill files', ()
 	const r = run(withFile('shared/workflows/x.md', 'see SKILL.md hard rule 3\n'));
 	assert.equal(r.status, 1);
 	assert.match(r.out, /x\.md:1: points at SKILL\.md/);
-	const skill = run(withFile('skills/make-app-question/SKILL.md', 'Open the folder that contains this SKILL.md, then read `<plugin root>/skills/make-app-question/SKILL.md`.\n'));
+	const skill = run(withFile('skills/make-app-question/SKILL.md', 'Open the folder that contains this SKILL.md, then read `<plugin root>/skills/make-app-question/SKILL.md`.\n'), '--scope=skills');
 	assert.equal(skill.status, 0);
 	assert.match(skill.out, /0 error\(s\)/);
 });

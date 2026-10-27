@@ -2,21 +2,51 @@
 'use strict';
 
 // CI consistency checks for the plugin content. Not part of the plugin payload.
-// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]...
+// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]... [--skills=<name,name,...>]
 // --scope is a path relative to the repo root: a folder (scans its Markdown files) or one .md file.
 // A leading ./ and repeated or trailing slashes are ignored. Default: shared and skills, each skipped when missing.
-// An explicit --scope that does not exist is an error.
-// Exit 1 on any error.
-// Later plans add the version, skill, hard-rule, and manifest checks to this file.
+// An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
+// per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
+// the hard-rules blocks, that every workflow is named by a skill and every reference by shared/index.md, and the
+// syntax of tools/ and .github/scripts/.
+// Prints warnings (a description over 400 characters) without failing. Exit 1 on any error.
+// Later plans add the version and manifest checks to this file.
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
+const hardRules = require(path.join(__dirname, '..', '..', 'tools', 'sync-hard-rules.js'));
 
 const args = process.argv.slice(2);
 const ROOT = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(__dirname, '..', '..'));
 const normaliseScope = (value) => value.replace(/\/{2,}/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, '');
 const scopeArgs = args.filter((a) => a.startsWith('--scope=')).map((a) => normaliseScope(a.slice('--scope='.length)));
 const SCOPE = scopeArgs.length ? scopeArgs : ['shared', 'skills'];
+const FULL_RUN = scopeArgs.length === 0;
+const EXPECTED_SKILLS = [
+	'make-app-task-refinement',
+	'make-app-bug-investigation',
+	'make-app-code-review',
+	'make-app-feature-request',
+	'make-app-task',
+	'make-app-endpoint',
+	'make-app-question',
+	'make-app-run-live',
+	'make-app-setup',
+];
+const skillsArg = args.find((a) => a.startsWith('--skills='));
+const SKILLS = skillsArg ? skillsArg.slice('--skills='.length).split(',').filter(Boolean) : EXPECTED_SKILLS;
+const FRONTMATTER_KEYS = new Set(['name', 'description', 'allowed-tools']);
+const DESCRIPTION_WARN = 400;
+const DESCRIPTION_MAX = 1024;
+const DESCRIPTION_BUDGET = 4000;
+const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
+const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
+const ANCHOR = [
+	'Plugin root: ${CLAUDE_PLUGIN_ROOT}',
+	'If the line above still shows a literal ${...}, the plugin root is the directory',
+	'two levels above the folder that contains this SKILL.md.',
+];
 const LINKED_EXT = /\.(md|mdc|js|json|sh|ps1|imljson)$/i;
 const LIFECYCLE_SECTIONS = new Set(['1', '2', '3', '4']);
 const TASK_WORKFLOWS = new Set([
@@ -39,7 +69,7 @@ const LIFECYCLE_RUN = new RegExp(`\\blifecycle(\\.md)?\\)?\\s*(${SECTION_RUN})`,
 const LIFECYCLE_SPELLED = /\blifecycle(?:\.md)?\)?\s+sections?\s+(\d+)/g;
 const LIFECYCLE_ANCHOR = /lifecycle\.md#(\d+)-/g;
 
-const findings = { error: [] };
+const findings = { error: [], warning: [] };
 
 const escapeAnnotation = (value) => String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
@@ -51,6 +81,11 @@ function error(file, msg, line) {
 	} else {
 		console.log(`ERROR ${where}: ${msg}`);
 	}
+}
+
+function warn(file, msg) {
+	findings.warning.push({ file, msg });
+	console.log(process.env.GITHUB_ACTIONS === 'true' ? `::warning file=${escapeAnnotation(file)}::${escapeAnnotation(msg)}` : `WARNING ${file}: ${msg}`);
 }
 
 function read(rel) {
@@ -180,6 +215,103 @@ function checkSharedPointers(rel, text) {
 	});
 }
 
+function parseFrontmatter(text) {
+	const lines = text.split('\n');
+	if (lines[0] !== '---') return { error: 'front matter block is missing' };
+	const end = lines.indexOf('---', 1);
+	if (end < 0) return { error: 'front matter block is not closed' };
+	const values = {};
+	for (let i = 1; i < end; i += 1) {
+		const m = /^([A-Za-z][\w-]*):[ \t]*(.*)$/.exec(lines[i]);
+		if (!m) return { error: `front matter line ${i + 1} is not "key: value" (one line per key)` };
+		values[m[1]] = m[2].trim();
+	}
+	return { values, lines, bodyStart: end + 1 };
+}
+
+function checkAllowedTools(rel, tools) {
+	const scripts = [...tools.matchAll(ALLOWED_TOOL)].map((m) => m[1]);
+	const rest = tools.replace(ALLOWED_TOOL, '').trim();
+	if (rest) error(rel, `allowed-tools holds "${rest}", which is not a quoted node command for check-setup.js or review-changes.js`);
+	for (const script of scripts) {
+		if (!APPROVED_SCRIPTS.has(script)) error(rel, `allowed-tools pre-approves ${script}.js; only check-setup.js and review-changes.js may be pre-approved`);
+		else if (!fs.existsSync(path.join(ROOT, 'shared', 'scripts', `${script}.js`))) error(rel, `allowed-tools names shared/scripts/${script}.js, which does not exist`);
+	}
+}
+
+// Returns the description length (0 when there is none).
+function checkSkillFile(rel, text, folder) {
+	const fm = parseFrontmatter(text);
+	if (fm.error) {
+		error(rel, fm.error);
+		return 0;
+	}
+	for (const key of Object.keys(fm.values)) {
+		if (!FRONTMATTER_KEYS.has(key)) error(rel, `front matter key "${key}" is not allowed (name, description, allowed-tools)`);
+	}
+	if (fm.values.name !== folder) error(rel, `front matter name "${fm.values.name}" differs from the folder "${folder}"`);
+	const description = fm.values.description || '';
+	if (!description) {
+		error(rel, 'front matter description is empty');
+	} else {
+		if (description.length > DESCRIPTION_MAX) error(rel, `description is ${description.length} characters, over the ${DESCRIPTION_MAX} limit`);
+		else if (description.length > DESCRIPTION_WARN) warn(rel, `description is ${description.length} characters, over ${DESCRIPTION_WARN}`);
+		if (!/Not for /.test(description)) error(rel, 'description has no "Not for ..." clause');
+		if (/: | #/.test(description)) error(rel, 'description must be a plain one-line YAML value: no ": " and no " #"');
+	}
+	if (fm.values['allowed-tools'] !== undefined) checkAllowedTools(rel, fm.values['allowed-tools']);
+	const body = fm.lines.slice(fm.bodyStart);
+	const anchored = body[0] === '' && ANCHOR.every((line, i) => body[i + 1] === line) && body[4] === '' && body[5] === hardRules.START;
+	if (!anchored) error(rel, `the body must start with an empty line, the three-line "Plugin root:" anchor, an empty line, and the ${hardRules.START} line`);
+	return description.length;
+}
+
+function checkSkillLayer() {
+	const dir = path.join(ROOT, 'skills');
+	const folders = fs
+		.readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isDirectory())
+		.map((e) => e.name)
+		.sort();
+	for (const name of SKILLS.filter((n) => !folders.includes(n))) error(`skills/${name}`, 'expected skill folder is missing');
+	for (const name of folders.filter((n) => !SKILLS.includes(n))) error(`skills/${name}`, 'unexpected skill folder (the skills are listed in spec 4.1)');
+	let total = 0;
+	let allText = '';
+	for (const name of SKILLS.filter((n) => folders.includes(n))) {
+		const rel = `skills/${name}/SKILL.md`;
+		const text = read(rel);
+		if (text === null) continue;
+		allText += `${text}\n`;
+		total += checkSkillFile(rel, text, name);
+	}
+	if (total > DESCRIPTION_BUDGET) error('skills', `the skill descriptions total ${total} characters, over the ${DESCRIPTION_BUDGET} budget`);
+	for (const rel of listFiles('shared/workflows', isMarkdown)) {
+		if (!mentions(allText, `shared/workflows/${path.posix.basename(rel)}`)) error(rel, 'no SKILL.md names this workflow in its load order');
+	}
+}
+
+function checkReferenceIndex() {
+	if (!fs.existsSync(path.join(ROOT, 'shared', 'index.md'))) return;
+	const index = read('shared/index.md');
+	if (index === null) return;
+	for (const rel of listFiles('shared/references', isMarkdown).filter((f) => path.posix.dirname(f) === 'shared/references')) {
+		if (!mentions(index, `references/${path.posix.basename(rel)}`)) error('shared/index.md', `does not list ${rel}`);
+	}
+}
+
+function checkHardRules() {
+	const result = hardRules.run(ROOT, { check: true });
+	for (const message of result.errors) error(message.split(':')[0], message);
+	for (const rel of result.drifted) error(rel, `hard-rules block differs from ${hardRules.SOURCE}; run node tools/sync-hard-rules.js`);
+}
+
+function checkSyntax() {
+	for (const rel of [...listFiles('tools', (n) => n.endsWith('.js')), ...listFiles('.github/scripts', (n) => n.endsWith('.js'))]) {
+		const result = spawnSync(process.execPath, ['--check', path.join(ROOT, rel)], { encoding: 'utf8' });
+		if (result.status !== 0) error(rel, `syntax check failed: ${(result.stderr || '').split('\n').find((l) => l.trim()) || 'unknown error'}`);
+	}
+}
+
 for (const prefix of scopeArgs) {
 	if (!scopeExists(prefix)) error(prefix, 'scope does not exist');
 }
@@ -196,5 +328,12 @@ for (const rel of scopedMarkdown()) {
 	checkSharedPointers(rel, text);
 }
 
-console.log(`${findings.error.length} error(s)`);
+if (FULL_RUN) {
+	if (fs.existsSync(path.join(ROOT, 'skills'))) checkSkillLayer();
+	if (fs.existsSync(path.join(ROOT, 'skills')) || fs.existsSync(path.join(ROOT, hardRules.SOURCE))) checkHardRules();
+	checkReferenceIndex();
+	checkSyntax();
+}
+
+console.log(`${findings.error.length} error(s)${findings.warning.length ? `, ${findings.warning.length} warning(s)` : ''}`);
 process.exitCode = findings.error.length ? 1 : 0;
