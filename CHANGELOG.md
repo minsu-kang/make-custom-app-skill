@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.11 — 2026-10-27
+
+Link endpoint `log.sanitize` and conditionally required fields to shared component references, and refine OpenAPI `help` hygiene.
+
+- **Component `log.sanitize` and `base.imljson` array merge.** `component-patterns-reference.md` and `SKILL.md` note that endpoints inherit `base.imljson` alongside modules and RPCs, and that `communication.js` merges `base.imljson` with component `api.imljson` via `_.merge()` (index-by-index array merge), so a component-level `log.sanitize` array must repeat the `base.imljson` entries first (`["request.headers.authorization", "request.body.SipAuthPassword"]`) to avoid overwriting header sanitization. `create-endpoint.md` and `code-review-guidance.md` link `type: "password"` inputs to this check.
+- **OpenAPI `help` hygiene and conditionally required groups.** `forman-schemas.md`, `create-endpoint.md`, and `code-review-guidance.md` extend the IEN-16879 serialization rules to strip copied vendor instructions to manually URL-encode characters like `#` when `type: urlencoded` or `qs` already encodes the value, strip inline operator syntax (`<=YYYY-MM-DD`) when a filter is split into separate parameters (`DateSentBefore` → `DateSent<`), document conditionally required parameter groups (e.g. one of `Url`, `Twiml`, or `ApplicationSid`) in `context.md` as well as `help`, and grep across all `input_parameters`, `output_parameters`, and `context.md` files when fixing dead links or stale terms in shared OpenAPI descriptions.
+
 ## 2.3.10 — 2026-10-26
 
 Transition `In Progress` parent tickets to `Commit` at close-out across all app code workflows.

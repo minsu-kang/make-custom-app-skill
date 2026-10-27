@@ -14,7 +14,7 @@
 
 ## Base Pattern
 
-`base.imljson` defines common settings inherited by **modules and RPCs only**. It is **not merged into `connections/*/api.imljson` or `webhooks/*/api.imljson`** — **every** field in base (`baseUrl`, `headers`, `qs`, `body`, `response`, `log`, `type`, `timeout`, or any other key) is ignored for connection and webhook contexts. Those components must specify their full URL, headers, error handling, logging, and everything else explicitly. Any field set in base acts as the default for modules/RPCs only and can be overridden at the component level.
+`base.imljson` defines common settings inherited by **modules, RPCs, and endpoints**. It is **not merged into `connections/*/api.imljson` or `webhooks/*/api.imljson`** — **every** field in base (`baseUrl`, `headers`, `qs`, `body`, `response`, `log`, `type`, `timeout`, or any other key) is ignored for connection and webhook contexts. Those components must specify their full URL, headers, error handling, logging, and everything else explicitly. Any field set in base acts as the default for modules, RPCs, and endpoints and can be overridden at the component level.
 
 ### Typical Structure
 
@@ -49,7 +49,7 @@
 
 ### Log Sanitize Best Practices
 
-Always sanitize sensitive data. Common paths:
+Always sanitize sensitive data (including any `type: "password"` input sent in `body` or `qs`). Common paths:
 
 ```json
 "log": {
@@ -63,6 +63,8 @@ Always sanitize sensitive data. Common paths:
 	]
 }
 ```
+
+> **Component-level override trap (`_.merge` by index)**: `communication.js` merges `base.imljson` with a module/RPC/endpoint `api.imljson` via `_.merge()`, which merges arrays **index by index** ([runtime-reference.md § temp](runtime-reference.md#temp)). If `base.imljson` has `"sanitize": ["request.headers.authorization"]` and a component sets `"sanitize": ["request.body.SipAuthPassword"]`, index `0` is overwritten and the `authorization` header is no longer masked. Always repeat the `base.imljson` entries first in the component's `log.sanitize` array: `["request.headers.authorization", "request.body.SipAuthPassword"]`.
 
 ### Conditional Base URL
 

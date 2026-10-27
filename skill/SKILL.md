@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.10
+version: 2.3.11
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -49,7 +49,7 @@ Read [workflows/lifecycle.md](workflows/lifecycle.md) first for every task (app 
 
 | Component | Files | Notes |
 |---|---|---|
-| Base | `base.imljson` | Inherited by modules and RPCs only (not connections / webhooks) |
+| Base | `base.imljson` | Inherited by modules, RPCs, and endpoints (not connections / webhooks) |
 | Common | `common.imljson` | Encrypted shared data; static content locked after approval, `installSpec` values stay admin-editable |
 | Connection | `api`, `parameters` | OAuth2 / OAuth1 / JWT / API key / Basic |
 | Module | `api`, `parameters`, `expect`, `interface`, `samples` | Execution unit |
