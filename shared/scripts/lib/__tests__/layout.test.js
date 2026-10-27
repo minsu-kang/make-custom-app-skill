@@ -1,6 +1,7 @@
 /**
  * Guards the plugin layout of shared/scripts: every file parses, every lib module loads on its own,
- * and nothing refers to the old skill layout (the old paths belong only to legacy-install.js).
+ * nothing refers to the old skill layout (the old paths belong only to legacy-install.js), and every entry script
+ * strips --editor before it reads process.argv for anything else.
  */
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,16 +19,61 @@ const OLD_LAYOUT = /skill-root|version-guard|ensureFreshSkill|getSkillRoot|getEd
 
 /** Scripts that must not call the account check: they report the account item themselves. */
 const NO_GUARD = new Set(['check-setup.js', 'setup-secrets.js']);
+const GUARD_CALL = /require\('\.\/lib\/access-guard'\)\.ensureInternalUser\(\)/;
+
+/** Scripts that parse --editor themselves instead of stripping it first with takeEditorFlagOrExit. */
+const OWN_EDITOR_PARSER = new Set(['setup-secrets.js']);
+const TAKE_FLAG = /\btakeEditorFlagOrExit\(process\.argv\)/;
 
 /** Tests that may spell out a Cursor settings path: they test the path rule itself. */
 const CURSOR_PATH_ALLOWED = new Set(['settings.test.js', 'layout.test.js']);
 const CURSOR_PATH = /Application Support|AppData\/Roaming|\.config\/Cursor/;
-const GUARD_CALL = /require\('\.\/lib\/access-guard'\)\.ensureInternalUser\(\)/;
-const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/.*$/gm;
+
+/**
+ * Removes // and block comments from JS source. Strings, template literals and regex literals are copied as they are,
+ * so a `//` or a quote inside one does not hide code.
+ */
+function stripComments(source) {
+	const REGEX_AFTER = '(,=:[!&|?{};+-*%<>~^';
+	const REGEX_KEYWORDS = /(?:^|[^\w$.])(?:return|typeof|case|in|of|delete|void|throw|new|else|do)$/;
+	let out = '';
+	let i = source.startsWith('#!') ? source.indexOf('\n') : 0;
+	if (i === -1) return '';
+	while (i < source.length) {
+		const ch = source[i];
+		const next = source[i + 1];
+		let end = i + 1;
+		if (ch === '/' && next === '/') {
+			while (i < source.length && source[i] !== '\n') i++;
+			continue;
+		}
+		if (ch === '/' && next === '*') {
+			const close = source.indexOf('*/', i + 2);
+			i = close === -1 ? source.length : close + 2;
+			out += ' ';
+			continue;
+		}
+		const before = out.trimEnd();
+		if (ch === '"' || ch === "'" || ch === '`') {
+			while (end < source.length && source[end] !== ch) end += source[end] === '\\' ? 2 : 1;
+			end++;
+		} else if (ch === '/' && (!before || REGEX_AFTER.includes(before.slice(-1)) || REGEX_KEYWORDS.test(before))) {
+			for (let inClass = false; end < source.length && (inClass || source[end] !== '/'); end++) {
+				if (source[end] === '\\') end++;
+				else if (source[end] === '[') inClass = true;
+				else if (source[end] === ']') inClass = false;
+			}
+			end++;
+		}
+		out += source.slice(i, end);
+		i = end;
+	}
+	return out;
+}
 
 /** True when the source calls the account check outside of comments. */
 function hasGuardCall(source) {
-	return GUARD_CALL.test(source.replace(COMMENTS, ''));
+	return GUARD_CALL.test(stripComments(source));
 }
 
 function listJs(dir) {
@@ -66,6 +112,32 @@ describe('hasGuardCall', () => {
 	});
 });
 
+describe('stripComments', () => {
+	const compact = (code) => stripComments(code).replace(/\s+/g, ' ').trim();
+
+	it('removes line and block comments', () => {
+		assert.equal(compact('a(); // b()\nc(); /* d() */ e();\n'), 'a(); c(); e();');
+		assert.equal(compact('/**\n * process.argv\n */\nx();'), 'x();');
+	});
+
+	it('keeps code after a // that sits inside a string or a template literal', () => {
+		const code = "const url = 'http://x'; f(process.argv);\nconst b = \"//\"; g(process.argv);\nconst t = `//${process.argv}`;";
+		assert.equal(stripComments(code), code);
+	});
+
+	it('keeps a regex literal with quotes or slashes in it, and the code after it', () => {
+		const withQuotes = 'const m = line.match(/^([A-Z_]+)\\s*=\\s*"?([^"]*)"?\\s*$/);\nuse(process.argv);';
+		assert.equal(stripComments(withQuotes), withQuotes);
+		const withSlash = "x = /[/']/.test(y); z(process.argv);";
+		assert.equal(stripComments(withSlash), withSlash);
+	});
+
+	it('leaves a division alone and drops a shebang line', () => {
+		assert.equal(compact('const r = a / b; // c\n'), 'const r = a / b;');
+		assert.equal(compact('#!/usr/bin/env node\nrun();'), 'run();');
+	});
+});
+
 describe('shared/scripts layout', () => {
 	let home;
 	let env;
@@ -90,6 +162,15 @@ describe('shared/scripts layout', () => {
 		assert.deepEqual(ENTRY_SCRIPTS.filter((name) => !NO_GUARD.has(name) && !callsGuard(name)), []);
 		assert.deepEqual([...NO_GUARD].filter(callsGuard), []);
 	});
+
+	for (const name of ENTRY_SCRIPTS.filter((file) => !OWN_EDITOR_PARSER.has(file))) {
+		it(`${name} strips --editor before it reads process.argv for anything else`, () => {
+			const code = stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8'));
+			const call = TAKE_FLAG.exec(code);
+			assert.ok(call, `${name} does not call takeEditorFlagOrExit(process.argv)`);
+			assert.equal(code.indexOf('process.argv'), call.index + call[0].indexOf('process.argv'), `${name} reads process.argv before it strips --editor`);
+		});
+	}
 
 	it('every file passes node --check', () => {
 		const failures = ALL_FILES.map((file) => ({ file, run: spawnSync(process.execPath, ['--check', file], { encoding: 'utf-8', env }) }))

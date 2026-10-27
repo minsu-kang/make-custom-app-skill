@@ -51,8 +51,6 @@ const ARGS = {
 };
 
 const source = (name) => fs.readFileSync(path.join(SCRIPTS, `${name}.js`), 'utf8');
-const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/.*$/gm;
-const TAKE_FLAG = "require('./lib/settings').takeEditorFlagOrExit(process.argv)";
 
 describe('entry script sources', () => {
 	for (const name of ENTRY_SCRIPTS) {
@@ -60,15 +58,6 @@ describe('entry script sources', () => {
 			const text = source(name);
 			assert.match(text, /ensureInternalUser\(/, `${name} does not call ensureInternalUser()`);
 			for (const re of OLD_LAYOUT) assert.doesNotMatch(text, re, `${name} still mentions ${re.source}`);
-		});
-	}
-
-	for (const name of ENTRY_SCRIPTS) {
-		it(`${name} strips --editor before it reads process.argv for anything else`, () => {
-			const code = source(name).replace(COMMENTS, '');
-			const call = code.indexOf(TAKE_FLAG);
-			assert.ok(call >= 0, `${name} does not call ${TAKE_FLAG}`);
-			assert.equal(code.indexOf('process.argv'), call + TAKE_FLAG.indexOf('process.argv'), `${name} reads process.argv before it strips --editor`);
 		});
 	}
 
@@ -191,6 +180,16 @@ describe('entry scripts in a fake HOME', () => {
 				assert.equal(requests.length, 0);
 			});
 		}
+
+		it('--editor cursor reaches the refusal: it names the setup command of Cursor', async () => {
+			seed({ jira: false });
+			const r = await run('download-app', ['--editor', 'cursor', ...ARGS['download-app']], { env: {} });
+			assert.equal(r.code, 1, r.stderr);
+			assert.match(r.stderr, /no Jira API token is saved/);
+			assert.ok(r.stderr.includes(setupCommand('cursor')), r.stderr);
+			assert.ok(!r.stderr.includes(setupCommand('claude')), r.stderr);
+			assert.equal(requests.length, 0);
+		});
 	});
 
 	describe('the target announcement', () => {
