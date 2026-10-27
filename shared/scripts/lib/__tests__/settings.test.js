@@ -268,6 +268,138 @@ describe('announceTarget', () => {
 	});
 });
 
+describe('stripJsonComments', () => {
+	it('keeps // inside a string', () => {
+		const text = '{"http.proxy": "http://proxy.corp:8080", "b": "a//b"}';
+		assert.equal(settings.stripJsonComments(text), text);
+	});
+
+	it('removes a line comment after a value', () => {
+		assert.equal(settings.stripJsonComments('{"a": 1, // note\n"b": 2}'), '{"a": 1, \n"b": 2}');
+		assert.equal(settings.stripJsonComments('// first line\n{"a": 1} // last line'), '\n{"a": 1} ');
+	});
+
+	it('removes a block comment and keeps its line breaks', () => {
+		assert.equal(settings.stripJsonComments('{"a": /* x */ 1}'), '{"a":  1}');
+		assert.equal(settings.stripJsonComments('{/* one\ntwo\r\nthree */"a": 1}'), '{\n\r\n"a": 1}');
+		assert.equal(settings.stripJsonComments('{"a": 1 /* never closed'), '{"a": 1 ');
+	});
+
+	it('keeps /* inside a string', () => {
+		const text = '{"glob": "src/**/*.js", "c": "/* not a comment */"}';
+		assert.equal(settings.stripJsonComments(text), text);
+	});
+
+	it('respects an escaped quote in a string', () => {
+		const text = '{"a": "say \\"// not a comment\\" now", "b": 2} // tail';
+		assert.equal(settings.stripJsonComments(text), '{"a": "say \\"// not a comment\\" now", "b": 2} ');
+		assert.equal(settings.stripJsonComments('{"p": "C:\\\\", // c\n"q": 1}'), '{"p": "C:\\\\", \n"q": 1}');
+	});
+
+	it('removes a trailing comma outside strings and keeps one inside a string', () => {
+		assert.equal(settings.stripJsonComments('{"a": [1, 2,], "b": "x,}", }'), '{"a": [1, 2], "b": "x,}" }');
+		assert.equal(settings.stripJsonComments('[1, // last\n]'), '[1 \n]');
+		assert.equal(settings.stripJsonComments('[1, /* last */ ]'), '[1  ]');
+		assert.equal(settings.stripJsonComments('["a,]", "b"]'), '["a,]", "b"]');
+		assert.equal(settings.stripJsonComments('[1,,]'), '[1,]');
+	});
+});
+
+describe('parseJsonc', () => {
+	it('reads a settings file with a proxy URL', () => {
+		const text = `{
+	// proxy of the office
+	"http.proxy": "http://proxy.corp:8080", /* keep */
+	"apps-sdk.environments": [{ "uuid": "u", "url": "eu1.make.com", "apikey": "KEY", },],
+}`;
+		assert.deepEqual(settings.parseJsonc(text), {
+			'http.proxy': 'http://proxy.corp:8080',
+			'apps-sdk.environments': [{ uuid: 'u', url: 'eu1.make.com', apikey: 'KEY' }],
+		});
+	});
+
+	it('throws a SyntaxError for text that is not JSON', () => {
+		assert.throws(() => settings.parseJsonc('not json'), SyntaxError);
+	});
+});
+
+describe('cursorSettingsPath', () => {
+	it('for darwin, win32 and linux', () => {
+		assert.equal(settings.cursorSettingsPath('darwin', '/h'), path.join('/h', 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'));
+		assert.equal(settings.cursorSettingsPath('win32', '/h'), path.join('/h', 'AppData', 'Roaming', 'Cursor', 'User', 'settings.json'));
+		for (const platform of ['linux', 'freebsd']) {
+			assert.equal(settings.cursorSettingsPath(platform, '/h'), path.join('/h', '.config', 'Cursor', 'User', 'settings.json'), platform);
+		}
+	});
+
+	it('defaults to this platform and the home folder, and CURSOR_SETTINGS_PATH is that default', () => {
+		assert.equal(settings.cursorSettingsPath(), settings.cursorSettingsPath(process.platform, os.homedir()));
+		assert.equal(settings.CURSOR_SETTINGS_PATH, settings.cursorSettingsPath());
+		assert.ok(settings.CURSOR_SETTINGS_PATH.startsWith(home), settings.CURSOR_SETTINGS_PATH);
+	});
+});
+
+describe('readCursorEnvironments', () => {
+	const file = path.join(home, 'read-cursor-environments.json');
+	const SECRET = 'SECRET_KEY_must_not_leak';
+
+	afterEach(() => fs.rmSync(file, { recursive: true, force: true }));
+
+	it('reports missing', () => {
+		const result = settings.readCursorEnvironments(file);
+		assert.deepEqual(result, { ok: false, reason: 'missing', detail: `Cursor settings file not found: ${file}` });
+	});
+
+	it('reports unreadable for invalid JSON and never includes file content in detail', () => {
+		const texts = [`{"apikey": "${SECRET}" "x": 1}`, `{\n  "apikey": "${SECRET}"\n  "x": 1\n}`, 'not json', ''];
+		for (const text of texts) {
+			fs.writeFileSync(file, text);
+			const result = settings.readCursorEnvironments(file);
+			assert.equal(result.ok, false);
+			assert.equal(result.reason, 'unreadable', text);
+			assert.match(result.detail, /^invalid JSON/, text);
+			assert.ok(!result.detail.includes(SECRET), result.detail);
+			assert.ok(!result.detail.includes('not json'), result.detail);
+		}
+		fs.writeFileSync(file, `{\n  "apikey": "${SECRET}"\n  "x": 1\n}`);
+		assert.equal(settings.readCursorEnvironments(file).detail, 'invalid JSON near line 3');
+	});
+
+	it('reports unreadable when the file cannot be read for another reason than being absent', () => {
+		fs.mkdirSync(file);
+		const result = settings.readCursorEnvironments(file);
+		assert.equal(result.ok, false);
+		assert.equal(result.reason, 'unreadable');
+		assert.match(result.detail, /EISDIR/);
+	});
+
+	it('reports no-environments', () => {
+		for (const text of ['{}', '{ "apps-sdk.environments": [] }', '{ "apps-sdk.environments": "eu1" }', '{ "apps-sdk.environments": {} }', 'null', '[]', '5']) {
+			fs.writeFileSync(file, text);
+			assert.deepEqual(settings.readCursorEnvironments(file), { ok: false, reason: 'no-environments', detail: `apps-sdk.environments not found in ${file}` }, text);
+		}
+	});
+
+	it('returns environments and the active uuid', () => {
+		const environments = [{ uuid: 'u1', url: 'eu1.make.com', apikey: 'K1' }, { uuid: 'u2', url: 'us1.make.com', apikey: 'K2' }];
+		fs.writeFileSync(file, `{\n\t// c\n\t"http.proxy": "http://proxy.corp:8080",\n\t"apps-sdk.environment": "u2",\n\t"apps-sdk.environments": ${JSON.stringify(environments)},\n}`);
+		assert.deepEqual(settings.readCursorEnvironments(file), { ok: true, environments, activeUuid: 'u2' });
+		fs.writeFileSync(file, JSON.stringify({ 'apps-sdk.environments': environments }));
+		assert.deepEqual(settings.readCursorEnvironments(file), { ok: true, environments, activeUuid: undefined });
+	});
+
+	it('reads the Cursor settings file of the home folder by default', () => {
+		fs.mkdirSync(path.dirname(settings.CURSOR_SETTINGS_PATH), { recursive: true });
+		fs.writeFileSync(settings.CURSOR_SETTINGS_PATH, '{ "apps-sdk.environments": [{ "uuid": "d", "apikey": "K" }] }');
+		try {
+			assert.equal(settings.readCursorEnvironments().ok, true);
+		} finally {
+			fs.rmSync(settings.CURSOR_SETTINGS_PATH, { force: true });
+		}
+		assert.equal(settings.readCursorEnvironments().reason, 'missing');
+	});
+});
+
 describe('loadSettings for Claude Code', () => {
 	beforeEach(() => {
 		process.env.CLAUDECODE = '1';
@@ -332,7 +464,7 @@ describe('loadSettings for Cursor', () => {
 		process.env.CURSOR_AGENT = '1';
 	});
 
-	afterEach(() => fs.rmSync(settings.CURSOR_SETTINGS_PATH, { force: true }));
+	afterEach(() => fs.rmSync(settings.CURSOR_SETTINGS_PATH, { recursive: true, force: true }));
 
 	it('reads the active environment from a settings.json with comments and trailing commas', () => {
 		writeCursorSettings(JSONC);
@@ -379,6 +511,39 @@ describe('loadSettings for Cursor', () => {
 			assert.throws(() => settings.loadSettings(), /exit 1/);
 		}
 		assert.deepEqual(lines, Array(2).fill('ERROR: apps-sdk.environments configuration not found.'));
+	});
+
+	it('reads a settings.json that has a proxy URL', () => {
+		writeCursorSettings('{\n\t"http.proxy": "http://proxy.corp:8080", // office proxy\n\t"apps-sdk.environments": [{ "uuid": "u", "url": "eu1.make.com", "apikey": "KEY", },],\n}');
+		const loaded = settings.loadSettings();
+		assert.equal(loaded.apikey, 'KEY');
+		assert.equal(loaded.baseUrl, 'https://eu1.make.com/v2');
+	});
+
+	it('prints the friendly message and exits 1 when the file is missing', () => {
+		const r = runChild(`require(${JSON.stringify(path.join(__dirname, '..', 'settings'))}).loadSettings(); console.log('ran');`, { CURSOR_AGENT: '1' });
+		assert.equal(r.status, 1);
+		assert.equal(r.stdout, '');
+		assert.equal(
+			r.stderr,
+			`ERROR: Cursor settings file not found: ${settings.CURSOR_SETTINGS_PATH}. Set up the Make Apps SDK extension in Cursor (an environment with its API key), or run the scripts from Claude Code.\n`,
+		);
+	});
+
+	it('prints the reason and exits 1 when the file is not valid JSON, without any file content', (t) => {
+		const lines = captureExit(t);
+		writeCursorSettings('{\n\t"apps-sdk.environments": [{ "apikey": "SECRET_KEY_must_not_leak" "x": 1 }]\n}');
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		assert.deepEqual(lines, [`ERROR: Cannot read the Cursor settings file ${settings.CURSOR_SETTINGS_PATH}: invalid JSON near line 2`]);
+		assert.ok(!lines.join('\n').includes('SECRET_KEY_must_not_leak'));
+	});
+
+	it('prints the reason and exits 1 when the file cannot be read', (t) => {
+		const lines = captureExit(t);
+		fs.mkdirSync(settings.CURSOR_SETTINGS_PATH, { recursive: true });
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		assert.equal(lines.length, 1);
+		assert.match(lines[0], new RegExp(`^ERROR: Cannot read the Cursor settings file ${settings.CURSOR_SETTINGS_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: .*EISDIR`));
 	});
 
 	it('takes the key from Cursor and ignores make-api-key of the secrets file', () => {

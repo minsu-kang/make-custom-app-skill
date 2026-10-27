@@ -276,13 +276,53 @@ describe('check-setup in a fake HOME, choosing the editor', () => {
 		assert.equal(connectAttempts(), 0);
 	});
 
-	it('reports a Cursor settings.json that has no environments, or cannot be read, as missing', () => {
+	it('a Cursor settings.json with a proxy URL and a valid environment passes', () => {
+		const config = fullConfig();
+		delete config['make-api-key'];
+		save({ editor: 'cursor', ...config });
 		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
-		for (const text of ['{}', '{ "apps-sdk.environments": [] }', 'not json']) {
+		fs.writeFileSync(
+			CURSOR_SETTINGS_PATH,
+			'{\n\t"http.proxy": "http://proxy.corp:8080", // office proxy\n\t"apps-sdk.environments": [{ "uuid": "u", "url": "eu1.make.com", "apikey": "CURSOR_KEY_secret", },],\n}',
+		);
+		const r = run();
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.deepEqual(parseItems(r.stdout)['make-api (Cursor settings.json)'], { status: 'OK', detail: 'apps-sdk.environments present' });
+		assert.ok(!r.stdout.includes('CURSOR_KEY_secret'));
+	});
+
+	it('reports a Cursor settings.json that has no environments as missing', () => {
+		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
+		for (const text of ['{}', '{ "apps-sdk.environments": [] }']) {
 			fs.writeFileSync(CURSOR_SETTINGS_PATH, text);
 			const item = parseItems(run([], { CURSOR_AGENT: '1' }).stdout)['make-api (Cursor settings.json)'];
 			assert.deepEqual(item, { status: 'MISSING', detail: `apps-sdk.environments not found in ${CURSOR_SETTINGS_PATH}` }, text);
 		}
+	});
+
+	it('reports a missing Cursor settings.json as missing, with the path', () => {
+		const r = run([], { CURSOR_AGENT: '1' });
+		assert.equal(r.status, 1);
+		assert.deepEqual(parseItems(r.stdout)['make-api (Cursor settings.json)'], {
+			status: 'MISSING',
+			detail: `Cursor settings file not found: ${CURSOR_SETTINGS_PATH}`,
+		});
+		assert.ok(r.stdout.includes('[REQUIRED] make-api (Cursor settings.json)'), r.stdout);
+	});
+
+	it('reports a Cursor settings.json that cannot be read as missing, without any file content', () => {
+		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
+		fs.writeFileSync(CURSOR_SETTINGS_PATH, '{\n\t"apps-sdk.environments": [{ "apikey": "CURSOR_KEY_secret" "x": 1 }]\n}');
+		const r = run([], { CURSOR_AGENT: '1' });
+		assert.deepEqual(parseItems(r.stdout)['make-api (Cursor settings.json)'], {
+			status: 'MISSING',
+			detail: `cannot read ${CURSOR_SETTINGS_PATH}: invalid JSON near line 2`,
+		});
+		assert.ok(!r.stdout.includes('CURSOR_KEY_secret') && !r.stderr.includes('CURSOR_KEY_secret'));
+		fs.writeFileSync(CURSOR_SETTINGS_PATH, 'not json');
+		const second = parseItems(run([], { CURSOR_AGENT: '1' }).stdout)['make-api (Cursor settings.json)'];
+		assert.equal(second.status, 'MISSING');
+		assert.ok(!second.detail.includes('not json'), second.detail);
 	});
 });
 

@@ -114,32 +114,99 @@ function announceTarget(settings) {
 	console.error(`Target: editor=${settings.editor}, Make API host=${hostOf(settings.baseUrl)}`);
 }
 
-const CURSOR_SETTINGS_PATH = path.join(
-	os.homedir(),
-	process.platform === 'win32'
-		? 'AppData/Roaming/Cursor/User/settings.json'
-		: 'Library/Application Support/Cursor/User/settings.json',
-);
+/** Where Cursor keeps its user settings (and with them the Make Apps SDK environments). */
+function cursorSettingsPath(platform = process.platform, home = os.homedir()) {
+	if (platform === 'win32') return path.join(home, 'AppData/Roaming/Cursor/User/settings.json');
+	if (platform === 'darwin') return path.join(home, 'Library/Application Support/Cursor/User/settings.json');
+	return path.join(home, '.config/Cursor/User/settings.json');
+}
+
+const CURSOR_SETTINGS_PATH = cursorSettingsPath();
+
+const CURSOR_SETTINGS_HELP = 'Set up the Make Apps SDK extension in Cursor (an environment with its API key), or run the scripts from Claude Code.';
+
+/**
+ * Removes // and block comments and trailing commas from JSONC text, outside string literals only, so a
+ * value such as "http://proxy.corp:8080" survives. Line breaks stay, so a JSON error still names the right line.
+ */
+function stripJsonComments(text) {
+	const out = [];
+	let lastComma = -1;
+	let i = 0;
+	while (i < text.length) {
+		const ch = text[i];
+		if (ch === '"') {
+			let end = i + 1;
+			while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+			out.push(text.slice(i, end + 1));
+			lastComma = -1;
+			i = end + 1;
+		} else if (ch === '/' && text[i + 1] === '/') {
+			while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++;
+		} else if (ch === '/' && text[i + 1] === '*') {
+			const close = text.indexOf('*/', i + 2);
+			const end = close === -1 ? text.length : close + 2;
+			out.push(text.slice(i, end).replace(/[^\r\n]/g, ''));
+			i = end;
+		} else {
+			if (ch === ',') {
+				lastComma = out.length;
+			} else if (ch === '}' || ch === ']') {
+				if (lastComma !== -1) out[lastComma] = '';
+				lastComma = -1;
+			} else if (!/\s/.test(ch)) {
+				lastComma = -1;
+			}
+			out.push(ch);
+			i++;
+		}
+	}
+	return out.join('');
+}
 
 function parseJsonc(text) {
-	let cleaned = text.replace(/\/\/.*$/gm, '');
-	cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
-	cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-	return JSON.parse(cleaned);
+	return JSON.parse(stripJsonComments(text));
+}
+
+/** V8's JSON error message quotes the start of the text, so only the line number is kept: the file holds API keys. */
+function jsonErrorDetail(err) {
+	const line = /\(line (\d+) column \d+\)/.exec(err.message);
+	return line ? `invalid JSON near line ${line[1]}` : 'invalid JSON';
+}
+
+/**
+ * The Make Apps SDK environments in Cursor's settings.json. Never throws and never exits.
+ * Failure reasons: missing (no file), unreadable (read or JSON error; detail never holds file content),
+ * no-environments (apps-sdk.environments absent or empty).
+ */
+function readCursorEnvironments(file = CURSOR_SETTINGS_PATH) {
+	let parsed;
+	try {
+		parsed = parseJsonc(fs.readFileSync(file, 'utf-8'));
+	} catch (err) {
+		if (err.code === 'ENOENT') return { ok: false, reason: 'missing', detail: `Cursor settings file not found: ${file}` };
+		return { ok: false, reason: 'unreadable', detail: err instanceof SyntaxError ? jsonErrorDetail(err) : err.message };
+	}
+	const environments = parsed?.['apps-sdk.environments'];
+	if (!Array.isArray(environments) || environments.length === 0) {
+		return { ok: false, reason: 'no-environments', detail: `apps-sdk.environments not found in ${file}` };
+	}
+	return { ok: true, environments, activeUuid: parsed['apps-sdk.environment'] };
+}
+
+function failCursorSettings({ reason, detail }) {
+	if (reason === 'missing') console.error(`ERROR: ${detail}. ${CURSOR_SETTINGS_HELP}`);
+	else if (reason === 'unreadable') console.error(`ERROR: Cannot read the Cursor settings file ${CURSOR_SETTINGS_PATH}: ${detail}`);
+	else console.error('ERROR: apps-sdk.environments configuration not found.');
+	process.exit(1);
 }
 
 function loadCursorSettings() {
-	const raw = fs.readFileSync(CURSOR_SETTINGS_PATH, 'utf-8');
-	const settings = parseJsonc(raw);
+	const result = readCursorEnvironments();
+	if (!result.ok) failCursorSettings(result);
 
-	const activeUuid = settings['apps-sdk.environment'];
-	const environments = settings['apps-sdk.environments'] || [];
-
+	const { environments, activeUuid } = result;
 	const env = environments.find((e) => e.uuid === activeUuid) || environments[0];
-	if (!env) {
-		console.error('ERROR: apps-sdk.environments configuration not found.');
-		process.exit(1);
-	}
 
 	const version = env.version || 2;
 	let baseUrl;
@@ -195,6 +262,10 @@ function getMakeApiKey() {
 module.exports = {
 	SECRETS_PATH,
 	CURSOR_SETTINGS_PATH,
+	cursorSettingsPath,
+	stripJsonComments,
+	parseJsonc,
+	readCursorEnvironments,
 	isPlaceholder,
 	readSkillConfig,
 	getEditor,

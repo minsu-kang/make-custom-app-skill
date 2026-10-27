@@ -14,7 +14,7 @@
  */
 const fs = require('fs');
 const { PLUGIN_ROOT, setupCommand } = require('./lib/paths');
-const { readSkillConfig, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
+const { readSkillConfig, readCursorEnvironments, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
 const { checkAccess } = require('./lib/access-guard');
 const { denyMessage } = require('./lib/access-guard-logic');
@@ -72,25 +72,14 @@ if (isClaude) {
 		add('make-api-key', 'ok', `set (${readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin'})`);
 	}
 } else {
-	let ok = false;
-	try {
-		const raw = fs
-			.readFileSync(CURSOR_SETTINGS_PATH, 'utf-8')
-			.replace(/\/\/.*$/gm, '')
-			.replace(/\/\*[\s\S]*?\*\//g, '')
-			.replace(/,\s*([}\]])/g, '$1');
-		const s = JSON.parse(raw);
-		ok = Array.isArray(s['apps-sdk.environments']) && s['apps-sdk.environments'].length > 0;
-	} catch {
-		/* unreadable → treated as missing */
-	}
-	if (ok) {
+	const cursor = readCursorEnvironments();
+	if (cursor.ok) {
 		add('make-api (Cursor settings.json)', 'ok', 'apps-sdk.environments present');
 	} else {
 		add(
 			'make-api (Cursor settings.json)',
 			'missing',
-			`apps-sdk.environments not found in ${CURSOR_SETTINGS_PATH}`,
+			cursor.reason === 'unreadable' ? `cannot read ${CURSOR_SETTINGS_PATH}: ${cursor.detail}` : cursor.detail,
 			'Install the Make Apps SDK extension in Cursor and add an environment with your API key (Command Palette → "Make Apps: Add environment").',
 		);
 	}
