@@ -97,6 +97,19 @@ test('a missing source is an error', () => {
 	assert.match(r.out, /ERROR shared\/hard-rules\.md is missing/);
 });
 
+test('an empty or whitespace-only source is an error in both modes and writes nothing', () => {
+	for (const body of ['', '\n', '  \n\t\n']) {
+		const root = makeRepo({ 'shared/hard-rules.md': body, 'skills/a/SKILL.md': withBlock('old text') });
+		for (const args of [[], ['--check']]) {
+			const r = cli(root, ...args);
+			assert.equal(r.status, 1, JSON.stringify(body));
+			assert.match(r.out, /ERROR shared\/hard-rules\.md is empty/);
+			assert.match(r.out, /hard rules: out of sync/);
+		}
+		assert.equal(read(root, 'skills/a/SKILL.md'), withBlock('old text'), 'nothing is written when the source is empty');
+	}
+});
+
 test('tokens that Claude rewrites when a skill loads are errors in both modes, with the line number', () => {
 	const tokens = {
 		'${CLAUDE_PLUGIN_ROOT}': '${CLAUDE_',

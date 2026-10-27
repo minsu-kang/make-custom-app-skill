@@ -5,7 +5,7 @@
 // Usage: node tools/sync-hard-rules.js [--check] [repoRoot]
 // Write mode rewrites the files whose block differs. --check changes nothing and exits 1 when a block differs.
 // Both modes exit 1 when the source holds a token that Claude rewrites when a skill loads (spec 4.3), when the
-// source is missing, or when a SKILL.md does not hold exactly one start marker followed by one end marker.
+// source is missing or empty, or when a SKILL.md does not hold exactly one start marker followed by one end marker.
 
 const fs = require('fs');
 const path = require('path');
@@ -25,7 +25,9 @@ const RESERVED = [
 function readSource(root) {
 	const file = path.join(root, SOURCE);
 	if (!fs.existsSync(file)) throw new Error(`${SOURCE} is missing`);
-	return fs.readFileSync(file, 'utf8');
+	const source = fs.readFileSync(file, 'utf8');
+	if (source.trim() === '') throw new Error(`${SOURCE} is empty`);
+	return source;
 }
 
 // One entry per offending line: { line, token }.
