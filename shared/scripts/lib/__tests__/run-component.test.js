@@ -12,6 +12,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
 const { setupCommand } = require('../paths');
+const { cursorSettingsPath } = require('../settings');
 
 const script = path.resolve(__dirname, '..', '..', 'run-component.js');
 const FAKE_KEY = 'FAKEKEY_abc123SECRET';
@@ -815,7 +816,7 @@ describe('arguments', () => {
 
 describe('the editor, the target and the account check', () => {
 	const CURSOR_KEY = 'CURSORKEY_def456SECRET';
-	const cursorSettings = () => path.join(home, process.platform === 'win32' ? 'AppData/Roaming/Cursor/User/settings.json' : 'Library/Application Support/Cursor/User/settings.json');
+	const cursorSettings = () => cursorSettingsPath(process.platform, home);
 
 	function writeCursorSettings() {
 		const environment = { uuid: 'u1', url: `127.0.0.1:${server.address().port}/api`, apikey: CURSOR_KEY, unsafe: true, admin: true };

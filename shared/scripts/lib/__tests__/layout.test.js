@@ -18,6 +18,10 @@ const OLD_LAYOUT = /skill-root|version-guard|ensureFreshSkill|getSkillRoot|getEd
 
 /** Scripts that must not call the account check: they report the account item themselves. */
 const NO_GUARD = new Set(['check-setup.js', 'setup-secrets.js']);
+
+/** Tests that may spell out a Cursor settings path: they test the path rule itself. */
+const CURSOR_PATH_ALLOWED = new Set(['settings.test.js', 'layout.test.js']);
+const CURSOR_PATH = /Application Support|AppData\/Roaming|\.config\/Cursor/;
 const GUARD_CALL = /require\('\.\/lib\/access-guard'\)\.ensureInternalUser\(\)/;
 const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/.*$/gm;
 
@@ -102,6 +106,12 @@ describe('shared/scripts layout', () => {
 			.filter(({ run }) => run.status !== 0)
 			.map(({ file, run }) => `${path.basename(file)}: ${run.stderr.trim().split('\n')[0]}`);
 		assert.deepEqual(failures, []);
+	});
+
+	it('no test builds a Cursor settings path by hand, the platform decides it', () => {
+		const tests = fs.readdirSync(path.join(__dirname)).filter((name) => name.endsWith('.test.js') && !CURSOR_PATH_ALLOWED.has(name));
+		assert.ok(tests.length >= 10, `only ${tests.length} test files found`);
+		assert.deepEqual(tests.filter((name) => CURSOR_PATH.test(fs.readFileSync(path.join(__dirname, name), 'utf-8'))), []);
 	});
 
 	it('nothing outside the legacy detection names the old layout', () => {
