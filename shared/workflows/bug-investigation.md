@@ -22,7 +22,7 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 4. **Check impact.** Search the app for every use of the affected function / pattern; assess side effects on other modules.
 5. **Present findings and wait for approval** *(gate)*: error flow, root cause, why it happens, affected components, reproduction evidence, proposed fix scope. When working QA subtasks on a returned ticket, classify each one as **True Positive** or **False Positive** first, as described in [jira-ticket.md](jira-ticket.md).
 6. **Fix minimally.** Only the bug — no refactoring, no "improvements", no touching unrelated logic. Write to `~/.make-custom-app/contexts/{slug}-v{version}/`, confirm the failing test now passes, and confirm zero behaviour change outside the bug scenario (otherwise the fix is too broad). Every changed function keeps `test.js` covering core behaviour, edge cases (null / undefined / empty / boundaries), the bug scenario, and regressions; run `test-function.js`. Changed `api.imljson` → `test-component.js`.
-7. **Push** per [push-changes.md](push-changes.md). For an Endpoint or RPC fix, then run it live with the bug's input ([run-live.md](run-live.md): ownership, review, cleanup, fixtures after a pass, ownership back).
+7. **Push** per [push-changes.md](push-changes.md). For an Endpoint or RPC fix, then run it live with the bug's input ([run-live.md](run-live.md): ownership, cleanup, review, fixtures after a pass, ownership back).
 8. **Close out** per [close-out.md](close-out.md), steps 1 to 5 (Developer Notes on the parent ticket use the bugfix template).
 
 ## Recurring bug (component fixed recently per Work History)
