@@ -95,6 +95,16 @@ test('a description needs a "Not for" clause and must be a plain one-line value'
 	assert.equal(r.status, 1);
 });
 
+test('a description that YAML would reject or change is refused', () => {
+	const bad = ['Does it. Not for x:', 'Does it:\twith a tab. Not for x.', ...[...'#[]{}&*!|>\'"%@`'].map((c) => `${c}Does one thing. Not for x.`)];
+	for (const description of bad) {
+		const r = run(withSkill('a', skillText({ description })));
+		assert.equal(r.status, 1, description);
+		assert.match(r.out, /description must be a plain one-line YAML value/, description);
+	}
+	assert.equal(run(withSkill('a', skillText({ description: 'Does one thing (a:b) for C# files, "quoted" or not. Not for x.' }))).status, 0);
+});
+
 test('a description over 400 characters warns, over 1,024 fails', () => {
 	const long = `${'word '.repeat(90)}Not for x.`;
 	let r = run(withSkill('a', skillText({ description: long })));
@@ -159,6 +169,17 @@ test('every workflow must be named by a SKILL.md', () => {
 	const r = run({ ...BASE, 'shared/workflows/lonely.md': '# Lonely\n' });
 	assert.equal(r.status, 1);
 	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its load order/);
+});
+
+test('a mention inside the hard-rules block does not count as naming a workflow', () => {
+	const rules = `${RULES}\nSee <plugin root>/shared/workflows/lonely.md.`;
+	const files = { ...BASE, 'shared/hard-rules.md': `${rules}\n`, 'shared/workflows/lonely.md': '# Lonely\n' };
+	for (const n of ['a', 'b']) files[`skills/${n}/SKILL.md`] = skillText({ name: n, block: `${START}\n${rules}\n${END}` });
+	const r = run(files);
+	assert.equal(r.status, 1);
+	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its load order/);
+	files['skills/b/SKILL.md'] = skillText({ name: 'b', block: `${START}\n${rules}\n${END}`, extra: 'Read `<plugin root>/shared/workflows/lonely.md`.\n' });
+	assert.equal(run(files).status, 0);
 });
 
 test('hard-rules blocks must equal shared/hard-rules.md, and the source must not hold reserved tokens', () => {
