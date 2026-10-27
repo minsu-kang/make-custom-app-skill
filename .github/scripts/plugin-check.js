@@ -8,7 +8,7 @@
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
-// by shared/index.md, and the syntax of tools/ and .github/scripts/.
+// by shared/index.md, and the syntax of tools/, .github/scripts/ and shared/scripts/.
 // Prints warnings (a description over 400 characters) without failing. Exit 1 on any error.
 // Later plans add the version and manifest checks to this file.
 
@@ -40,7 +40,7 @@ const FRONTMATTER_KEYS = new Set(['name', 'description', 'allowed-tools']);
 const DESCRIPTION_WARN = 400;
 const DESCRIPTION_MAX = 1024;
 const DESCRIPTION_BUDGET = 4000;
-const YAML_NOT_PLAIN = /:(?:[ \t]|$)| #|^[#[\]{}&*!|>'"%@`]/;
+const YAML_NOT_PLAIN = /:(?:[ \t]|$)| #|^[#,[\]{}&*!|>'"%@`]/;
 const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
 const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
 const ANCHOR = [
@@ -225,6 +225,7 @@ function parseFrontmatter(text) {
 	for (let i = 1; i < end; i += 1) {
 		const m = /^([A-Za-z][\w-]*):[ \t]*(.*)$/.exec(lines[i]);
 		if (!m) return { error: `front matter line ${i + 1} is not "key: value" (one line per key)` };
+		if (Object.hasOwn(values, m[1])) return { error: `front matter key "${m[1]}" is given twice` };
 		values[m[1]] = m[2].trim();
 	}
 	return { values, lines, bodyStart: end + 1 };
@@ -258,7 +259,7 @@ function checkSkillFile(rel, text, folder) {
 		if (description.length > DESCRIPTION_MAX) error(rel, `description is ${description.length} characters, over the ${DESCRIPTION_MAX} limit`);
 		else if (description.length > DESCRIPTION_WARN) warn(rel, `description is ${description.length} characters, over ${DESCRIPTION_WARN}`);
 		if (!/Not for /.test(description)) error(rel, 'description has no "Not for ..." clause');
-		if (YAML_NOT_PLAIN.test(description)) error(rel, 'description must be a plain one-line YAML value: no ": ", no trailing ":", no " #", and no leading # [ ] { } & * ! | > \' " % @ or backtick');
+		if (YAML_NOT_PLAIN.test(description)) error(rel, 'description must be a plain one-line YAML value: no ": ", no trailing ":", no " #", and no leading # , [ ] { } & * ! | > \' " % @ or backtick');
 	}
 	if (fm.values['allowed-tools'] !== undefined) checkAllowedTools(rel, fm.values['allowed-tools']);
 	const body = fm.lines.slice(fm.bodyStart);
@@ -295,7 +296,7 @@ function checkSkillLayer() {
 	}
 	if (total > DESCRIPTION_BUDGET) error('skills', `the skill descriptions total ${total} characters, over the ${DESCRIPTION_BUDGET} budget`);
 	for (const rel of listFiles('shared/workflows', isMarkdown)) {
-		if (!mentions(allText, `shared/workflows/${path.posix.basename(rel)}`)) error(rel, 'no SKILL.md names this workflow in its load order');
+		if (!mentions(allText, `shared/workflows/${path.posix.basename(rel)}`)) error(rel, 'no SKILL.md names this workflow in its Load order list');
 	}
 }
 
@@ -315,7 +316,8 @@ function checkHardRules() {
 }
 
 function checkSyntax() {
-	for (const rel of [...listFiles('tools', (n) => n.endsWith('.js')), ...listFiles('.github/scripts', (n) => n.endsWith('.js'))]) {
+	const isJs = (n) => n.endsWith('.js');
+	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
 		const result = spawnSync(process.execPath, ['--check', path.join(ROOT, rel)], { encoding: 'utf8' });
 		if (result.status !== 0) error(rel, `syntax check failed: ${(result.stderr || '').split('\n').find((l) => l.trim()) || 'unknown error'}`);
 	}

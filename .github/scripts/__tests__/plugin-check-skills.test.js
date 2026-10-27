@@ -105,6 +105,21 @@ test('a description that YAML would reject or change is refused', () => {
 	assert.equal(run(withSkill('a', skillText({ description: 'Does one thing (a:b) for C# files, "quoted" or not. Not for x.' }))).status, 0);
 });
 
+test('a description that starts with a comma is refused', () => {
+	for (const description of [', Does one thing. Not for x.', ',Does one thing. Not for x.']) {
+		const r = run(withSkill('a', skillText({ description })));
+		assert.equal(r.status, 1, description);
+		assert.match(r.out, /description must be a plain one-line YAML value/, description);
+	}
+	assert.equal(run(withSkill('a', skillText({ description: 'Does one thing, then another. Not for x.' }))).status, 0);
+});
+
+test('a front matter key that appears twice is an error', () => {
+	const r = run(withSkill('a', skillText({ frontmatter: `---\nname: a\ndescription: ${DESCRIPTION}\ndescription: Does another thing. Not for x.\n---` })));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /ERROR skills\/a\/SKILL\.md: front matter key "description" is given twice/);
+});
+
 test('a description over 400 characters warns, over 1,024 fails', () => {
 	const long = `${'word '.repeat(90)}Not for x.`;
 	let r = run(withSkill('a', skillText({ description: long })));
@@ -168,7 +183,7 @@ test('the skill folders must be exactly the expected set', () => {
 test('every workflow must be named by a SKILL.md', () => {
 	const r = run({ ...BASE, 'shared/workflows/lonely.md': '# Lonely\n' });
 	assert.equal(r.status, 1);
-	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its load order/);
+	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its Load order list/);
 });
 
 test('a mention inside the hard-rules block does not count as naming a workflow', () => {
@@ -177,7 +192,7 @@ test('a mention inside the hard-rules block does not count as naming a workflow'
 	for (const n of ['a', 'b']) files[`skills/${n}/SKILL.md`] = skillText({ name: n, block: `${START}\n${rules}\n${END}` });
 	const r = run(files);
 	assert.equal(r.status, 1);
-	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its load order/);
+	assert.match(r.out, /shared\/workflows\/lonely\.md: no SKILL\.md names this workflow in its Load order list/);
 	files['skills/b/SKILL.md'] = skillText({ name: 'b', block: `${START}\n${rules}\n${END}`, extra: 'Read `<plugin root>/shared/workflows/lonely.md`.\n' });
 	assert.equal(run(files).status, 0);
 });
@@ -204,6 +219,14 @@ test('tools and CI scripts must pass node --check', () => {
 	const r = run({ ...BASE, 'tools/bad.js': 'const = ;\n' });
 	assert.equal(r.status, 1);
 	assert.match(r.out, /ERROR tools\/bad\.js: syntax check failed/);
+});
+
+test('the shared scripts, including lib, must pass node --check', () => {
+	for (const rel of ['shared/scripts/bad.js', 'shared/scripts/lib/bad.js']) {
+		const r = run({ ...BASE, [rel]: 'const = ;\n' });
+		assert.equal(r.status, 1, rel);
+		assert.match(r.out, new RegExp(`ERROR ${rel.replace(/[./]/g, '\\$&')}: syntax check failed`), rel);
+	}
 });
 
 test('a scoped run skips the skill-layer checks', () => {
