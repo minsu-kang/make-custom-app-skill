@@ -8,6 +8,7 @@ const {
 	getContextsDir,
 	resolveEditor,
 	setupCommand,
+	scriptCommand,
 	takeEditorFlag,
 	getEditorFlag,
 	resetEditorFlag,
@@ -84,6 +85,17 @@ test('setupCommand escapes an embedded double quote', () => {
 		setupCommand('cursor', dir),
 		`node "${path.join('/home', 'say \\"hi\\"', 'scripts', 'setup-secrets.js')}" --editor cursor`,
 	);
+});
+
+test('scriptCommand quotes the path and keeps a path with spaces', () => {
+	assert.equal(scriptCommand('check-setup.js'), `node "${path.join(SCRIPTS_DIR, 'check-setup.js')}"`);
+	const dir = '/home/First Last/plugin/shared/scripts';
+	assert.equal(scriptCommand('check-setup.js', dir), `node "${path.join(dir, 'check-setup.js')}"`);
+});
+
+test('scriptCommand escapes an embedded double quote', () => {
+	const dir = path.join('/home', 'say "hi"', 'scripts');
+	assert.equal(scriptCommand('check-setup.js', dir), `node "${path.join('/home', 'say \\"hi\\"', 'scripts', 'check-setup.js')}"`);
 });
 
 test('takeEditorFlag removes the two-token form', () => {

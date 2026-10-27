@@ -29,6 +29,7 @@ const {
 	mcpConfigured,
 	promptHint,
 	formatStatus,
+	nextStepLines,
 } = require('./lib/setup-secrets-logic');
 
 const RUNTIME_HTTPS = 'https://github.com/integromat/imt-app-runtime.git';
@@ -301,9 +302,7 @@ async function main() {
 	}
 
 	closeRl();
-	console.log('');
-	console.log('Done. Verify by asking the agent in your editor to run:');
-	console.log(`  node ${path.join(SCRIPTS_DIR, 'check-setup.js')}`);
+	for (const line of nextStepLines(SCRIPTS_DIR)) console.log(line);
 }
 
 main().catch((err) => {

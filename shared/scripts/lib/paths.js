@@ -90,14 +90,18 @@ function resetEditorFlag() {
 }
 
 /**
- * The command a user runs in their own terminal to fill in credentials. The script path is in double
+ * The command a user runs in their own terminal for one of the scripts. The script path is in double
  * quotes so a folder with a space stays one argument in bash, zsh, cmd and PowerShell. An embedded
  * double quote is backslash-escaped; nothing else is, so a path with $ or a backtick still breaks on POSIX.
  */
+function scriptCommand(name, scriptsDir = SCRIPTS_DIR) {
+	return `node "${path.join(scriptsDir, name).replace(/"/g, '\\"')}"`;
+}
+
+/** The command a user runs in their own terminal to fill in credentials. */
 function setupCommand(editor, scriptsDir = SCRIPTS_DIR) {
-	const script = path.join(scriptsDir, 'setup-secrets.js').replace(/"/g, '\\"');
 	const flag = editor ? ` --editor ${editor}` : '';
-	return `node "${script}"${flag}`;
+	return `${scriptCommand('setup-secrets.js', scriptsDir)}${flag}`;
 }
 
 module.exports = {
@@ -106,6 +110,7 @@ module.exports = {
 	EditorError,
 	getContextsDir,
 	resolveEditor,
+	scriptCommand,
 	setupCommand,
 	takeEditorFlag,
 	getEditorFlag,

@@ -193,3 +193,14 @@ describe('formatStatus', () => {
 		assert.ok(!lines.join('\n').includes('PK-SECRET'));
 	});
 });
+
+describe('nextStepLines', () => {
+	it('prints the check-setup command with the script path in double quotes', () => {
+		const dir = '/home/First Last/plugin/shared/scripts';
+		assert.deepEqual(logic.nextStepLines(dir), [
+			'',
+			'Done. Verify by asking the agent in your editor to run:',
+			`  node "${path.join(dir, 'check-setup.js')}"`,
+		]);
+	});
+});

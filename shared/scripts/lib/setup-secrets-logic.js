@@ -5,6 +5,7 @@
  * The entry script asks the questions and writes the file. A new rule goes here with a unit test in
  * lib/__tests__/setup-secrets-logic.test.js.
  */
+const { scriptCommand } = require('./paths');
 
 const USAGE = 'Usage: node setup-secrets.js [--editor claude|cursor]';
 const DEFAULT_MAKE_API_URL = 'https://eu1.make.com/api/v2/admin';
@@ -91,6 +92,11 @@ function formatStatus(updates) {
 	return Object.entries(updates).map(([key, value]) => `  ${key}: ${maskForDisplay(key, value)}`);
 }
 
+/** What the wizard prints last: the check-setup command, with its path quoted like every printed script command. */
+function nextStepLines(scriptsDir) {
+	return ['', 'Done. Verify by asking the agent in your editor to run:', `  ${scriptCommand('check-setup.js', scriptsDir)}`];
+}
+
 module.exports = {
 	USAGE,
 	DEFAULT_MAKE_API_URL,
@@ -104,4 +110,5 @@ module.exports = {
 	promptHint,
 	maskForDisplay,
 	formatStatus,
+	nextStepLines,
 };

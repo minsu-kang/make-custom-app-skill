@@ -113,6 +113,12 @@ describe('setup-secrets.js wiring', () => {
 		assert.doesNotMatch(source, /ensureInternalUser/);
 	});
 
+	it('prints the follow-up command through the shared quoting, not by hand', () => {
+		const source = fs.readFileSync(SCRIPT, 'utf8');
+		assert.match(source, /nextStepLines\(SCRIPTS_DIR\)/);
+		assert.doesNotMatch(source, /node \$\{/);
+	});
+
 	it('no longer writes mcp-server/.env or runs npm run register', () => {
 		const source = fs.readFileSync(SCRIPT, 'utf8');
 		assert.doesNotMatch(source, /upsertEnvFile|mcp-server|npm run register|\.env['"`]/);
