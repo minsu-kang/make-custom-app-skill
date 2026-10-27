@@ -25,7 +25,7 @@
  * did not execute the request, the legacy POST /rpcs/...?kind=endpoint route is used once instead.
  *
  * Exit codes: 0 ok · 1 usage, input, or rejected before running
- *             4 human action needed (first stderr line `ACTION: <KIND>`) · 5 result unknown, a component that may write is not rerun without the user
+ *             4 human action needed (the stderr line after the `Target:` line is `ACTION: <KIND>`) · 5 result unknown, a component that may write is not rerun without the user
  */
 const fs = require('fs');
 const os = require('os');
