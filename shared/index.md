@@ -1,0 +1,54 @@
+# Make custom app index
+
+Component and module tables, quick facts, the reference list, and the script list. Docs: https://developers.make.com/custom-apps-documentation
+
+`<plugin root>` is the directory named on the `Plugin root:` line at the top of the skill that is running.
+
+## App components
+
+| Component | Files | Notes |
+|---|---|---|
+| Base | `base.imljson` | Inherited by modules, RPCs, and endpoints (not connections / webhooks) |
+| Common | `common.imljson` | Encrypted shared data; static content locked after approval, `installSpec` values stay admin-editable |
+| Connection | `api`, `parameters` | OAuth2 / OAuth1 / JWT / API key / Basic |
+| Module | `api`, `parameters`, `expect`, `interface`, `samples` | Execution unit |
+| RPC | `api`, `parameters` | Dynamic options / fields |
+| Webhook | `api` | Owns the connection for Instant Trigger modules |
+| Endpoint | `api`, `input_parameters`, `output_parameters`, `scope`, `context.md` | AI-callable single call, not scenario-runnable — [endpoints-reference.md](references/endpoints-reference.md) |
+
+## Module types
+
+| type_id | Type | Use |
+|---|---|---|
+| 1 | Trigger (polling) | Periodic new-item check; static params only; `response.trigger` (`id`/`date`/`type`/`order`) |
+| 4 | Action | Exactly one bundle (create / get / update / delete) — `iterate` does not multiply output |
+| 9 | Search | Zero or more bundles; needs `response.iterate` + `response.limit: "{{parameters.limit}}"` + expect `limit` (`uinteger`, default 10) |
+| 10 | Instant Trigger | Webhook-fed; communication optional |
+| 11 | Responder | Returns the webhook response |
+| 12 | Universal | Generic call with CRUD hint |
+
+Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = `foo[1]`; `{{body.results[].field}}` unwraps a single-item array) · triggers cannot map values · `approved` = compiled, not "in production".
+
+## References — read when …
+
+- [runtime-reference.md](references/runtime-reference.md) — writing/reviewing `api.imljson`: directives, URL/QS normalization, `temp`, pagination, triggers, `api.endpoint`, `environment`/`internal`, limits
+- [communication-reference.md](references/communication-reference.md) — request/response spec, pagination, RPC, file upload/download patterns
+- [component-patterns-reference.md](references/component-patterns-reference.md) — base, connections per auth type, install params, errors, webhook, trigger, responder
+- [parameters-reference.md](references/parameters-reference.md) — any `expect` / `parameters` / `interface` edit
+- [builtin-iml-functions.md](references/builtin-iml-functions.md) — verifying a `{{ }}` function exists; runtime extras, `errorFactory` types
+- [custom-functions-reference.md](references/custom-functions-reference.md) — `functions/*/code.js` + `test.js` conventions
+- [app-ux-best-practices.md](references/app-ux-best-practices.md) — labels, hints, fields, messages, ordering
+- [polling-trigger-guide.md](references/polling-trigger-guide.md) — type-1 trigger order / date filtering / epoch
+- [component-test-guide.md](references/component-test-guide.md) — `test-component.js` mocks and debugging
+- [code-review-criteria.md](references/code-review-criteria.md) — review categories, out-of-scope list, ES6+, tests, UX, runtime false positives
+- [code-smells-reference.md](references/code-smells-reference.md) — quality thresholds
+- [security-reference.md](references/security-reference.md) — credentials, OAuth, signatures, SSRF, data exposure
+- [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md) — `approved`/`compile`/changes, visibility flags, admin endpoints, IPM pipeline
+- [component-scaffold-templates.md](references/component-scaffold-templates.md) — is a review `old_value` untouched SDK boilerplate?
+- [endpoints-reference.md](references/endpoints-reference.md) — SDK Endpoints entity, admin API, schemas, review guidance
+- [developer-notes-templates.md](references/developer-notes-templates.md) — Jira Developer Notes (bugfix / feature)
+- [examples.md](references/examples.md) — full real-app example
+
+## Scripts (`<plugin root>/shared/scripts/`)
+
+`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, [run-live.md](workflows/run-live.md)) · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned|commit`. Usage details are in the workflows.
