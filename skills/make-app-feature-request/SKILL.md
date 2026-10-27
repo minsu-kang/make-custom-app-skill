@@ -1,6 +1,6 @@
 ---
 name: make-app-feature-request
-description: Add a new module, RPC, webhook, connection, custom function or whole app to a Make custom app, or extend one. Designs first, creates components, writes and tests the IMLJSON, pushes, and closes out the ticket. Not for SDK Endpoints (use make-app-endpoint), bug fixes, refactors, or Preparation-status refinement.
+description: Add a new module, RPC, webhook, connection, custom function or whole app to a Make custom app, or extend one. Designs first, creates components, writes and tests the IMLJSON, pushes, and closes out the ticket. Not for SDK Endpoints (use make-app-endpoint), bug fixes, refactors, or refining a Preparation-status ticket.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/check-setup.js"*)
 ---
 

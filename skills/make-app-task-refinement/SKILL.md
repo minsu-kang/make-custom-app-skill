@@ -1,6 +1,6 @@
 ---
 name: make-app-task-refinement
-description: Read-only feasibility study and implementation plan for a Make custom app Jira ticket in Preparation status; optionally files an Investigation subtask. Use for "refine", "is this feasible", or any Jira URL plus app slug whose status is Preparation (always this skill, no confirmation, whatever the verb). Not for writing code, reviewing changes or fixing bugs.
+description: Read-only feasibility study and implementation plan for a Make custom app Jira ticket in Preparation status; optionally files an Investigation subtask. Use for "refine", "is this feasible", or a Jira URL plus app slug whose status is Preparation when the user gave no verb or only a generic one (no confirmation). Not for writing code, reviewing changes or fixing bugs.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/check-setup.js"*)
 ---
 
@@ -26,7 +26,7 @@ two levels above the folder that contains this SKILL.md.
 
 # Make app: task refinement
 
-Read-only study of a Jira ticket, usually in `Preparation`: feasibility, an implementation plan, breaking changes, and optionally an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. A Jira URL plus an app slug on a `Preparation` ticket always runs this skill, whatever the verb.
+Read-only study of a Jira ticket, usually in `Preparation`: feasibility, an implementation plan, breaking changes, and optionally an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. A Jira URL plus an app slug on a `Preparation` ticket runs this skill when the user gave no verb or only a generic one, without asking for confirmation. A request for another skill's own work keeps that skill.
 
 ## First action
 

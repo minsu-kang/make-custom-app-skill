@@ -43,4 +43,7 @@ Read now:
 - `<plugin root>/shared/workflows/lifecycle.md` (sections 1 to 3 only)
 - `<plugin root>/shared/workflows/jira-ticket.md` (only when the user supplies a ticket)
 
+Read when the work reaches it:
+- `<plugin root>/shared/workflows/push-changes.md`: when schema, `context.md`, or parameter help edits that follow the live review are ready to push
+
 Look-ups: `<plugin root>/shared/index.md` (component and module tables, quick facts, the reference list, the script folder).

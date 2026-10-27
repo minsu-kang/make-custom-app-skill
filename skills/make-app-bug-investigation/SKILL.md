@@ -1,6 +1,6 @@
 ---
 name: make-app-bug-investigation
-description: Find the root cause of and fix a bug in a Make custom app (error report, PARSING_ERROR-style failure, regression, QA subtask or returned ticket). Traces real data, writes a failing test first, fixes minimally, pushes and closes out the Jira ticket. Not for reviewing someone else's changes, new features, or Preparation-status tickets.
+description: Find the root cause of and fix a bug in a Make custom app (error report, PARSING_ERROR-style failure, regression, QA subtask or returned ticket). Traces real data, writes a failing test first, fixes minimally, pushes and closes out the Jira ticket. Not for reviewing someone else's changes, new features, or refining a Preparation-status ticket.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/check-setup.js"*)
 ---
 
