@@ -19,10 +19,13 @@ function makeRepo(files) {
 	return root;
 }
 
+// extra: strings are command-line arguments, plain objects are extra environment variables
 function run(files, ...extra) {
 	const root = makeRepo(files);
+	const args = extra.filter((a) => typeof a === 'string');
+	const env = Object.assign({}, ...extra.filter((a) => typeof a === 'object'));
 	try {
-		const result = spawnSync(process.execPath, [SCRIPT, root, ...extra], { encoding: 'utf8', env: { ...process.env, GITHUB_ACTIONS: '' } });
+		const result = spawnSync(process.execPath, [SCRIPT, root, ...args], { encoding: 'utf8', env: { ...process.env, GITHUB_ACTIONS: '', ...env } });
 		return { status: result.status, out: result.stdout };
 	} finally {
 		fs.rmSync(root, { recursive: true, force: true });
@@ -50,10 +53,24 @@ test('old placeholders and the Variables comment fail', () => {
 	assert.match(r.out, /shared\/workflows\/x\.md:2: old \$\{SKILL_ROOT\} or \$\{CONTEXTS_DIR\} placeholder/);
 });
 
-test('old install paths fail', () => {
-	const r = run(withFile('shared/workflows/x.md', 'files live under make-app-contexts\n'));
+test('old install paths fail, other uses of the old names do not', () => {
+	const r = run(withFile('shared/workflows/x.md', 'a ~/.cursor/make-app-contexts/foo\nb make-app-contexts/model-v1/\nc ~/.claude/skills/make-custom-app/scripts\n'));
 	assert.equal(r.status, 1);
 	assert.match(r.out, /x\.md:1: old install path/);
+	assert.match(r.out, /x\.md:2: old install path/);
+	assert.match(r.out, /x\.md:3: old install path/);
+	assert.equal(r.out.match(/old install path/g).length, 3);
+	const ok = run(withFile('shared/workflows/x.md', 'the Pinecone index defaults to make-app-contexts\nsee ~/.claude/skills/make-custom-app-review/x\n'));
+	assert.equal(ok.status, 0);
+	assert.match(ok.out, /0 error\(s\)/);
+});
+
+test('the make-app-setup skill may name old install paths, other skills may not', () => {
+	const body = 'remove ~/.cursor/make-app-contexts/foo and ~/.claude/skills/make-custom-app/scripts\n';
+	assert.equal(run(withFile('skills/make-app-setup/SKILL.md', body)).status, 0);
+	const r = run(withFile('skills/make-app-question/SKILL.md', body));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /skills\/make-app-question\/SKILL\.md:1: old install path/);
 });
 
 test('a lifecycle citation without a file name fails', () => {
@@ -69,10 +86,53 @@ test('lifecycle.md sections 1 to 4 are valid and later ones are not', () => {
 	assert.match(r.out, /lifecycle\.md has no section 6/);
 });
 
-test('a pointer at SKILL.md fails', () => {
+test('every section number in a lifecycle citation run is checked', () => {
+	const cases = [
+		['lifecycle.md §3 and §6', '6'],
+		['lifecycle.md §2, §3, §7', '7'],
+		['lifecycle.md §1 to §6', '6'],
+		['lifecycle.md §2–7', '7'],
+		['lifecycle.md#6-push-changes', '6'],
+		['[x](lifecycle.md#5-other)', '5'],
+	];
+	for (const [text, bad] of cases) {
+		const r = run(withFile('shared/workflows/x.md', `see ${text}\n`));
+		assert.equal(r.status, 1, text);
+		assert.match(r.out, new RegExp(`x\\.md:1: lifecycle\\.md has no section ${bad}`), text);
+		assert.equal(r.out.match(/has no section/g).length, 1, text);
+	}
+});
+
+test('valid lifecycle citations pass in the new and the carried forms', () => {
+	const valid = [
+		'[lifecycle.md](lifecycle.md) §3',
+		'lifecycle.md §1 to §3',
+		'lifecycle.md §2–3',
+		'lifecycle.md §3 and §4',
+		'lifecycle.md §1, §2, §4',
+		'[x](lifecycle.md#4-do-the-work)',
+	];
+	for (const text of valid) {
+		const r = run(withFile('shared/workflows/x.md', `see ${text}\n`));
+		assert.equal(r.status, 0, text);
+	}
+});
+
+test('the spelled-out lifecycle section form fails for any number', () => {
+	for (const text of ['lifecycle section 6', 'lifecycle.md section 3', 'lifecycle sections 2 and 3']) {
+		const r = run(withFile('shared/workflows/x.md', `see ${text}\n`));
+		assert.equal(r.status, 1, text);
+		assert.match(r.out, /x\.md:1: spell the citation as "lifecycle\.md §\d"/, text);
+	}
+});
+
+test('a pointer at SKILL.md fails in shared files and passes in skill files', () => {
 	const r = run(withFile('shared/workflows/x.md', 'see SKILL.md hard rule 3\n'));
 	assert.equal(r.status, 1);
 	assert.match(r.out, /x\.md:1: points at SKILL\.md/);
+	const skill = run(withFile('skills/make-app-question/SKILL.md', 'Open the folder that contains this SKILL.md, then read `<plugin root>/skills/make-app-question/SKILL.md`.\n'));
+	assert.equal(skill.status, 0);
+	assert.match(skill.out, /0 error\(s\)/);
 });
 
 test('a broken relative link fails, links inside code do not count', () => {
@@ -127,4 +187,34 @@ test('--scope limits the scan and accepts a single file', () => {
 	assert.equal(run(files, '--scope=shared/references').status, 0);
 	assert.equal(run(files, '--scope=shared/workflows/lifecycle.md').status, 0);
 	assert.equal(run(files, '--scope=shared/workflows/x.md').status, 1);
+});
+
+test('--scope values are normalised and an explicit scope must exist', () => {
+	const files = { ...CLEAN, 'shared/workflows/x.md': 'see lifecycle §6\n' };
+	assert.equal(run(files, '--scope=./shared/references').status, 0);
+	assert.equal(run(files, '--scope=shared//references/').status, 0);
+	const file = run(files, '--scope=./shared/workflows/x.md');
+	assert.equal(file.status, 1);
+	assert.match(file.out, /ERROR shared\/workflows\/x\.md:1: /);
+	const missing = run(files, '--scope=shared/nope');
+	assert.equal(missing.status, 1);
+	assert.match(missing.out, /ERROR shared\/nope: scope does not exist/);
+	const missingFile = run(files, '--scope=shared/references', '--scope=./shared/nope.md');
+	assert.equal(missingFile.status, 1);
+	assert.match(missingFile.out, /ERROR shared\/nope\.md: scope does not exist/);
+	assert.equal(missingFile.out.match(/ERROR/g).length, 1);
+});
+
+test('the default scope skips folders that do not exist', () => {
+	const r = run({ 'shared/references/a.md': '# A\n\n> Read when: testing.\n' });
+	assert.equal(r.status, 0);
+	assert.match(r.out, /0 error\(s\)/);
+});
+
+test('with GITHUB_ACTIONS a finding is an escaped ::error annotation', () => {
+	const files = withFile('shared/workflows/50%.md', '# X\n\n[a](my%20file.md)\n');
+	const r = run(files, { GITHUB_ACTIONS: 'true' });
+	assert.equal(r.status, 1);
+	assert.match(r.out, /^::error file=shared\/workflows\/50%25\.md,line=3::link target "my%2520file\.md" does not exist$/m);
+	assert.doesNotMatch(r.out, /^ERROR /m);
 });

@@ -2,8 +2,10 @@
 'use strict';
 
 // CI consistency checks for the plugin content. Not part of the plugin payload.
-// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path prefix>]...
-// Scans the Markdown files under the scope prefixes, a prefix being a folder or one .md file (default: shared, skills).
+// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]...
+// --scope is a path relative to the repo root: a folder (scans its Markdown files) or one .md file.
+// A leading ./ and repeated or trailing slashes are ignored. Default: shared and skills, each skipped when missing.
+// An explicit --scope that does not exist is an error.
 // Exit 1 on any error.
 // Later plans add the version, skill, hard-rule, and manifest checks to this file.
 
@@ -12,7 +14,8 @@ const path = require('path');
 
 const args = process.argv.slice(2);
 const ROOT = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(__dirname, '..', '..'));
-const scopeArgs = args.filter((a) => a.startsWith('--scope=')).map((a) => a.slice('--scope='.length).replace(/\/+$/, ''));
+const normaliseScope = (value) => value.replace(/\/{2,}/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+const scopeArgs = args.filter((a) => a.startsWith('--scope=')).map((a) => normaliseScope(a.slice('--scope='.length)));
 const SCOPE = scopeArgs.length ? scopeArgs : ['shared', 'skills'];
 const LINKED_EXT = /\.(md|mdc|js|json|sh|ps1|imljson)$/i;
 const LIFECYCLE_SECTIONS = new Set(['1', '2', '3', '4']);
@@ -29,14 +32,22 @@ const TASK_WORKFLOWS = new Set([
 const SHARED_STEP_WORKFLOWS = new Set(['lifecycle.md', 'jira-ticket.md', 'push-changes.md', 'commit-compile.md', 'close-out.md']);
 const NO_TASK_POINTERS = new Set([...SHARED_STEP_WORKFLOWS, 'run-live.md']);
 const TASK_ONLY_NAME = /(?<![\w-])(?:app-question|app-task|bug-investigation|code-review|create-endpoint|feature-request|task-refinement)\.md/;
+const OLD_INSTALL_PATH = /\.(?:claude|cursor)\/(?:skills\/make-custom-app|make-app-contexts)(?![\w-])|make-app-contexts\//;
+const OLD_PATH_EXEMPT_PREFIX = 'skills/make-app-setup/';
+const SECTION_RUN = '§\\s*\\d+(?:\\s*(?:(?:,\\s*(?:(?:and|or)\\s*)?|(?:and|or|&)\\s*)§\\s*\\d+|(?:to|[\\u2013-])\\s*(?:§\\s*)?\\d+))*';
+const LIFECYCLE_RUN = new RegExp(`\\blifecycle(\\.md)?\\)?\\s*(${SECTION_RUN})`, 'g');
+const LIFECYCLE_SPELLED = /\blifecycle(?:\.md)?\)?\s+sections?\s+(\d+)/g;
+const LIFECYCLE_ANCHOR = /lifecycle\.md#(\d+)-/g;
 
 const findings = { error: [] };
+
+const escapeAnnotation = (value) => String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
 function error(file, msg, line) {
 	findings.error.push({ file, line, msg });
 	const where = line ? `${file}:${line}` : file;
 	if (process.env.GITHUB_ACTIONS === 'true') {
-		console.log(`::error file=${file}${line ? `,line=${line}` : ''}::${msg}`);
+		console.log(`::error file=${escapeAnnotation(file)}${line ? `,line=${line}` : ''}::${escapeAnnotation(msg)}`);
 	} else {
 		console.log(`ERROR ${where}: ${msg}`);
 	}
@@ -62,8 +73,9 @@ function listFiles(rel, test) {
 }
 
 const isMarkdown = (name) => name.endsWith('.md');
+const scopeExists = (prefix) => fs.existsSync(path.join(ROOT, prefix));
 const scopedMarkdown = () =>
-	[...new Set(SCOPE.flatMap((prefix) => (isMarkdown(prefix) ? [prefix] : listFiles(prefix, isMarkdown))))].sort();
+	[...new Set(SCOPE.filter(scopeExists).flatMap((prefix) => (isMarkdown(prefix) ? [prefix] : listFiles(prefix, isMarkdown))))].sort();
 
 function mentions(text, name) {
 	const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -96,20 +108,27 @@ function eachLine(text, fn) {
 }
 
 function checkPlaceholders(rel, text) {
+	const oldPathAllowed = rel.startsWith(OLD_PATH_EXEMPT_PREFIX);
 	eachLine(text, (line, n) => {
 		if (/\$\{SKILL_ROOT\}|\$\{CONTEXTS_DIR\}/.test(line)) error(rel, 'old ${SKILL_ROOT} or ${CONTEXTS_DIR} placeholder', n);
 		if (/<!--\s*Variables:/.test(line)) error(rel, 'old "Variables" comment', n);
-		if (/make-app-contexts|skills\/make-custom-app/.test(line)) error(rel, 'old install path (use ~/.make-custom-app/contexts or <plugin root>)', n);
+		if (!oldPathAllowed && OLD_INSTALL_PATH.test(line)) error(rel, 'old install path (use ~/.make-custom-app/contexts or <plugin root>)', n);
 	});
 }
 
 function checkCitations(rel, text) {
 	eachLine(text, (line, n) => {
-		for (const m of line.matchAll(/\blifecycle(\.md)?\)?\s*§\s*(\d+)/g)) {
-			if (!m[1]) error(rel, `"lifecycle §${m[2]}" must name the new file (lifecycle.md, jira-ticket.md, push-changes.md, commit-compile.md, run-live.md, or close-out.md)`, n);
-			else if (!LIFECYCLE_SECTIONS.has(m[2])) error(rel, `lifecycle.md has no section ${m[2]}`, n);
+		const invalid = (numbers) => {
+			for (const number of new Set(numbers)) if (!LIFECYCLE_SECTIONS.has(number)) error(rel, `lifecycle.md has no section ${number}`, n);
+		};
+		for (const m of line.matchAll(LIFECYCLE_RUN)) {
+			const numbers = m[2].match(/\d+/g);
+			if (!m[1]) error(rel, `"lifecycle §${numbers[0]}" must name the new file (lifecycle.md, jira-ticket.md, push-changes.md, commit-compile.md, run-live.md, or close-out.md)`, n);
+			else invalid(numbers);
 		}
-		if (/SKILL\.md/.test(line)) error(rel, 'points at SKILL.md (use shared/index.md or the hard rules)', n);
+		for (const m of line.matchAll(LIFECYCLE_SPELLED)) error(rel, `spell the citation as "lifecycle.md §${m[1]}", not "${m[0]}"`, n);
+		invalid([...line.matchAll(LIFECYCLE_ANCHOR)].map((m) => m[1]));
+		if (rel.startsWith('shared/') && /SKILL\.md/.test(line)) error(rel, 'points at SKILL.md (use shared/index.md or the hard rules)', n);
 	});
 }
 
@@ -161,6 +180,10 @@ function checkSharedPointers(rel, text) {
 	});
 }
 
+for (const prefix of scopeArgs) {
+	if (!scopeExists(prefix)) error(prefix, 'scope does not exist');
+}
+
 for (const rel of scopedMarkdown()) {
 	const text = read(rel);
 	if (text === null) continue;
@@ -174,4 +197,4 @@ for (const rel of scopedMarkdown()) {
 }
 
 console.log(`${findings.error.length} error(s)`);
-process.exit(findings.error.length ? 1 : 0);
+process.exitCode = findings.error.length ? 1 : 0;
