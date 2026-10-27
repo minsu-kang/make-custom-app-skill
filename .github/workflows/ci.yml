@@ -83,6 +83,20 @@ jobs:
           base=$(git merge-base origin/master HEAD)
           git diff --exit-code "$base" HEAD -- skill rules install-claude.sh install-claude.ps1 install-cursor.sh install-cursor.ps1 version.json
 
+  plugin-check:
+    name: Plugin content consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node --test ".github/scripts/__tests__/*.test.js"
+      - run: node .github/scripts/plugin-check.js
+
   lint-misc:
     name: shellcheck, actionlint
     runs-on: ubuntu-latest
