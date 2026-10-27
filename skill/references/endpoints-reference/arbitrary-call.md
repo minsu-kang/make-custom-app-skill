@@ -10,6 +10,8 @@ The **Arbitrary Call** endpoint is a standardized passthrough that reproduces an
 
 Every app that has a "Make an API Call" (or similarly named) module should also have an `arbitraryCall` endpoint. This is mandated by [IEN-15910](https://make.atlassian.net/browse/IEN-15910) § Acceptance — Arbitrary call endpoint.
 
+**Security gate when the app has NO "Make an API Call" module ([IEN-16847](https://make.atlassian.net/browse/IEN-16847), [IEN-16859](https://make.atlassian.net/browse/IEN-16859)):** Even if the ticket AC mandates creating `arbitraryCall` from scratch, check why the app omitted the module before building or committing it. Some apps (e.g., Meta/Facebook apps like `facebook-pages` and `facebook-messenger`) deliberately have no "Make an API Call" module because the vendor API returns raw access tokens on standard routes (`GET /me/accounts`, `GET /{page_id}?fields=access_token`) or because operations require an internal token exchange (`temp.accessToken`) rather than the connection's token. If `arbitraryCall` would allow an AI caller to read credentials/tokens into its context or requires a raw token input parameter (`page_access_token`), **stop and flag the security concern to the user** before implementing or committing.
+
 ### Naming & Annotations
 
 | Field | Value |

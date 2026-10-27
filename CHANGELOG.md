@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.12 — 2026-10-27
+
+Add endpoint security gates against credential/token passthrough (`GetPageAccessToken` / `page_access_token`) and `arbitraryCall` token exposure on apps without a "Make an API Call" module.
+
+- **No token or credential passthrough in endpoints.** `endpoints-reference.md` (§ Shared rules), `api-imljson-shape.md`, `code-review-guidance.md`, and `create-endpoint.md` prohibit exposing `access_token`, `refresh_token`, API keys, or sub-resource bearer tokens in `output_parameters` / `response.output` (e.g., splitting a module's internal `temp.accessToken` 2-step exchange into a `GetPageAccessToken` helper endpoint) or accepting a bearer token input (`page_access_token`) for the AI caller to pass between endpoints (`[SECURITY]` 1.2 Critical, block / do not commit — IEN-16847).
+- **Security gate for `arbitraryCall` when the app has no "Make an API Call" module.** `arbitrary-call.md` (§ When to Create) and `create-endpoint.md` require checking why an app omitted the module before building or committing `arbitraryCall`: if the vendor API returns raw access tokens on standard routes (`GET /me/accounts`, `GET /{page_id}?fields=access_token`) or relies on an internal token exchange (`facebook-pages` IEN-16847, `facebook-messenger` IEN-16859), stop and flag the security risk to the user instead of exposing tokens to the AI caller's context.
+
 ## 2.3.11 — 2026-10-27
 
 Link endpoint `log.sanitize` and conditionally required fields to shared component references, and refine OpenAPI `help` hygiene.
