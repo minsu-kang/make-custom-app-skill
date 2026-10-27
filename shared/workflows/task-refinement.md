@@ -14,7 +14,7 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
 
 ## Steps
 
-1. **Fetch the ticket** ([jira-ticket.md](jira-ticket.md)) with the standard fields plus `"parent", "labels", "priority"`. Read Dev Notes for any earlier investigation; note existing subtasks (avoid a duplicate `Investigation`); download and read attachments — UX text and mockups often live only there.
+1. **Fetch the ticket** ([jira-ticket.md](jira-ticket.md)) with the `fields` list of [jira-ticket.md](jira-ticket.md) plus `"parent", "labels", "priority"`. Read Dev Notes for any earlier investigation; note existing subtasks (avoid a duplicate `Investigation`); download and read attachments — UX text and mockups often live only there.
 2. **Load app context and code** ([lifecycle.md](lifecycle.md) §2 and §3). Brand-new app with no slug → skip code; investigate from references + API docs.
 3. **Scan the app**: `metadata.json`, `base.imljson` (auth, baseUrl, errors), `common.imljson`, and the most similar existing modules/RPCs for conventions (naming, fields, pagination, hints). List reuse candidates (RPCs, functions, connections).
 4. **Re-read the references the AC touches** — feasibility claims from memory are forbidden; each "possible" must point to a reference section or an existing component:

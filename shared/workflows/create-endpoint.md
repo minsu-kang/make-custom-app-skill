@@ -71,7 +71,8 @@ Same tools and principles. Skip CREATE; fetch the current sections first so you 
 - [ ] Module parity diffed by script (module-derived sets)
 - [ ] API docs URLs verified reachable (not 404)
 - [ ] Context files of other endpoints cross-referencing this one are up to date
-- [ ] Endpoint run live (every input, own connection, review shown, created records deleted); after a pass, mockup fixture + `test-component.js` (skipped with a note if no mockup path)
+- [ ] `test-function.js` / `test-component.js` run (hard rule 9)
+- [ ] Endpoint run live: ownership transferred to the acting user, every input used, own connection, run reviewed with the user, created vendor records deleted, fixtures added after a pass (`test-component.js`; skipped with a note when no mockup path), ownership transferred back
 - [ ] Public toggled via `update-component.js … public=true` (user asked only if it failed)
 - [ ] Pushed, **not committed**; Dev Notes + `In Progress` → `Commit` + context + Pinecone updated
 
