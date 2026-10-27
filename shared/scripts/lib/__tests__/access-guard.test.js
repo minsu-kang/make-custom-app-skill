@@ -342,9 +342,14 @@ describe('ensureInternalUser in a fake HOME', () => {
 		assert.ok(cursor.stderr.includes(setupCommand('cursor')), cursor.stderr);
 	});
 
-	it('takes the editor from the editor: line of the secrets file', async () => {
-		const r = await probe({ secrets: `editor: cursor\n${NO_TOKEN}`, env: { CLAUDECODE: '1' } });
+	it('takes the editor from the editor: line of the secrets file when no variable is set', async () => {
+		const r = await probe({ secrets: `editor: cursor\n${NO_TOKEN}` });
 		assert.ok(r.stderr.includes(setupCommand('cursor')), r.stderr);
+	});
+
+	it('prefers an editor variable over the editor: line of the secrets file', async () => {
+		const r = await probe({ secrets: `editor: cursor\n${NO_TOKEN}`, env: { CLAUDECODE: '1' } });
+		assert.ok(r.stderr.includes(setupCommand('claude')), r.stderr);
 	});
 
 	it('still refuses with the setup command when the editor: line is invalid', async () => {

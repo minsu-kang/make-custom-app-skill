@@ -27,24 +27,25 @@ function getContextsDir(home = os.homedir()) {
 
 /**
  * Which editor runs the script. It selects the Make credential source, so there is no silent default.
- * Order: --editor flag, the `editor:` line of the secrets file, CLAUDECODE, CURSOR_AGENT.
+ * Order: --editor flag, CLAUDECODE, CURSOR_AGENT, the `editor:` line of the secrets file.
  * CLAUDECODE wins when both variables are set (Claude Code started from a Cursor terminal).
+ * Both editors share the secrets file, so its `editor:` line only decides when the environment does not,
+ * and a bad value is reported only then.
  */
 function resolveEditor({ env = process.env, configured = null, flag = null } = {}) {
-	for (const [source, value] of [
-		['--editor flag', flag],
-		['editor: line in the secrets file', configured],
-	]) {
-		if (value === null || value === undefined || value === '') continue;
-		if (!EDITORS.includes(value)) throw new EditorError(`Invalid editor "${value}" from ${source}. Use claude or cursor.`);
-		return value;
-	}
+	if (flag) return validEditor(flag, '--editor flag');
 	if (env.CLAUDECODE) return 'claude';
 	if (env.CURSOR_AGENT) return 'cursor';
+	if (configured) return validEditor(configured, 'editor: line in the secrets file');
 	throw new EditorError(
 		'Cannot tell which editor runs this script (CLAUDECODE and CURSOR_AGENT are both unset). ' +
 			'Add "editor: claude" or "editor: cursor" to ~/.make-custom-app-skill-secrets, or pass --editor claude|cursor.',
 	);
+}
+
+function validEditor(value, source) {
+	if (!EDITORS.includes(value)) throw new EditorError(`Invalid editor "${value}" from ${source}. Use claude or cursor.`);
+	return value;
 }
 
 /** The command a user runs in their own terminal to fill in credentials. */

@@ -100,8 +100,13 @@ describe('getEditor', () => {
 		assert.equal(settings.getEditor(), 'claude');
 	});
 
-	it('prefers the editor: line of the secrets file over the environment', () => {
+	it('prefers the environment over the editor: line of the secrets file', () => {
 		process.env.CLAUDECODE = '1';
+		fs.writeFileSync(secretsPath, 'editor: cursor\n');
+		assert.equal(settings.getEditor(), 'claude');
+	});
+
+	it('uses the editor: line of the secrets file when no variable is set', () => {
 		fs.writeFileSync(secretsPath, 'editor: cursor\n');
 		assert.equal(settings.getEditor(), 'cursor');
 	});
@@ -246,10 +251,11 @@ describe('loadSettings for Claude Code', () => {
 		assert.ok(printed.includes(setupCommand('claude')), printed);
 	});
 
-	it('follows the editor: line over the environment', () => {
-		process.env.CURSOR_AGENT = '1';
-		fs.writeFileSync(secretsPath, 'editor: claude\nmake-api-key: KEY123\n');
-		assert.equal(settings.loadSettings().editor, 'claude');
+	it('follows the environment over the editor: line', () => {
+		fs.writeFileSync(secretsPath, 'editor: cursor\nmake-api-key: KEY123\n');
+		const loaded = settings.loadSettings();
+		assert.equal(loaded.editor, 'claude');
+		assert.equal(loaded.apikey, 'KEY123');
 	});
 });
 
@@ -334,7 +340,7 @@ describe('loadSettings for Cursor', () => {
 	it('takes the key from Cursor and ignores make-api-key of the secrets file', () => {
 		writeCursorSettings(JSONC);
 		fs.writeFileSync(secretsPath, 'editor: cursor\nmake-api-key: CLAUDE_KEY\n');
-		process.env.CLAUDECODE = '1';
+		delete process.env.CURSOR_AGENT;
 		const loaded = settings.loadSettings();
 		assert.equal(loaded.editor, 'cursor');
 		assert.equal(loaded.apikey, 'KEY2');

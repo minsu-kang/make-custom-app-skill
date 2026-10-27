@@ -19,8 +19,11 @@ const MATRIX = [
 	{ name: 'CLAUDECODE only', env: { CLAUDECODE: '1' }, expected: 'claude' },
 	{ name: 'CURSOR_AGENT only', env: { CURSOR_AGENT: '1' }, expected: 'cursor' },
 	{ name: 'both set: Claude Code wins', env: { CLAUDECODE: '1', CURSOR_AGENT: '1' }, expected: 'claude' },
-	{ name: 'configured line beats the environment', env: { CLAUDECODE: '1' }, configured: 'cursor', expected: 'cursor' },
-	{ name: 'flag beats the configured line', env: {}, configured: 'cursor', flag: 'claude', expected: 'claude' },
+	{ name: 'configured line is used when no variable is set', env: {}, configured: 'cursor', expected: 'cursor' },
+	{ name: 'CLAUDECODE beats the configured line', env: { CLAUDECODE: '1' }, configured: 'cursor', expected: 'claude' },
+	{ name: 'CURSOR_AGENT beats the configured line', env: { CURSOR_AGENT: '1' }, configured: 'claude', expected: 'cursor' },
+	{ name: 'flag beats environment and configured line', env: { CLAUDECODE: '1' }, configured: 'claude', flag: 'cursor', expected: 'cursor' },
+	{ name: 'invalid configured value is ignored when the environment decides', env: { CLAUDECODE: '1' }, configured: 'zed', expected: 'claude' },
 	{ name: 'empty configured value is ignored', env: { CURSOR_AGENT: '1' }, configured: '', expected: 'cursor' },
 ];
 
@@ -38,6 +41,13 @@ for (const row of MATRIX) {
 test('resolveEditor rejects an unknown editor name and names the source', () => {
 	assert.throws(() => resolveEditor({ env: {}, flag: 'vscode' }), /Invalid editor "vscode" from --editor flag/);
 	assert.throws(() => resolveEditor({ env: {}, configured: 'zed' }), /Invalid editor "zed" from editor: line/);
+});
+
+test('resolveEditor throws for an invalid configured value when nothing else decides', () => {
+	assert.throws(
+		() => resolveEditor({ env: {}, configured: 'zed' }),
+		(err) => err instanceof EditorError && err.message === 'Invalid editor "zed" from editor: line in the secrets file. Use claude or cursor.',
+	);
 });
 
 test('the unresolved message says how to fix it', () => {

@@ -250,7 +250,7 @@ describe('check-setup in a fake HOME, choosing the editor', () => {
 		save({ editor: 'cursor', ...config });
 		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
 		fs.writeFileSync(CURSOR_SETTINGS_PATH, '{\n\t// Make Apps SDK\n\t"apps-sdk.environments": [{ "uuid": "u", "url": "eu1.make.com", "apikey": "CURSOR_KEY_secret", },],\n}');
-		const r = run([], { CLAUDECODE: '1' });
+		const r = run();
 		assert.equal(r.status, 0, r.stdout + r.stderr);
 		assert.ok(r.stdout.startsWith(`make-custom-app setup — cursor — ${PLUGIN_ROOT}\n`), r.stdout);
 		assert.deepEqual(parseItems(r.stdout)['make-api (Cursor settings.json)'], { status: 'OK', detail: 'apps-sdk.environments present' });
