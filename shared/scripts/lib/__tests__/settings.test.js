@@ -365,6 +365,32 @@ describe('readCursorEnvironments', () => {
 		assert.equal(settings.readCursorEnvironments(file).detail, 'invalid JSON near line 3');
 	});
 
+	it('keeps a quoted secret out of a snippet-style error and gives no line for it', () => {
+		fs.writeFileSync(file, `{"apikey": ${SECRET}}`);
+		const result = settings.readCursorEnvironments(file);
+		assert.equal(result.reason, 'unreadable');
+		assert.ok(!result.detail.includes(SECRET), result.detail);
+		assert.doesNotMatch(result.detail, /near line/);
+	});
+
+	it('takes the line only from the position suffix at the end of the V8 message', (t) => {
+		fs.writeFileSync(file, '{}');
+		let message;
+		t.mock.method(JSON, 'parse', () => {
+			throw new SyntaxError(message);
+		});
+		const cases = [
+			[`Unexpected token 'S', ..."x (line 9 column 9) ${SECRET}"... is not valid JSON`, 'invalid JSON'],
+			["Expected ',' or '}' after property value in JSON at position 25 (line 2 column 24)", 'invalid JSON near line 2'],
+			['Unexpected non-whitespace character after JSON at position 9 (line 1 column 10)', 'invalid JSON near line 1'],
+			['Unexpected end of JSON input', 'invalid JSON'],
+		];
+		for (const [text, detail] of cases) {
+			message = text;
+			assert.equal(settings.readCursorEnvironments(file).detail, detail, text);
+		}
+	});
+
 	it('reports unreadable when the file cannot be read for another reason than being absent', () => {
 		fs.mkdirSync(file);
 		const result = settings.readCursorEnvironments(file);
@@ -428,6 +454,7 @@ describe('loadSettings for Claude Code', () => {
 	});
 
 	it('follows the environment over the editor: line', () => {
+		process.env.CLAUDECODE = '1';
 		fs.writeFileSync(secretsPath, 'editor: cursor\nmake-api-key: KEY123\n');
 		const loaded = settings.loadSettings();
 		assert.equal(loaded.editor, 'claude');

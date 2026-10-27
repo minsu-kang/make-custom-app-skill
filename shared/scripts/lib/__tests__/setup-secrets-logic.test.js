@@ -25,7 +25,7 @@ describe('parseArgs', () => {
 	});
 
 	it('reports a missing value', () => {
-		for (const argv of [['--editor'], ['--editor='], ['--editor', '--other']]) {
+		for (const argv of [['--editor'], ['--editor='], ['--editor', ''], ['--editor', '--other']]) {
 			assert.deepEqual(logic.parseArgs(argv), { editor: null, error: '--editor needs a value: claude or cursor.' }, argv.join(' '));
 		}
 	});

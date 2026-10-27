@@ -38,6 +38,7 @@ const MATRIX = [
 	{ name: 'flag beats environment and configured line', env: { CLAUDECODE: '1' }, configured: 'claude', flag: 'cursor', expected: 'cursor' },
 	{ name: 'invalid configured value is ignored when the environment decides', env: { CLAUDECODE: '1' }, configured: 'zed', expected: 'claude' },
 	{ name: 'empty configured value is ignored', env: { CURSOR_AGENT: '1' }, configured: '', expected: 'cursor' },
+	{ name: 'invalid configured value is ignored when the flag decides', env: {}, configured: 'zed', flag: 'cursor', expected: 'cursor' },
 ];
 
 for (const row of MATRIX) {
@@ -54,6 +55,12 @@ for (const row of MATRIX) {
 test('resolveEditor rejects an unknown editor name and names the source', () => {
 	assert.throws(() => resolveEditor({ env: {}, flag: 'vscode' }), /Invalid editor "vscode" from --editor flag/);
 	assert.throws(() => resolveEditor({ env: {}, configured: 'zed' }), /Invalid editor "zed" from editor: line/);
+});
+
+test('resolveEditor still rejects an invalid flag when an environment variable is set', () => {
+	for (const env of [{ CLAUDECODE: '1' }, { CURSOR_AGENT: '1' }]) {
+		assert.throws(() => resolveEditor({ env, flag: 'zed' }), (err) => err instanceof EditorError && err.message === 'Invalid editor "zed" from --editor flag. Use claude or cursor.');
+	}
 });
 
 test('resolveEditor throws for an invalid configured value when nothing else decides', () => {

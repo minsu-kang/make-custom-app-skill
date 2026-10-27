@@ -75,11 +75,19 @@ if (isClaude) {
 	const cursor = readCursorEnvironments();
 	if (cursor.ok) {
 		add('make-api (Cursor settings.json)', 'ok', 'apps-sdk.environments present');
+	} else if (cursor.reason === 'unreadable') {
+		const line = /near line (\d+)/.exec(cursor.detail);
+		add(
+			'make-api (Cursor settings.json)',
+			'missing',
+			`cannot read the file: ${cursor.detail}`,
+			`Fix the JSON in ${CURSOR_SETTINGS_PATH}${line ? `, near line ${line[1]}` : ''}, then run check-setup again.`,
+		);
 	} else {
 		add(
 			'make-api (Cursor settings.json)',
 			'missing',
-			cursor.reason === 'unreadable' ? `cannot read ${CURSOR_SETTINGS_PATH}: ${cursor.detail}` : cursor.detail,
+			cursor.detail,
 			'Install the Make Apps SDK extension in Cursor and add an environment with your API key (Command Palette → "Make Apps: Add environment").',
 		);
 	}

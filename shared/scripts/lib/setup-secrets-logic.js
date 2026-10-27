@@ -23,7 +23,7 @@ function parseArgs(argv) {
 		const arg = argv[i];
 		if (arg === '--editor') {
 			const value = argv[i + 1];
-			if (value === undefined || value.startsWith('--')) return { editor: null, error: '--editor needs a value: claude or cursor.' };
+			if (!value || value.startsWith('--')) return { editor: null, error: '--editor needs a value: claude or cursor.' };
 			editor = value;
 			i++;
 		} else if (arg.startsWith('--editor=')) {

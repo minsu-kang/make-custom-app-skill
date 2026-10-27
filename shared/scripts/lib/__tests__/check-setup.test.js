@@ -316,13 +316,34 @@ describe('check-setup in a fake HOME, choosing the editor', () => {
 		const r = run([], { CURSOR_AGENT: '1' });
 		assert.deepEqual(parseItems(r.stdout)['make-api (Cursor settings.json)'], {
 			status: 'MISSING',
-			detail: `cannot read ${CURSOR_SETTINGS_PATH}: invalid JSON near line 2`,
+			detail: 'cannot read the file: invalid JSON near line 2',
 		});
 		assert.ok(!r.stdout.includes('CURSOR_KEY_secret') && !r.stderr.includes('CURSOR_KEY_secret'));
 		fs.writeFileSync(CURSOR_SETTINGS_PATH, 'not json');
 		const second = parseItems(run([], { CURSOR_AGENT: '1' }).stdout)['make-api (Cursor settings.json)'];
 		assert.equal(second.status, 'MISSING');
 		assert.ok(!second.detail.includes('not json'), second.detail);
+	});
+
+	it('tells the user to fix the JSON of an unreadable Cursor settings.json, not to install the extension', () => {
+		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
+		fs.writeFileSync(CURSOR_SETTINGS_PATH, '{\n\t"apps-sdk.environments": [{ "apikey": "CURSOR_KEY_secret" "x": 1 }]\n}');
+		const withLine = run([], { CURSOR_AGENT: '1' }).stdout;
+		assert.ok(withLine.includes(`[REQUIRED] make-api (Cursor settings.json)\nFix the JSON in ${CURSOR_SETTINGS_PATH}, near line 2, then run check-setup again.\n`), withLine);
+		assert.ok(!withLine.includes('Install the Make Apps SDK extension'), withLine);
+		assert.equal(withLine.split(CURSOR_SETTINGS_PATH).length - 1, 1, 'the path is printed once');
+		fs.writeFileSync(CURSOR_SETTINGS_PATH, 'not json');
+		const noLine = run([], { CURSOR_AGENT: '1' }).stdout;
+		assert.ok(noLine.includes(`[REQUIRED] make-api (Cursor settings.json)\nFix the JSON in ${CURSOR_SETTINGS_PATH}, then run check-setup again.\n`), noLine);
+	});
+
+	it('keeps the install text for a missing settings.json and for one without environments', () => {
+		const missing = run([], { CURSOR_AGENT: '1' }).stdout;
+		assert.ok(missing.includes('Install the Make Apps SDK extension in Cursor'), missing);
+		fs.mkdirSync(path.dirname(CURSOR_SETTINGS_PATH), { recursive: true });
+		fs.writeFileSync(CURSOR_SETTINGS_PATH, '{}');
+		const empty = run([], { CURSOR_AGENT: '1' }).stdout;
+		assert.ok(empty.includes('Install the Make Apps SDK extension in Cursor'), empty);
 	});
 });
 

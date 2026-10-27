@@ -49,7 +49,10 @@ function getEditor(flag = getEditorFlag()) {
 	return resolveEditor({ env: process.env, configured: readSkillConfig('editor'), flag });
 }
 
-/** getEditor() for command-line scripts: prints "ERROR: <reason>" and exits 1 when the editor cannot be told. */
+/**
+ * getEditor() for command-line scripts: prints "ERROR: <reason>" and exits 1 when the editor cannot be told.
+ * Passing null explicitly skips the remembered --editor flag (setup-secrets.js parses its own flag).
+ */
 function requireEditor(flag = getEditorFlag()) {
 	try {
 		return getEditor(flag);
@@ -168,9 +171,12 @@ function parseJsonc(text) {
 	return JSON.parse(stripJsonComments(text));
 }
 
-/** V8's JSON error message quotes the start of the text, so only the line number is kept: the file holds API keys. */
+/**
+ * V8's JSON error message can quote the text, so only the line number is kept: the file holds API keys. The line comes
+ * from the position suffix that ends the message ("... at position N (line L column C)"), never from quoted text.
+ */
 function jsonErrorDetail(err) {
-	const line = /\(line (\d+) column \d+\)/.exec(err.message);
+	const line = / at position \d+ \(line (\d+) column \d+\)$/.exec(err.message);
 	return line ? `invalid JSON near line ${line[1]}` : 'invalid JSON';
 }
 

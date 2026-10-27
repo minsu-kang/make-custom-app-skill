@@ -27,7 +27,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getMakeApiKey, readSkillConfig, requireEditor, SECRETS_PATH } = require('./lib/settings');
+const { getMakeApiKey, readCursorEnvironments, readSkillConfig, requireEditor, SECRETS_PATH } = require('./lib/settings');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 function getMockupPath() {
@@ -105,7 +105,7 @@ if (requireEditor() === 'claude') {
 			if (match) process.env[match[1]] = match[2];
 		}
 	}
-	if (!process.env.MAKE_API_KEY) {
+	if (!process.env.MAKE_API_KEY && readCursorEnvironments().ok) {
 		try {
 			process.env.MAKE_API_KEY = getMakeApiKey();
 		} catch (_) {

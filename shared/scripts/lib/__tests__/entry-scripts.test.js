@@ -295,6 +295,19 @@ describe('entry scripts in a fake HOME', () => {
 		});
 	});
 
+	describe('the Cursor key hint', () => {
+		it('test-component with --editor cursor and no Cursor settings file points at the mockup .env and the export', async () => {
+			seed();
+			const r = await run('test-component', ['--editor', 'cursor', ...ARGS['test-component']], { env: {} });
+			assert.equal(r.code, 1, r.stdout + r.stderr);
+			assert.ok(r.stderr.includes('MAKE_API_KEY not found. Set it in:'), r.stderr);
+			assert.ok(r.stderr.includes(`  - ${path.join(mockup, '.env')}`), r.stderr);
+			assert.ok(r.stderr.includes('export MAKE_API_KEY=your-api-key'), r.stderr);
+			assert.doesNotMatch(r.stderr, /Cursor settings file not found/);
+			assert.equal(requests.length, 0);
+		});
+	});
+
 	describe('the contexts folder', () => {
 		const contexts = () => path.join(home, '.make-custom-app', 'contexts');
 
