@@ -1,8 +1,6 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
-
 # Bug Investigation Workflow
 
-> Read [lifecycle.md](lifecycle.md) first (app identification, code sync, context, Jira fetch, push, close-out). This file adds only what is bug-specific.
+> Read [lifecycle.md](lifecycle.md) and [jira-ticket.md](jira-ticket.md) first. This file adds only what is bug-specific.
 
 ## Triggers
 
@@ -22,23 +20,26 @@ Do **not** start root-cause analysis with only an error message. Ask for whateve
 2. **Trace with real data.** Read `expect.imljson` and any RPC feeding it, then apply each function in the chain to the actual response, innermost first, inspecting the intermediate output until the failing step is found. Code reading alone misses edge cases.
 3. **Reproduce with a failing test** *(gate)*. Write a `test.js` case from the actual input (or a minimal subset). It must **fail** with the current code; if it passes, the hypothesis is wrong — return to step 2.
 4. **Check impact.** Search the app for every use of the affected function / pattern; assess side effects on other modules.
-5. **Present findings and wait for approval** *(gate)*: error flow, root cause, why it happens, affected components, reproduction evidence, proposed fix scope. When working QA subtasks on a returned ticket, classify each subtask as **True Positive** or **False Positive** against the skill references (`endpoints-reference.md`, `code-review-criteria.md`, `runtime-reference.md`) first — do not blindly implement changes that violate skill conventions (e.g. `encodeURL()` on simple resource IDs, or app-level workarounds for platform MCP validation/default limits).
-6. **Fix minimally.** Only the bug — no refactoring, no "improvements", no touching unrelated logic. Write to `${CONTEXTS_DIR}/{slug}-v{version}/`, confirm the failing test now passes, and confirm zero behaviour change outside the bug scenario (otherwise the fix is too broad). Every changed function keeps `test.js` covering core behaviour, edge cases (null / undefined / empty / boundaries), the bug scenario, and regressions; run `test-function.js`. Changed `api.imljson` → `test-component.js`.
-7. **Push** per lifecycle §6. For an Endpoint or RPC fix, then run it live with the bug's input (lifecycle §6 "Run live": ownership, review, cleanup, fixtures after a pass, ownership back).
-8. **Close out** per lifecycle §7 (Developer Notes on the parent ticket use the bugfix template; each QA subtask gets a comment explaining the fix or the false-positive rationale + doc update, and transitions `In Progress` → `Test` for True Positive or `In Progress` → `Canceled` for False Positive; parent in `In Progress` transitions to `Commit`).
+5. **Present findings and wait for approval** *(gate)*: error flow, root cause, why it happens, affected components, reproduction evidence, proposed fix scope. When working QA subtasks on a returned ticket, classify each one as **True Positive** or **False Positive** first, as described in [jira-ticket.md](jira-ticket.md).
+6. **Fix minimally.** Only the bug — no refactoring, no "improvements", no touching unrelated logic. Write to `~/.make-custom-app/contexts/{slug}-v{version}/`, confirm the failing test now passes, and confirm zero behaviour change outside the bug scenario (otherwise the fix is too broad). Every changed function keeps `test.js` covering core behaviour, edge cases (null / undefined / empty / boundaries), the bug scenario, and regressions; run `test-function.js`. Changed `api.imljson` → `test-component.js`.
+7. **Push** per [push-changes.md](push-changes.md). For an Endpoint or RPC fix, then run it live with the bug's input ([run-live.md](run-live.md): ownership, review, cleanup, fixtures after a pass, ownership back).
+8. **Close out** per [close-out.md](close-out.md), steps 1 to 5 (Developer Notes on the parent ticket use the bugfix template; each QA subtask gets a comment explaining the fix or the false-positive rationale + doc update, and transitions `In Progress` → `Test` for True Positive or `In Progress` → `Canceled` for False Positive; parent in `In Progress` transitions to `Commit`).
 
 ## Recurring bug (component fixed recently per Work History)
 
-- Audit **all** crash points of the same class in the function (every `.match()`, every property access on a possibly-null value), not just the reported one.
-- Trace with several data samples, including nested nulls, empty strings, missing keys.
-- Ask the user to confirm the previous fix is actually deployed — a "recurring" bug may be an undeployed fix.
-- Explain why the previous fix did not cover this case and make the new fix cover the whole category.
+Apply the recurring-bug rigor in [lifecycle.md](lifecycle.md) §3.
 
 ## Checklist
 
+- [ ] App identified (slug + version, source stated)
+- [ ] Code synced (`download-app.js` fresh)
+- [ ] Context loaded (file + `search_app_knowledge`)
+- [ ] Jira fetched incl. subtasks, comments, attachments (or none attached)
 - [ ] Real input, response body, and execution logs obtained
 - [ ] Component + full function chain located; all callers found
 - [ ] Failing test reproduces the bug
-- [ ] Findings presented and approved
-- [ ] Minimal fix; failing test passes; `test-function.js` / `test-component.js` run
-- [ ] Pushed with confirmation; Endpoint / RPC fix run live; Dev Notes asked + `In Progress` → `Commit`; context + Pinecone updated
+- [ ] Findings presented; plan approved before editing
+- [ ] Minimal fix; failing test passes; `test-function.js` / `test-component.js` run (hard rule 9)
+- [ ] Pushed only after confirmation
+- [ ] Endpoint / RPC fix run live: ownership transferred to the acting user, run reviewed with the user, created vendor records deleted, fixtures added after a pass, ownership transferred back
+- [ ] Closed out: Dev Notes asked · `In Progress` → `Commit` · context file · Pinecone (post-commit sync when the user says the changes are committed)

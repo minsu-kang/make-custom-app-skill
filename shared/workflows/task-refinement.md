@@ -1,14 +1,12 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
-
 # Task Refinement Workflow
 
-> Read [lifecycle.md](lifecycle.md) first. Read-only investigation of a Jira ticket (typically **Preparation** status): read the ticket, the app, the references, and the vendor API docs; decide feasibility; draft an implementation plan; flag unavoidable breaking changes; optionally create an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. The only Jira write is the optional subtask, after explicit approval.
+> Read [lifecycle.md](lifecycle.md) and [jira-ticket.md](jira-ticket.md) first. Read-only investigation of a Jira ticket (typically **Preparation** status): read the ticket, the app, the references, and the vendor API docs; decide feasibility; draft an implementation plan; flag unavoidable breaking changes; optionally create an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. The only Jira write is the optional subtask, after explicit approval.
 
 ## Trigger
 
 **Mandatory auto-trigger** — a message containing (1) a Jira URL, (2) an inline app slug (± version), and (3) a ticket whose `status.name === "Preparation"` (verified after the fetch) is always this workflow. No confirmation, no fallback to feature/bugfix, even with a bare verb ("조사해줘", "look into this") or no verb at all.
 
-Also: user asks for refinement / investigation / feasibility ("리파인", "검토해줘", "구현 가능한지 봐줘", "can this be implemented?"); or shares a `Preparation` ticket without a slug (resolve via lifecycle §1).
+Also: user asks for refinement / investigation / feasibility ("리파인", "검토해줘", "구현 가능한지 봐줘", "can this be implemented?"); or shares a `Preparation` ticket without a slug (resolve via [lifecycle.md](lifecycle.md) §1).
 
 Status not `Preparation` → warn once: *"The ticket status is `{status}` — task refinement is intended for Preparation. Continue anyway?"* Continue only on explicit yes.
 
@@ -16,8 +14,8 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
 
 ## Steps
 
-1. **Fetch the ticket** (lifecycle §4) with the standard fields plus `"parent", "labels", "priority"`. Read Dev Notes for any earlier investigation; note existing subtasks (avoid a duplicate `Investigation`); download and read attachments — UX text and mockups often live only there.
-2. **Load app context and code** (lifecycle §2–3). Brand-new app with no slug → skip code; investigate from references + API docs.
+1. **Fetch the ticket** ([jira-ticket.md](jira-ticket.md)) with the standard fields plus `"parent", "labels", "priority"`. Read Dev Notes for any earlier investigation; note existing subtasks (avoid a duplicate `Investigation`); download and read attachments — UX text and mockups often live only there.
+2. **Load app context and code** ([lifecycle.md](lifecycle.md) §2 and §3). Brand-new app with no slug → skip code; investigate from references + API docs.
 3. **Scan the app**: `metadata.json`, `base.imljson` (auth, baseUrl, errors), `common.imljson`, and the most similar existing modules/RPCs for conventions (naming, fields, pagination, hints). List reuse candidates (RPCs, functions, connections).
 4. **Re-read the references the AC touches** — feasibility claims from memory are forbidden; each "possible" must point to a reference section or an existing component:
 
@@ -37,7 +35,7 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
 9. **Emit the report** (format below) in chat.
 10. **Ask**: *"Shall I create an **Investigation** subtask on `{KEY}` with this report?"* ("응" / "만들어줘" / "ㅇㅇ" = yes; "아니" / "스킵" = no).
 11. **Create the subtask on yes.** Parent = the ticket, or its `parent` if the ticket is itself a sub-task. If an open `Investigation` subtask exists, offer: comment on it (`addCommentToJiraIssue`) / create another / skip. Issue type `Sub-task` (verify with `getJiraProjectIssueTypesMetadata` if unsure). `createJiraIssue({ cloudId, projectKey, issueTypeName: "Sub-task", summary: "Investigation", description: <ADF>, parent: KEY, contentFormat: "adf" })`. Report the new key.
-12. **Context** (lifecycle §7 steps 2–3, lightweight): one Work History line `{date} | {KEY} | Refinement | {verdict + plan summary}` and Pinecone sync. Skip when Not feasible with no plan, or when the app has no context file yet.
+12. **Context** ([close-out.md](close-out.md) steps 2 and 3, lightweight): one Work History line `{date} | {KEY} | Refinement | {verdict + plan summary}` and Pinecone sync. Skip when Not feasible with no plan, or when the app has no context file yet.
 
 ## Report format
 
@@ -103,10 +101,11 @@ Generic dev steps (spec changes → create components → implement per skeleton
   "content": [ { "type": "codeBlock", "attrs": { "language": "json" }, "content": [ { "type": "text", "text": "{ ... }" } ] } ] }
 ```
 
-One `expand` per file. If `createJiraIssue` is unavailable or rejects the body, write a small Node script that reads `jira-email` / `jira-api-token` via `${SKILL_ROOT}/scripts/lib/settings.js` (`loadJiraConfig()`) and `POST`s `/rest/api/3/issue` — do not read the secrets file yourself. Markdown body (`contentFormat: "markdown"`) only when the report contains zero code blocks.
+One `expand` per file. If `createJiraIssue` is unavailable or rejects the body, write a small Node script that reads `jira-email` / `jira-api-token` via `<plugin root>/shared/scripts/lib/settings.js` (`loadJiraConfig()`) and `POST`s `/rest/api/3/issue` — do not read the secrets file yourself. Markdown body (`contentFormat: "markdown"`) only when the report contains zero code blocks.
 
 ## Checklist
 
+- [ ] App identified (slug + version, source stated), code synced, context loaded (skipped for a brand-new app)
 - [ ] Ticket, subtasks, comments, attachments read; status verified (warned if not Preparation)
 - [ ] App scanned; references re-read; vendor API researched with sources
 - [ ] Feasibility verdict cited; plan drafted; breaking changes checked

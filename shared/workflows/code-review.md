@@ -1,21 +1,19 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
-
 # Code Review Workflow
 
-> Read [lifecycle.md](lifecycle.md) first. This file adds only what is review-specific.
+> Read [lifecycle.md](lifecycle.md) and [jira-ticket.md](jira-ticket.md) first. This file adds only what is review-specific.
 
 ## Inputs
 
-- **slug + version** — required. Resolve per lifecycle §1 (inline → App HQ URL → IPME → ask: *"Please provide the app slug and version, e.g. `slug: slack`, `version: 4`."*).
+- **slug + version** — required. Resolve per [lifecycle.md](lifecycle.md) §1 (inline → App HQ URL → IPME → ask: *"Please provide the app slug and version, e.g. `slug: slack`, `version: 4`."*).
 - **Jira ticket** — recommended. Without one, suggest attaching it (AC, change list, comments make the review accurate); if none exists, see the "Without a Jira ticket" bullet under Output format.
-- Load context (lifecycle §3) **before** looking at code — prior reviews may hold unfixed findings.
+- Load context ([lifecycle.md](lifecycle.md) §3) **before** looking at code — prior reviews may hold unfixed findings.
 
 ## Reviewer assignment (parent ticket only)
 
-Right after the ticket fetch (lifecycle §4), assign the **parent** to yourself so ownership is visible in Jira:
+Right after the ticket fetch ([jira-ticket.md](jira-ticket.md)), assign the **parent** to yourself so ownership is visible in Jira:
 
 1. `getAccessibleAtlassianResources` → `cloudId` (cache for the session).
-2. `lookupJiraAccountId({ cloudId, searchString: <reviewer email> })` — the email is the `jira credentials` detail line of `check-setup.js` output (never open the secrets file). Pick the exact email match (cache).
+2. `lookupJiraAccountId({ cloudId, searchString: <reviewer email> })` — the email is the detail of the `make account` line in the `check-setup.js` output (never open the secrets file). Pick the exact email match (cache).
 3. `editJiraIssue({ cloudId, issueIdOrKey: PARENT, fields: { assignee: { accountId } } })` — skip when already assigned to you or when there is no ticket.
 
 Never set `assignee` on any sub-task, whatever its status. Status transitions happen only after the disposition (below).
@@ -23,11 +21,11 @@ Never set `assignee` on any sub-task, whatever its status. Status transitions ha
 ## Fetch changes — every review, including re-reviews
 
 ```
-node ${SKILL_ROOT}/scripts/download-app.js {slug} {version}      # block_until_ms 120000
-node ${SKILL_ROOT}/scripts/review-changes.js {slug} {version}    # block_until_ms 60000
+node "<plugin root>/shared/scripts/download-app.js" {slug} {version}      # block_until_ms 120000
+node "<plugin root>/shared/scripts/review-changes.js" {slug} {version}    # block_until_ms 60000
 ```
 
-Then read `${CONTEXTS_DIR}/{slug}-v{version}/reviews/latest.json` (`changes[]` with `id`, `group`, `item`, `code`, `old_value`, `new_value`). Never reuse a previous `latest.json`; never edit files under `make-app-contexts` after a review — `download-app.js` owns that copy.
+Then read `~/.make-custom-app/contexts/{slug}-v{version}/reviews/latest.json` (`changes[]` with `id`, `group`, `item`, `code`, `old_value`, `new_value`). Never reuse a previous `latest.json`; never edit files under `~/.make-custom-app/contexts` after a review — `download-app.js` owns that copy.
 
 ### "0 changes" depends on `approved`
 
@@ -145,7 +143,7 @@ Hi, I reviewed the changes for {JIRA-KEY} ({app-slug} v{version}). Here are item
 Once the above items are addressed, please request a re-review. Thanks!
 ```
 
-Include every category found (logic, breaking, ES6+, tests). Audience: developers working in the SDK / VS Code extension, so — per hard rule 7 — no skill scripts, no `${SKILL_ROOT}` / `make-app-contexts` paths, no Pinecone / MCP / mockup terms, no `--flags`. Say *"Set the module to public in the SDK (Module → Visibility → Public)"*, not *"run `update-component.js … public=true`"*; cite in-app paths like `modules/SearchTiles/expect.imljson`. The same applies to any Jira comment or Dev Notes text you draft.
+Include every category found (logic, breaking, ES6+, tests). Audience: developers working in the SDK / VS Code extension, so — per hard rule 7 — no skill scripts, no plugin or `~/.make-custom-app/contexts` paths, no Pinecone / MCP / mockup terms, no `--flags`. Say *"Set the module to public in the SDK (Module → Visibility → Public)"*, not *"run `update-component.js … public=true`"*; cite in-app paths like `modules/SearchTiles/expect.imljson`. The same applies to any Jira comment or Dev Notes text you draft.
 
 ## Disposition gate
 
@@ -156,9 +154,9 @@ After the output (and developer message), ask — wording by compilation state:
 
 Until the user answers, **no** context-file write, **no** `upsert_*`, **no** `post-review-transition.js`. Accepted answers:
 
-- Forward, past tense — "committed" / "커밋했어" / "커밋완료" / "compiled" / "컴파일했어" / "컴파일완료": the user did it in the SDK. Run `post-review-transition.js {KEY} committed` (`Commit`/`Compilation` → `In Testing`), then lifecycle §7 steps 2–3.
+- Forward, past tense — "committed" / "커밋했어" / "커밋완료" / "compiled" / "컴파일했어" / "컴파일완료": the user did it in the SDK. Run `post-review-transition.js {KEY} committed` (`Commit`/`Compilation` → `In Testing`), then [close-out.md](close-out.md) steps 2 and 3.
 - Forward, imperative — "커밋해줘" / "commit it" / "컴파일해줘" / "compile it": the request **is** the disposition. Show the pending change list and the Commit Checklist message, get confirmation, then run `commit-changes.js {slug} {ver} commit --message="{KEY} {summary}" --issue={KEY}` (approved app) or `commit-changes.js {slug} {ver} compile --issue={KEY}` (non-approved). `--issue` chains the parent transition — do not call `post-review-transition.js` again for the parent. Never pass `--notify` unasked; never run `rollback` here.
-- Returned — "returned" / "돌려줬어" / "돌려줌" / "개발자한테 보냈어": `post-review-transition.js {KEY} returned` (`Commit` → `In Progress`; `Compilation` → `To Do`), then lifecycle §7 steps 2–3 with the review result.
+- Returned — "returned" / "돌려줬어" / "돌려줌" / "개발자한테 보냈어": `post-review-transition.js {KEY} returned` (`Commit` → `In Progress`; `Compilation` → `To Do`), then [close-out.md](close-out.md) steps 2 and 3 with the review result.
 
 Run the transition for every reviewed ticket (parent + reviewed subtasks). The script aborts when the status is not `Commit`/`Compilation`; `--from-status=` customizes, `--force` only on explicit user request. **Sub-tasks in `Test` are QA territory**: when the script aborts on one, report "skipped (QA territory)" and move on — never `--force`, never `transitionJiraIssue` to `Done`.
 
@@ -166,6 +164,7 @@ Do not prompt for Developer Notes in a review, even if you ran a write script (e
 
 ## Checklist
 
+- [ ] App identified (slug + version, source stated)
 - [ ] Context loaded; ticket + subtasks + comments + attachments read; parent assigned to me
 - [ ] `download-app.js` + `review-changes.js` run fresh; `approved` state read
 - [ ] Changes filtered to the AC; skip rules decided per change
