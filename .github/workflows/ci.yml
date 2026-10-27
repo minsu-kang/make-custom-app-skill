@@ -94,7 +94,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: node --test ".github/scripts/__tests__/*.test.js"
+      - run: node --test ".github/scripts/__tests__/*.test.js" "tools/__tests__/*.test.js"
       - run: node .github/scripts/plugin-check.js
 
   lint-misc:
