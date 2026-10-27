@@ -15,7 +15,7 @@ For any change that has an `old_value`, compare the `old_value` (whitespace-/com
 
 ## Source / refresh
 
-These are copied from the Make template app **`model`, version 1**. To refresh after an SDK template change, run `download-app.js model 1` and re-copy from `make-app-contexts/model-v1/`. The model app exposes one example component per kind.
+These are copied from the Make template app **`model`, version 1**. To refresh after an SDK template change, run `download-app.js model 1` and re-copy from `~/.make-custom-app/contexts/model-v1/`. The model app exposes one example component per kind.
 
 `typeId` → module scaffold (read the reviewed component's `typeId` from the app's `metadata.json`):
 

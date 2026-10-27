@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code review criteria: Checks for `functions/*/code.js`
 
 > Read when: the change set has a `function/*/code` change (mandatory): test coverage, ES6+, code quality and maintainability. Part of [code-review-criteria.md](../code-review-criteria.md).
@@ -23,7 +22,7 @@ Any test gap for changed behavior results in verdict **Improvement Needed**. Inc
 When **any** `functions/*/code.js` file is changed in the review, **automatically run `test-function.js`** after downloading the app code:
 
 ```
-node ${SKILL_ROOT}/scripts/test-function.js <app-slug> <app-version>
+node "<plugin root>/shared/scripts/test-function.js" <app-slug> <app-version>
 ```
 
 - Run once with **no function filter** to test all functions (catches regressions across the app)

@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # App Compilation & Deployment Reference
 
 > Read when: interpreting `approved` / `compile` / `review-changes.js` 0-change results, module or app visibility (`private`, `deprecated`, `public`), admin endpoints, or the compile → IPM → zone-install pipeline.
@@ -63,7 +62,7 @@ A brand-new app (`issuetype: "App"`) is almost always `approved: false` / `compi
 - `POST /sdk/apps/{slug}/{version}/commit` → `apps.changes_commit`: **requires `approved`**; on the first commit of each field it captures an `'initial state'` baseline into history; applies the pending change values to the real `apps.*` tables; deletes the `apps.change` rows; then calls `enqueueCompile`.
 - `POST /admin/sdk/apps/{slug}/{version}/compile` (admin) and the approve action both also call `enqueueCompile`.
 - `POST /sdk/apps/{slug}/{version}/rollback` discards **all** pending change rows at once — no id selection, not undoable.
-- All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [lifecycle.md § 6 Push changes](../workflows/lifecycle.md).
+- All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [commit-compile.md](../workflows/commit-compile.md).
 - The **Jira** workflow status for "ready for review" is canonically **`Compilation`**; some developers colloquially set **`Commit`** instead. Both mean the same thing and `post-review-transition.js` accepts either.
 
 ### `compile` flag is legacy / in-progress signal
@@ -206,7 +205,7 @@ The instance loader picks the source by app type (verified in `imt-web-api` work
 - **Disposition wording**: for an uncompiled app the forward action is **compile**, not commit — ask "Did you compile the app, or return it?" (See code-review.md § "Disposition gate".)
 - **`download-app.js` always reads the SDK/DB code**, never the compiled package — so reviews are always against source, which is correct.
 - **A committed/compiled app's behavior in production** comes from the installed `imt_modules` package, which is regenerated from the SDK code at compile time. Reviewing the SDK code is therefore reviewing what will be compiled.
-- **Live connection requests for SDK endpoints** use app name `app#{slug}` (`connection_create` `appName`, and the execute body `appName`). The compiled slug `{slug}` does not list endpoints that are not compiled yet. The account type on a live-run `CREATE_CONNECTION` message is the form's connection type, not that app name. See [lifecycle.md](../workflows/lifecycle.md) §6.
+- **Live connection requests for SDK endpoints** use app name `app#{slug}` (the Make MCP connection-creation tool's `appName`, and the execute body `appName`). The compiled slug `{slug}` does not list endpoints that are not compiled yet. The account type on a live-run `CREATE_CONNECTION` message is the form's connection type, not that app name. See [run-live.md](../workflows/run-live.md).
 
 ## 9. Source map
 

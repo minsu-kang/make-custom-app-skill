@@ -1,16 +1,15 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code review criteria: Checks for `api.imljson` and connections
 
 > Read when: the change set has an `api`, `base`, `epoch`, webhook `attach` / `detach` or connection change, or a new app (mandatory): component integration tests, runtime behavior verification (including branding consistency), OAuth scope placement, polling trigger order and date filtering. Part of [code-review-criteria.md](../code-review-criteria.md).
 
 ### Component Integration Tests (Mandatory for api.imljson changes)
 
-**Before running or writing component tests**, re-read `${SKILL_ROOT}/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
+**Before running or writing component tests**, re-read `<plugin root>/shared/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
 
 When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks, endpoints), **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
-node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component-type> [component-names...]
+node "<plugin root>/shared/scripts/test-component.js" <app-slug> <app-version> <component-type> [component-names...]
 ```
 
 - Determine the component type and name from the changed file path (e.g., `modules/CreateItem/api.imljson` → `module CreateItem`; `endpoints/getDocument/api.imljson` → `endpoint getDocument`)
@@ -31,7 +30,7 @@ node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component
 
 When reviewing `api.imljson` changes that use runtime variables, IML context features, or middleware behavior (e.g., `environment`, `temp`, `condition`, `pagination`, `iterate`, `valid`, `repeat`):
 
-1. **First**: Check `${SKILL_ROOT}/references/runtime-reference.md` (and the part its § Parts table names) for documented behavior
+1. **First**: Check `<plugin root>/shared/references/runtime-reference.md` (and the part its § Parts table names) for documented behavior
 2. **If not found or still uncertain**: Search the `imt-app-runtime` source code directly (path reported by `check-setup.js` as `imt-app-runtime-path`) to verify actual runtime behavior
 
 **Never assume or guess** how runtime features work. Common mistakes to avoid:
@@ -152,7 +151,7 @@ The `imt-app-runtime` automatically handles common HTTP error codes **without an
 
 ## Polling Trigger: Order and Date Filtering
 
-For detailed patterns and examples, see **`${SKILL_ROOT}/references/polling-trigger-guide.md`**.
+For detailed patterns and examples, see **`<plugin root>/shared/references/polling-trigger-guide.md`**.
 
 When reviewing a polling trigger, verify these in order:
 

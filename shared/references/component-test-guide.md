@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Component Integration Test Guide
 
 > Read when: running or writing `test-component.js` tests — test file structure, `capture()` arguments, communications mocks, expected output, discovery, debugging, make-apps-mockup layout.
@@ -22,7 +21,7 @@ All tests run inside the **`make-apps-mockup`** repository. This skill provides 
 ## How to Run
 
 ```bash
-node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
+node "<plugin root>/shared/scripts/test-component.js" <app-slug> <app-version> <component-type> [component-name ...] [--format=console|json] [--debug]
 ```
 
 | Option | Description |
@@ -33,11 +32,11 @@ node ${SKILL_ROOT}/scripts/test-component.js <app-slug> <app-version> <component
 
 Examples:
 ```bash
-node ${SKILL_ROOT}/scripts/test-component.js monday 2 module                    # all modules
-node ${SKILL_ROOT}/scripts/test-component.js monday 2 module CreateItemV2       # one module
-node ${SKILL_ROOT}/scripts/test-component.js monday 2 rpc listBoards getUsers   # multiple RPCs
-node ${SKILL_ROOT}/scripts/test-component.js google-docs 1 endpoint getDocument # one endpoint
-node ${SKILL_ROOT}/scripts/test-component.js monday 2 module --format=json      # JSON for AI
+node "<plugin root>/shared/scripts/test-component.js" monday 2 module                    # all modules
+node "<plugin root>/shared/scripts/test-component.js" monday 2 module CreateItemV2       # one module
+node "<plugin root>/shared/scripts/test-component.js" monday 2 rpc listBoards getUsers   # multiple RPCs
+node "<plugin root>/shared/scripts/test-component.js" google-docs 1 endpoint getDocument # one endpoint
+node "<plugin root>/shared/scripts/test-component.js" monday 2 module --format=json      # JSON for AI
 ```
 
 ## How It Works

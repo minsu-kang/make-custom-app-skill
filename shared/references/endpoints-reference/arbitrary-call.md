@@ -186,7 +186,7 @@ endpoints, required parameters, and response schemas.
 
 | Issue | Detail |
 |---|---|
-| **CREATE doesn't apply `context` or `annotations`** | The `POST /endpoints` (or MCP `custom-apps_endpoints-configure` with `mode: CREATE`) ignores `context` and `annotations` fields. Always follow up with a separate update: `update-app.js … endpoint/{name}/context` and `…/annotations` (or MCP `mode: UPDATE`). |
+| **CREATE doesn't apply `context` or `annotations`** | The `POST /endpoints` (or the Make MCP endpoint-configure tool with `mode: CREATE`) ignores `context` and `annotations` fields. Always follow up with a separate update: `update-app.js … endpoint/{name}/context` and `…/annotations` (or MCP `mode: UPDATE`). |
 | **Module `expect` vs endpoint `inputParameters` format** | Source modules may use a flat `spec: [...]` array for headers/qs items. Endpoints must use the nested `{ type: "collection", spec: [...] }` wrapper with `help` on every nested field. |
 | **RPC references stripped** | Module `expect` may include `"rpc://someRpc"` entries (e.g., hint messages). These do not apply to endpoints — omit them entirely. |
 | **Base auth merging** | Apps that inject auth via `base.imljson` `qs` or `headers` (e.g., Gemini's `qs.key`) — these merge automatically at runtime. Do not duplicate them in the endpoint's `api.imljson`. |

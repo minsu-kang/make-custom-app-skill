@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Runtime reference: Environment Variables
 
 > Read when: an app uses the `environment` or `internal` roots, or you must check which flags the platform actually grants. Part of [runtime-reference.md](../runtime-reference.md).
@@ -128,15 +127,15 @@ Usage in `api.imljson` once granted:
 
 ```bash
 node -e '
-const { loadSettings } = require(process.argv[1] + "/scripts/lib/settings.js");
+const { loadSettings } = require("<plugin root>/shared/scripts/lib/settings.js");
 const { baseUrl, auth } = loadSettings();
 fetch(`${baseUrl}/sdk/apps/{slug}/{version}?cols[]=flags`, { headers: { Authorization: auth } })
   .then(async (r) => console.log(r.ok ? JSON.stringify((await r.json()).app.flags ?? {}, null, 2) : `HTTP ${r.status}`));
-' ${SKILL_ROOT}
+'
 # → { "exposeInternalProperties": ["organization"], ... }
 ```
 
-(Same admin API the skill scripts already use; `${SKILL_ROOT}` is passed as an argument so the lib resolves the editor.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
+(Same admin API the skill scripts already use. `loadSettings()` picks the editor from the environment of the shell that runs it and stops with the fix when it cannot tell.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
 
 ### Quick Reference
 

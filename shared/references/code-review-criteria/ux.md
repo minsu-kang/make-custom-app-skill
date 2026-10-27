@@ -1,11 +1,10 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code review criteria: UX Guideline Compliance
 
 > Read when: the change set has an `expect` / `parameters` change (mandatory). Part of [code-review-criteria.md](../code-review-criteria.md).
 
 ## UX Guideline Compliance (Mandatory for expect/parameters changes)
 
-When expect or parameters files are changed, **read `${SKILL_ROOT}/references/app-ux-best-practices.md` first** and verify:
+When expect or parameters files are changed, **read `<plugin root>/shared/references/app-ux-best-practices.md` first** and verify:
 
 - **Label capitalization**: Sentence-style by default, but follow the app's existing convention if consistently Title Case
 - **Label naming**: 1–3 words, descriptive not instructional, no articles

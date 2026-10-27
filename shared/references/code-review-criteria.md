@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # Code Review Criteria
 
 > Read when: performing a code review — after `workflows/code-review.md` has set the skip rules and gates. This file defines the review categories, the out-of-scope list, and the per-file-type checks. The checks for `function/*/code`, `expect` / `parameters` and `api` / connection changes sit in `code-review-criteria/` parts: open the part for every change type in the change set (§ Parts).

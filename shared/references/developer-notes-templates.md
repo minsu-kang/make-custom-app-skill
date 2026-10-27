@@ -2,7 +2,7 @@
 
 > Read when: writing Jira Developer Notes (`customfield_10483`) after a bugfix or feature — ADF table templates.
 
-When the user approves writing Developer Notes (lifecycle §7 step 1; never for code reviews), use the Bug Fix or Feature template matching the ticket type.
+When the user approves writing Developer Notes ([close-out.md](../workflows/close-out.md) step 1; never for code reviews), use the Bug Fix or Feature template matching the ticket type.
 
 ## Common Rules
 

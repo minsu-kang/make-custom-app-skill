@@ -1,4 +1,3 @@
-<!-- Variables: SKILL_ROOT = ~/.claude/skills/make-custom-app (Claude Code) or ~/.cursor/skills/make-custom-app (Cursor); CONTEXTS_DIR = ~/.claude/make-app-contexts or ~/.cursor/make-app-contexts -->
 # imt-app-runtime Internal Reference
 
 > Read when: writing or reviewing `api.imljson` — directive semantics, middleware chain, URL/QS normalization, `temp` two-phase evaluation, pagination, polling triggers, IML path syntax, `api.endpoint`, `environment` / `internal` roots, limits. Mandatory before flagging any `api.imljson` issue (hard rule 3). Topics used less often sit in `runtime-reference/` parts: open one only when its row in § Parts applies.
