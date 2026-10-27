@@ -49,12 +49,19 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-      - name: Unit tests with coverage
+      - name: Unit tests with coverage (old tree)
         run: >-
           node --test --experimental-test-coverage
           --test-coverage-exclude="**/__tests__/**"
           --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90
           "skill/scripts/lib/__tests__/*.test.js"
+      - name: Unit tests with coverage (shared)
+        run: >-
+          node --test --experimental-test-coverage
+          --test-coverage-exclude="**/__tests__/**"
+          --test-coverage-exclude="shared/scripts/*.js"
+          --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90
+          "shared/scripts/lib/__tests__/*.test.js"
 
   skill-check:
     name: Skill consistency

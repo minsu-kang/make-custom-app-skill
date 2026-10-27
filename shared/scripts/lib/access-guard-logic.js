@@ -31,7 +31,7 @@ const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
 
 /**
  * Env to add for the lookup child. Node's fetch ignores the proxy variables unless NODE_USE_ENV_PROXY=1, while curl
- * (version-guard) honours them. Node exits at startup on a proxy value without http:// or https://, so any other
+ * honours them. Node exits at startup on a proxy value without http:// or https://, so any other
  * value leaves the opt-in off, as does a NODE_USE_ENV_PROXY the user already set.
  */
 function proxyEnv(env) {
