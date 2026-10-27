@@ -51,6 +51,8 @@ const ARGS = {
 };
 
 const source = (name) => fs.readFileSync(path.join(SCRIPTS, `${name}.js`), 'utf8');
+const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/.*$/gm;
+const TAKE_FLAG = "require('./lib/settings').takeEditorFlagOrExit(process.argv)";
 
 describe('entry script sources', () => {
 	for (const name of ENTRY_SCRIPTS) {
@@ -58,6 +60,15 @@ describe('entry script sources', () => {
 			const text = source(name);
 			assert.match(text, /ensureInternalUser\(/, `${name} does not call ensureInternalUser()`);
 			for (const re of OLD_LAYOUT) assert.doesNotMatch(text, re, `${name} still mentions ${re.source}`);
+		});
+	}
+
+	for (const name of ENTRY_SCRIPTS) {
+		it(`${name} strips --editor before it reads process.argv for anything else`, () => {
+			const code = source(name).replace(COMMENTS, '');
+			const call = code.indexOf(TAKE_FLAG);
+			assert.ok(call >= 0, `${name} does not call ${TAKE_FLAG}`);
+			assert.equal(code.indexOf('process.argv'), call + TAKE_FLAG.indexOf('process.argv'), `${name} reads process.argv before it strips --editor`);
 		});
 	}
 
@@ -118,14 +129,15 @@ describe('entry scripts in a fake HOME', () => {
 		fs.rmSync(work, { recursive: true, force: true });
 	});
 
-	/** A fresh HOME: secrets file, access-check cache and an empty contexts folder. Without Jira the guard has nothing to check. */
-	function seed({ jira = true, extra = '' } = {}) {
+	/** A fresh HOME: secrets file, access-check cache and an empty contexts folder. Without Jira the guard has nothing to check; without makeKey the Claude Code key is missing. */
+	function seed({ jira = true, makeKey = true, extra = '' } = {}) {
 		mode = 'hang';
 		requests = [];
 		onRequest = null;
 		fs.rmSync(path.join(home, '.make-custom-app'), { recursive: true, force: true });
 		fs.rmSync(cachePath, { force: true });
-		const lines = [`make-api-key: ${FAKE_KEY}`, `make-api-url: http://127.0.0.1:${port}/api/v2/admin`, `make-apps-mockup-path: ${mockup}`];
+		const lines = [`make-api-url: http://127.0.0.1:${port}/api/v2/admin`, `make-apps-mockup-path: ${mockup}`];
+		if (makeKey) lines.unshift(`make-api-key: ${FAKE_KEY}`);
 		if (jira) {
 			lines.push(`jira-email: ${EMAIL}`, `jira-api-token: ${TOKEN}`, `jira-base-url: http://127.0.0.1:${port}`);
 			const key = cacheKey({ baseUrl: JIRA_BASE_URL, email: EMAIL, token: TOKEN });
@@ -191,6 +203,79 @@ describe('entry scripts in a fake HOME', () => {
 				assert.ok(!r.stdout.includes(FAKE_KEY) && !r.stderr.includes(FAKE_KEY), 'API key leaked');
 			});
 		}
+	});
+
+	/**
+	 * Where each script stops once --editor has answered, with no editor variable and no `editor:` line. Every row gets the
+	 * minimal valid positional arguments (ARGS), so no script stops at usage. KEY_STOP rows have the Jira cache seeded and
+	 * the Make API key left out: they stop at "Make API key not configured", which only the Claude Code branch prints, so it
+	 * proves the flag chose the editor. The other three never ask for an editor before their own work, so a marker on stdout
+	 * shows that their arguments reached them without the flag.
+	 */
+	const KEY_STOP = { seed: { makeKey: false } };
+	const STOP_AT = {
+		'commit-changes': KEY_STOP,
+		'create-component': KEY_STOP,
+		'delete-component': KEY_STOP,
+		'download-app': KEY_STOP,
+		'download-jira-ticket-attachment': { marker: 'Fetching attachments for IEN-1...' },
+		'post-review-transition': { marker: 'Issue: IEN-1\nDisposition: committed' },
+		'review-changes': KEY_STOP,
+		'run-component': KEY_STOP,
+		'test-component': KEY_STOP,
+		'test-function': { marker: 'Testing: my-app v1' },
+		'update-app': KEY_STOP,
+		'update-component': KEY_STOP,
+	};
+	const PLACEMENTS = {
+		first: (args) => ['--editor', 'claude', ...args],
+		last: (args) => [...args, '--editor', 'claude'],
+		'equals form': (args) => ['--editor=claude', ...args],
+	};
+
+	describe('--editor on every entry script', () => {
+		for (const name of ENTRY_SCRIPTS) {
+			for (const [placement, withFlag] of Object.entries(PLACEMENTS)) {
+				it(`${name} resolves the editor from --editor (${placement}) and reaches its own work`, async () => {
+					const stop = STOP_AT[name];
+					seed(stop.seed);
+					if (name === 'test-function') {
+						const fn = path.join(home, '.make-custom-app', 'contexts', 'my-app-v1', 'functions', 'foo');
+						fs.mkdirSync(fn, { recursive: true });
+						fs.writeFileSync(path.join(fn, 'code.js'), 'function () { return 1; }');
+					}
+					const r = await run(name, withFlag(ARGS[name]), { env: {} });
+					const out = r.stdout + r.stderr;
+					assert.doesNotMatch(r.stderr, /Cannot tell which editor/);
+					assert.doesNotMatch(out, /Usage|Unknown flag|Invalid editor|needs a value/);
+					if (stop.marker) {
+						assert.ok(r.stdout.includes(stop.marker), out);
+						assert.doesNotMatch(out, /not found/);
+					} else {
+						assert.equal(r.code, 1, out);
+						assert.ok(r.stderr.includes('ERROR: Make API key not configured.'), out);
+						assert.ok(r.stderr.includes('Claude Code requires `make-api-key:`'), out);
+					}
+					assert.equal(requests.length, 0, `${name} sent a request: ${requests.join(', ')}`);
+				});
+			}
+		}
+
+		it('a flag with no value stops with the message before anything else', async () => {
+			seed();
+			const r = await run('download-app', ['my-app', '1', '--editor'], { env: {} });
+			assert.equal(r.code, 1);
+			assert.equal(r.stderr, 'ERROR: --editor needs a value: claude or cursor.\n');
+			assert.equal(requests.length, 0);
+		});
+
+		it('a flag that names no editor stops with the editor message', async () => {
+			seed();
+			const r = await run('download-app', ['--editor=zed', 'my-app', '1'], { env: {} });
+			assert.equal(r.code, 1);
+			assert.equal(r.stderr, 'ERROR: Invalid editor "zed" from --editor flag. Use claude or cursor.\n');
+			assert.equal(requests.length, 0);
+		});
 	});
 
 	describe('the editor', () => {

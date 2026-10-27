@@ -7,22 +7,22 @@
  *
  *   node check-setup.js                          human-readable report
  *   node check-setup.js --json                   machine-readable report
- *   node check-setup.js --editor claude|cursor   when no editor variable is set and the secrets file has no editor: line
+ *   node check-setup.js --editor claude|cursor   (or --editor=cursor) when no editor variable is set and the secrets file has no editor: line
  *
  * Exit codes: 0 = every required item OK, 1 = a required item is missing or the editor cannot be told.
  * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) never change the exit code.
  */
 const fs = require('fs');
 const { PLUGIN_ROOT, setupCommand } = require('./lib/paths');
-const { readSkillConfig, requireEditor, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
+const { readSkillConfig, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
 const { checkAccess } = require('./lib/access-guard');
 const { denyMessage } = require('./lib/access-guard-logic');
 const { detectLegacyInstall, legacyInstallLines } = require('./lib/legacy-install');
 
+takeEditorFlagOrExit(process.argv);
 const argv = process.argv.slice(2);
-const flagAt = argv.indexOf('--editor');
-const editor = requireEditor(flagAt === -1 ? null : (argv[flagAt + 1] ?? '(missing)'));
+const editor = requireEditor();
 const isClaude = editor === 'claude';
 const items = [];
 const SETUP_CMD = setupCommand(editor);

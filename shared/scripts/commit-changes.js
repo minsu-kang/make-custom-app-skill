@@ -28,6 +28,7 @@
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { loadSettings, announceTarget } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;

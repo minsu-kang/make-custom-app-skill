@@ -28,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { getMakeApiKey, readSkillConfig, requireEditor, SECRETS_PATH } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 function getMockupPath() {
 	return readSkillConfig('make-apps-mockup-path');

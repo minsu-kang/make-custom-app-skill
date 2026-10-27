@@ -234,14 +234,32 @@ describe('check-setup in a fake HOME, choosing the editor', () => {
 		assert.equal(statuses(r.stdout)['make-api-key'], undefined);
 	});
 
+	it('--editor=cursor works', () => {
+		const r = run(['--editor=cursor']);
+		assert.equal(r.status, 1);
+		assert.ok(r.stdout.startsWith(`make-custom-app setup — cursor — ${PLUGIN_ROOT}\n`), r.stdout);
+		assert.ok(r.stdout.includes(`  ${setupCommand('cursor')}`), r.stdout);
+		assert.equal(statuses(r.stdout)['make-api (Cursor settings.json)'], 'MISSING');
+		const json = JSON.parse(run(['--json', '--editor=cursor']).stdout);
+		assert.equal(json.editor, 'cursor');
+	});
+
+	it('--editor claude does not hide --json from the report', () => {
+		const r = run(['--editor', 'claude', '--json']);
+		assert.equal(JSON.parse(r.stdout).editor, 'claude');
+	});
+
 	it('rejects an --editor value that is neither claude nor cursor, or missing', () => {
 		const bad = run(['--editor', 'zed']);
 		assert.equal(bad.status, 1);
 		assert.equal(bad.stdout, '');
 		assert.equal(bad.stderr, 'ERROR: Invalid editor "zed" from --editor flag. Use claude or cursor.\n');
-		const none = run(['--editor']);
-		assert.equal(none.status, 1);
-		assert.match(none.stderr, /^ERROR: Invalid editor "\(missing\)" from --editor flag/);
+		for (const args of [['--editor'], ['--editor', '--json'], ['--editor=']]) {
+			const none = run(args);
+			assert.equal(none.status, 1, args.join(' '));
+			assert.equal(none.stdout, '');
+			assert.equal(none.stderr, 'ERROR: --editor needs a value: claude or cursor.\n', args.join(' '));
+		}
 	});
 
 	it('reads the API environment from the Cursor settings.json instead of make-api-key', () => {

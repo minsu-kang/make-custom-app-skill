@@ -35,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadSettings, announceTarget } = require('./lib/settings');
 const { parseAnnotations } = require('./lib/endpoint-annotations');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;

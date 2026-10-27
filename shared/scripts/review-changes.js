@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { getContextsDir } = require('./lib/paths');
 const { loadSettings } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const DEFAULT_CONTEXTS_DIR = getContextsDir();
 

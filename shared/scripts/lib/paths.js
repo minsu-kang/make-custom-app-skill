@@ -48,6 +48,47 @@ function validEditor(value, source) {
 	return value;
 }
 
+let editorFlag = null;
+
+/**
+ * Removes every `--editor <value>` pair and every `--editor=<value>` from argv in place, so a script's own
+ * positional parsing never sees the flag. Remembers the last value (getEditorFlag) and returns it, or returns null
+ * when argv has no flag, leaving the remembered value as it was. The value is not checked here; resolveEditor does that.
+ * A flag with no value (end of argv, an empty value, or a next item that starts with `--`) throws EditorError.
+ */
+function takeEditorFlag(argv) {
+	let found = null;
+	for (let i = 0; i < argv.length; ) {
+		const arg = argv[i];
+		let value;
+		let width = 1;
+		if (arg === '--editor') {
+			value = argv[i + 1];
+			width = 2;
+		} else if (arg.startsWith('--editor=')) {
+			value = arg.slice('--editor='.length);
+		} else {
+			i++;
+			continue;
+		}
+		if (!value || value.startsWith('--')) throw new EditorError('--editor needs a value: claude or cursor.');
+		found = value;
+		argv.splice(i, width);
+	}
+	if (found !== null) editorFlag = found;
+	return found;
+}
+
+/** The value takeEditorFlag remembered, or null. */
+function getEditorFlag() {
+	return editorFlag;
+}
+
+/** Forgets the remembered value (for tests). */
+function resetEditorFlag() {
+	editorFlag = null;
+}
+
 /**
  * The command a user runs in their own terminal to fill in credentials. The script path is in double
  * quotes so a folder with a space stays one argument in bash, zsh, cmd and PowerShell. An embedded
@@ -59,4 +100,14 @@ function setupCommand(editor, scriptsDir = SCRIPTS_DIR) {
 	return `node "${script}"${flag}`;
 }
 
-module.exports = { SCRIPTS_DIR, PLUGIN_ROOT, EditorError, getContextsDir, resolveEditor, setupCommand };
+module.exports = {
+	SCRIPTS_DIR,
+	PLUGIN_ROOT,
+	EditorError,
+	getContextsDir,
+	resolveEditor,
+	setupCommand,
+	takeEditorFlag,
+	getEditorFlag,
+	resetEditorFlag,
+};

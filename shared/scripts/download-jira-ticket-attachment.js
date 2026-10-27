@@ -17,6 +17,7 @@ const path = require('path');
 const https = require('https');
 const { getContextsDir } = require('./lib/paths');
 const { loadJiraConfig } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const ATTACHMENTS_DIR = path.join(getContextsDir(), 'attachments');
 

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { EditorError, resolveEditor, setupCommand } = require('./paths');
+const { EditorError, resolveEditor, setupCommand, takeEditorFlag, getEditorFlag } = require('./paths');
 
 /**
  * User config file, one `key: value` per line. Scripts read it; the agent never does.
@@ -41,15 +41,32 @@ function readSkillConfig(key) {
 	return lastMatch(fs.readFileSync(SECRETS_PATH, 'utf-8').split('\n'), key);
 }
 
-/** The editor that runs this script (see paths.resolveEditor). Throws EditorError when it cannot be told. */
-function getEditor(flag = null) {
+/**
+ * The editor that runs this script (see paths.resolveEditor). Throws EditorError when it cannot be told.
+ * Without an argument it uses the --editor flag that takeEditorFlagOrExit stripped from the command line.
+ */
+function getEditor(flag = getEditorFlag()) {
 	return resolveEditor({ env: process.env, configured: readSkillConfig('editor'), flag });
 }
 
 /** getEditor() for command-line scripts: prints "ERROR: <reason>" and exits 1 when the editor cannot be told. */
-function requireEditor(flag = null) {
+function requireEditor(flag = getEditorFlag()) {
 	try {
 		return getEditor(flag);
+	} catch (err) {
+		if (!(err instanceof EditorError)) throw err;
+		console.error(`ERROR: ${err.message}`);
+		process.exit(1);
+	}
+}
+
+/**
+ * Strips --editor from argv (see paths.takeEditorFlag) for command-line scripts. Call it before anything else
+ * reads process.argv. Prints "ERROR: <reason>" and exits 1 when the flag has no value.
+ */
+function takeEditorFlagOrExit(argv) {
+	try {
+		return takeEditorFlag(argv);
 	} catch (err) {
 		if (!(err instanceof EditorError)) throw err;
 		console.error(`ERROR: ${err.message}`);
@@ -182,6 +199,7 @@ module.exports = {
 	readSkillConfig,
 	getEditor,
 	requireEditor,
+	takeEditorFlagOrExit,
 	loadSettings,
 	getMakeApiKey,
 	loadJiraConfig,

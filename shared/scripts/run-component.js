@@ -34,6 +34,7 @@ const rc = require('./lib/run-component-logic');
 const paths = require('./lib/paths');
 const { loadSettings, announceTarget, readSkillConfig, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { upsertSecretsFile } = require('./lib/secrets-file');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const PREFLIGHT_TIMEOUT_MS = 30000;
 const EXEC_TIMEOUT_MS = 330000;

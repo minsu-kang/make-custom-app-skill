@@ -30,6 +30,7 @@ const os = require('os');
 const https = require('https');
 
 const { loadJiraConfig } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 
 // Target status depends on disposition AND current status.

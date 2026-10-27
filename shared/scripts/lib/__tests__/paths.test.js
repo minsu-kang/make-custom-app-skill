@@ -1,7 +1,19 @@
-const { test } = require('node:test');
+const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { SCRIPTS_DIR, PLUGIN_ROOT, EditorError, getContextsDir, resolveEditor, setupCommand } = require('../paths');
+const {
+	SCRIPTS_DIR,
+	PLUGIN_ROOT,
+	EditorError,
+	getContextsDir,
+	resolveEditor,
+	setupCommand,
+	takeEditorFlag,
+	getEditorFlag,
+	resetEditorFlag,
+} = require('../paths');
+
+beforeEach(() => resetEditorFlag());
 
 test('SCRIPTS_DIR and PLUGIN_ROOT follow the shared/scripts layout', () => {
 	assert.equal(path.basename(SCRIPTS_DIR), 'scripts');
@@ -72,4 +84,63 @@ test('setupCommand escapes an embedded double quote', () => {
 		setupCommand('cursor', dir),
 		`node "${path.join('/home', 'say \\"hi\\"', 'scripts', 'setup-secrets.js')}" --editor cursor`,
 	);
+});
+
+test('takeEditorFlag removes the two-token form', () => {
+	const argv = ['--editor', 'claude'];
+	assert.equal(takeEditorFlag(argv), 'claude');
+	assert.deepEqual(argv, []);
+});
+
+test('takeEditorFlag removes the equals form', () => {
+	const argv = ['--editor=cursor'];
+	assert.equal(takeEditorFlag(argv), 'cursor');
+	assert.deepEqual(argv, []);
+});
+
+test('takeEditorFlag keeps other arguments in order', () => {
+	const argv = ['node', 'script.js', '--editor', 'claude', 'my-app', '1', '--editor=cursor', 'module', '--force'];
+	assert.equal(takeEditorFlag(argv), 'cursor');
+	assert.deepEqual(argv, ['node', 'script.js', 'my-app', '1', 'module', '--force']);
+});
+
+test('takeEditorFlag returns null and leaves argv alone without the flag', () => {
+	const argv = ['node', 'script.js', 'my-app', '--editors', '--editor-x=1', 'claude'];
+	const before = [...argv];
+	assert.equal(takeEditorFlag(argv), null);
+	assert.deepEqual(argv, before);
+	assert.equal(getEditorFlag(), null);
+});
+
+test('takeEditorFlag throws when the value is missing', () => {
+	const message = '--editor needs a value: claude or cursor.';
+	for (const argv of [['--editor'], ['my-app', '--editor'], ['--editor', '--json'], ['--editor', '--x', 'claude'], ['--editor='], ['--editor', '']]) {
+		assert.throws(
+			() => takeEditorFlag(argv),
+			(err) => err instanceof EditorError && err.code === 'EDITOR_UNRESOLVED' && err.message === message,
+			JSON.stringify(argv),
+		);
+	}
+});
+
+test('takeEditorFlag remembers the last value', () => {
+	assert.equal(getEditorFlag(), null);
+	takeEditorFlag(['--editor', 'claude', '--editor=cursor']);
+	assert.equal(getEditorFlag(), 'cursor');
+	takeEditorFlag(['--editor=claude']);
+	assert.equal(getEditorFlag(), 'claude');
+	resetEditorFlag();
+	assert.equal(getEditorFlag(), null);
+});
+
+test('takeEditorFlag does not validate the value', () => {
+	const argv = ['--editor', 'zed'];
+	assert.equal(takeEditorFlag(argv), 'zed');
+	assert.deepEqual(argv, []);
+});
+
+test('takeEditorFlag keeps the remembered value when a later call finds no flag', () => {
+	takeEditorFlag(['--editor', 'cursor']);
+	assert.equal(takeEditorFlag(['my-app']), null);
+	assert.equal(getEditorFlag(), 'cursor');
 });

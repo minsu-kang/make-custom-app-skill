@@ -21,6 +21,7 @@ const { getContextsDir } = require('./lib/paths');
 
 const DEFAULT_CONTEXTS_DIR = getContextsDir();
 const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
+require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 function getRuntimePath() {
 	return readSkillConfig('imt-app-runtime-path');

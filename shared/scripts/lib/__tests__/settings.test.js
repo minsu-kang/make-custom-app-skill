@@ -17,10 +17,11 @@ delete process.env.CLAUDECODE;
 delete process.env.CURSOR_AGENT;
 const secretsPath = path.join(home, '.make-custom-app-skill-secrets');
 const settings = require('../settings');
-const { EditorError, setupCommand } = require('../paths');
+const { EditorError, setupCommand, takeEditorFlag, getEditorFlag, resetEditorFlag } = require('../paths');
 
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 afterEach(() => {
+	resetEditorFlag();
 	fs.rmSync(secretsPath, { recursive: true, force: true });
 	delete process.env.CLAUDECODE;
 	delete process.env.CURSOR_AGENT;
@@ -116,6 +117,15 @@ describe('getEditor', () => {
 		assert.equal(settings.getEditor('claude'), 'claude');
 	});
 
+	it('uses the remembered flag', () => {
+		takeEditorFlag(['--editor', 'cursor']);
+		assert.equal(settings.getEditor(), 'cursor');
+		process.env.CLAUDECODE = '1';
+		fs.writeFileSync(secretsPath, 'editor: claude\n');
+		assert.equal(settings.getEditor(), 'cursor');
+		assert.equal(settings.getEditor('claude'), 'claude');
+	});
+
 	it('throws EDITOR_UNRESOLVED when nothing says which editor runs', () => {
 		assert.throws(() => settings.getEditor(), (err) => err instanceof EditorError && err.code === 'EDITOR_UNRESOLVED');
 	});
@@ -147,6 +157,11 @@ describe('requireEditor', () => {
 		assert.throws(() => settings.requireEditor(), (err) => !(err instanceof EditorError) && err.code === 'EISDIR');
 	});
 
+	it('uses the remembered flag when none is passed', () => {
+		takeEditorFlag(['--editor=cursor']);
+		assert.equal(settings.requireEditor(), 'cursor');
+	});
+
 	it('exits the process with code 1 in a fake HOME with no editor set', () => {
 		const code = `require(${JSON.stringify(path.join(__dirname, '..', 'settings'))}).requireEditor(); console.log('ran');`;
 		const r = runChild(code);
@@ -160,6 +175,35 @@ describe('requireEditor', () => {
 		const r = runChild(code, { CURSOR_AGENT: '1' });
 		assert.equal(r.status, 0);
 		assert.equal(r.stdout, 'cursor\n');
+	});
+});
+
+describe('takeEditorFlagOrExit', () => {
+	const settingsPath = JSON.stringify(path.join(__dirname, '..', 'settings'));
+
+	it('removes the flag from argv, remembers it and returns it', () => {
+		const argv = ['node', 'script.js', '--editor', 'claude', 'my-app'];
+		assert.equal(settings.takeEditorFlagOrExit(argv), 'claude');
+		assert.deepEqual(argv, ['node', 'script.js', 'my-app']);
+		assert.equal(getEditorFlag(), 'claude');
+	});
+
+	it('returns null and changes nothing when the flag is absent', () => {
+		const argv = ['node', 'script.js', 'my-app'];
+		assert.equal(settings.takeEditorFlagOrExit(argv), null);
+		assert.deepEqual(argv, ['node', 'script.js', 'my-app']);
+	});
+
+	it('exits 1 with the message when the value is missing', () => {
+		const r = runChild(`require(${settingsPath}).takeEditorFlagOrExit(['node', 'script.js', '--editor']); console.log('ran');`);
+		assert.equal(r.status, 1);
+		assert.equal(r.stdout, '');
+		assert.equal(r.stderr, 'ERROR: --editor needs a value: claude or cursor.\n');
+	});
+
+	it('lets other errors through', (t) => {
+		captureExit(t);
+		assert.throws(() => settings.takeEditorFlagOrExit(null), TypeError);
 	});
 });
 
