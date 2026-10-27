@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.13 — 2026-10-27
+
+Specify endpoint remediation for sub-resource token exchanges on deployed vs. new apps and for `arbitraryCall` on token-exposing APIs.
+
+- **Deployed apps vs. new apps for sub-resource tokens.** `endpoints-reference.md` (§ Core Facts, § Shared rules), `api-imljson-shape.md`, `code-review-guidance.md`, and `create-endpoint.md` specify that already-deployed apps whose connection stores a user token must keep the 2-step `temp.accessToken` (`"output": null`) exchange inside each endpoint's `api.imljson` array and strip/disallow `access_token` fields on list/get endpoints, whereas new apps or connections should exchange and persist the token in `connection.*` during connection auth.
+- **`arbitraryCall` remediation on token-exposing APIs.** `arbitrary-call.md`, `code-review-guidance.md`, and `create-endpoint.md` specify either omitting/removing `arbitraryCall` (with user confirmation) or blacklisting/stripping token-returning routes and fields when the vendor API returns credentials on standard routes.
+
 ## 2.3.12 — 2026-10-27
 
 Add endpoint security gates against credential/token passthrough (`GetPageAccessToken` / `page_access_token`) and `arbitraryCall` token exposure on apps without a "Make an API Call" module.
