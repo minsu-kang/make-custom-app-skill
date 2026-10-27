@@ -1,6 +1,6 @@
 # Fetch the Jira ticket (when one is attached)
 
-Run this right after the app is identified ([lifecycle.md](lifecycle.md) §1) when a Jira ticket is attached.
+Run this when a Jira ticket is attached, after the app is identified and its code and context are loaded ([lifecycle.md](lifecycle.md) §1 to §3), and before forming a plan.
 
 One `getJiraIssue` call with `fields: ["summary","description","subtasks","comment","status","attachment","issuetype","customfield_10483","customfield_10283","customfield_10268"]`.
 
