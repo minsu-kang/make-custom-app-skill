@@ -340,7 +340,7 @@ function createConnectionLines({ host, teamId, connection, foreign, request, slu
 		if (slug) {
 			const appName = `app#${plain(slug)}`;
 			lines.push(
-				`Create the connection request now with Make MCP connection_create (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
+				`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
 			);
 		} else {
 			lines.push(`If a Make MCP server is connected, the agent can request that link with its credential-requests_create-by-credentials tool (team ${teamId}, connection type ${plain(connection.types[0] || '?')}).`);

@@ -473,7 +473,7 @@ describe('connectionAction', () => {
 		assert.match(a.lines[0], /You have no connection of type app#x-account in team 7/);
 		assert.match(text, /3 connection\(s\) of that type from other people exist there; the live run never uses them/);
 		assert.match(text, /https:\/\/eu1\.make\.com\/7\/connections/);
-		assert.match(text, /Create the connection request now with Make MCP connection_create \(team 7, appName app#x-app\)/);
+		assert.match(text, /Create the connection request now with the connection-creation tool of this plugin's Make MCP server \(team 7, appName app#x-app\)/);
 		assert.match(text, /compiled name x-app has no uncommitted SDK endpoints/);
 		assert.match(text, /The account type above is the form's connection type, not the app name/);
 		assert.match(text, /Grant these scopes:\n {2}app#x-account: read/);
