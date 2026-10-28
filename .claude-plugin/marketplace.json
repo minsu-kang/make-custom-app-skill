@@ -1,0 +1,12 @@
+{
+  "name": "make-custom-app",
+  "description": "Marketplace of the make-custom-app plugin for Make employees",
+  "owner": { "name": "minsu-kang" },
+  "plugins": [
+    {
+      "name": "make-custom-app",
+      "description": "Skills, scripts and MCP servers for building, reviewing and maintaining Make custom apps (IMLJSON, Make Apps SDK)",
+      "source": "./"
+    }
+  ]
+}

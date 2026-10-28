@@ -9,7 +9,7 @@
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
 // by shared/index.md, that README.md lists every entry script of shared/scripts, the syntax of tools/, .github/scripts/ and
-// shared/scripts/, and mcp.json and the plugin manifests when they exist.
+// shared/scripts/, and mcp.json, the plugin manifests and the marketplace when they exist.
 // --release-base=<ref> adds the release rule (spec 9.2 item 8): when the payload (skills/, shared/, mcp/, mcp.json, hooks/,
 // either plugin.json) differs from <ref>, the plugin version must be greater than the one on <ref>. CI sets it for pull
 // requests and pushes whose base is master; the integration branch does not use it.
@@ -465,6 +465,20 @@ function checkReadmeScripts() {
 	for (const name of listed) if (!scripts.includes(name)) error('README.md', `Scripts table lists ${name}, which is not in shared/scripts`);
 }
 
+function checkMarketplace() {
+	const market = readJson('.claude-plugin/marketplace.json');
+	if (!market) return;
+	const rel = '.claude-plugin/marketplace.json';
+	if (market.name !== PLUGIN_NAME) error(rel, `name is "${market.name}", expected "${PLUGIN_NAME}"`);
+	if (!market.owner || typeof market.owner.name !== 'string' || !market.owner.name.trim()) error(rel, 'has no owner with a name');
+	const entries = Array.isArray(market.plugins) ? market.plugins : [];
+	if (entries.length !== 1) return error(rel, `lists ${entries.length} plugins, expected exactly one`);
+	const [entry] = entries;
+	if (entry.name !== PLUGIN_NAME) error(rel, `plugin entry is named "${entry.name}", expected "${PLUGIN_NAME}"`);
+	if (entry.source !== './') error(rel, `plugin entry source is "${entry.source}", expected "./" (the repository root is the plugin)`);
+	if ('version' in entry) error(rel, 'plugin entry must not carry a version; plugin.json holds it, and a second copy would go stale');
+}
+
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
 	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
@@ -496,6 +510,7 @@ if (FULL_RUN) {
 	checkReadmeScripts();
 	if (fs.existsSync(path.join(ROOT, 'mcp.json'))) checkMcpConfig();
 	if (fs.existsSync(path.join(ROOT, '.claude-plugin')) || fs.existsSync(path.join(ROOT, '.cursor-plugin'))) checkManifests();
+	if (fs.existsSync(path.join(ROOT, '.claude-plugin', 'marketplace.json'))) checkMarketplace();
 	checkSyntax();
 }
 
