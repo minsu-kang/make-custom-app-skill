@@ -2,13 +2,16 @@
 'use strict';
 
 // CI consistency checks for the plugin content. Not part of the plugin payload.
-// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]... [--skills=<name,name,...>]
+// Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]... [--skills=<name,name,...>] [--release-base=<git ref>]
 // --scope is a path relative to the repo root: a folder (scans its Markdown files) or one .md file.
 // A leading ./ and repeated or trailing slashes are ignored. Default: shared and skills, each skipped when missing.
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
 // by shared/index.md, the syntax of tools/, .github/scripts/ and shared/scripts/, and mcp.json and the plugin manifests when they exist.
+// --release-base=<ref> adds the release rule (spec 9.2 item 8): when the payload (skills/, shared/, mcp/, mcp.json, hooks/,
+// either plugin.json) differs from <ref>, the plugin version must be greater than the one on <ref>. CI sets it for pull
+// requests and pushes whose base is master; the integration branch does not use it.
 // Prints warnings (a description over 400 characters) without failing. Exit 1 on any error.
 
 const fs = require('fs');
@@ -42,6 +45,7 @@ const DESCRIPTION_BUDGET = 4000;
 const YAML_NOT_PLAIN = /:(?:[ \t]|$)| #|^[#,[\]{}&*!|>'"%@`]/;
 const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
 const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
+const PAYLOAD = [/^skills\//, /^shared\//, /^mcp\//, /^mcp\.json$/, /^hooks\//, /^\.claude-plugin\/plugin\.json$/, /^\.cursor-plugin\/plugin\.json$/];
 const PLUGIN_NAME = 'make-custom-app';
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const CHANGELOG_TOP = /^## (\d+\.\d+\.\d+)(?: \u2014 \d{4}-\d{2}-\d{2}| \(unreleased\))$/;
@@ -406,6 +410,44 @@ function checkManifests() {
 	else if (top[1] !== claude.version) error('CHANGELOG.md', `top entry ${top[1]} differs from the plugin version ${claude.version}`);
 }
 
+function git(...gitArgs) {
+	return spawnSync('git', gitArgs, { cwd: ROOT, encoding: 'utf8' });
+}
+
+/** True when X.Y.Z `a` is greater than X.Y.Z `b`. */
+function semverGreater(a, b) {
+	const x = a.split('.').map(Number);
+	const y = b.split('.').map(Number);
+	for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+	return false;
+}
+
+function checkReleaseRule(baseRef) {
+	const diff = git('diff', '--name-only', `${baseRef}...HEAD`);
+	if (diff.status !== 0) {
+		error('--release-base', `cannot diff against ${baseRef}: ${(diff.stderr || '').split('\n').find((l) => l.trim()) || 'git failed'}`);
+		return;
+	}
+	const touched = diff.stdout.split('\n').filter((file) => file && PAYLOAD.some((re) => re.test(file)));
+	if (!touched.length) return;
+	const manifest = readJson('.claude-plugin/plugin.json');
+	if (!manifest) return;
+	const shown = git('show', `${baseRef}:.claude-plugin/plugin.json`);
+	let baseVersion = '0.0.0';
+	if (shown.status === 0) {
+		try {
+			baseVersion = JSON.parse(shown.stdout).version;
+		} catch {
+			error('--release-base', `.claude-plugin/plugin.json on ${baseRef} is not valid JSON`);
+			return;
+		}
+	}
+	if (!SEMVER.test(manifest.version || '') || !SEMVER.test(baseVersion)) return error('.claude-plugin/plugin.json', `cannot compare version ${manifest.version} with ${baseVersion} on ${baseRef}`);
+	if (!semverGreater(manifest.version, baseVersion)) {
+		error('.claude-plugin/plugin.json', `payload changed (${touched.length} file(s), for example ${touched[0]}) but the plugin version ${manifest.version} is not greater than ${baseVersion} on ${baseRef}; bump both plugin.json files and CHANGELOG.md`);
+	}
+}
+
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
 	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
@@ -438,6 +480,9 @@ if (FULL_RUN) {
 	if (fs.existsSync(path.join(ROOT, '.claude-plugin')) || fs.existsSync(path.join(ROOT, '.cursor-plugin'))) checkManifests();
 	checkSyntax();
 }
+
+const releaseArg = args.find((a) => a.startsWith('--release-base='));
+if (releaseArg) checkReleaseRule(releaseArg.slice('--release-base='.length));
 
 console.log(`${findings.error.length} error(s)${findings.warning.length ? `, ${findings.warning.length} warning(s)` : ''}`);
 process.exitCode = findings.error.length ? 1 : 0;

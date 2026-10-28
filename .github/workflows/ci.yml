@@ -105,12 +105,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: node --test ".github/scripts/__tests__/*.test.js" "tools/__tests__/*.test.js"
       - run: node .github/scripts/plugin-check.js
+      - name: Plugin version is higher than on master when the payload changed (pull requests into master)
+        if: github.event_name == 'pull_request' && github.base_ref == 'master'
+        run: |
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          node .github/scripts/plugin-check.js --release-base=origin/master
+      - name: Plugin version is higher than before the push when the payload changed (pushes to master)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/plugin-check.js --release-base="$BEFORE"
 
   lint-misc:
     name: shellcheck, actionlint
