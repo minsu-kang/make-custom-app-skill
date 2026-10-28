@@ -2,18 +2,18 @@
 
 A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and the runtime internals of `imt-app-runtime`.
 
-The plugin is for Make employees. Every script confirms that the Atlassian account behind your Jira API token is a `@make.com` account and exits otherwise.
+The plugin is for Make employees. The scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it.
 
 ## What it does
 
 - **Nine task skills.** Each starts from one kind of request and loads only the workflow it needs: refine a ticket, investigate a bug, review code, add a feature, maintain an app, build an SDK Endpoint, answer a question, run an Endpoint or RPC live, and set up the tools.
 - **App context.** Downloads the full source of an app once, keeps it in `~/.make-custom-app/contexts` for both editors, and shares summaries through a Pinecone index.
-- **Jira in the loop.** Reads the ticket, reviews changes against its acceptance criteria, and writes Developer Notes, through the Atlassian MCP server.
+- **Jira integration.** Reads the ticket, reviews changes against its acceptance criteria, and writes Developer Notes, through the Atlassian MCP server.
 - **Safe writes.** Scripts that change an app run only after you have seen and approved the change. Dev work ends at the push: committing or compiling an app happens only when you ask for it.
 
 ## Prerequisites
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the plugin installs through it; Cursor loads the same install) or Cursor
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the plugin installs through it; Cursor can load the same install)
 - Node.js 20 or newer
 - The [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension, configured with an API key and an environment
 - A local clone of `integromat/imt-app-runtime` (Make internal)
@@ -36,11 +36,11 @@ Restart Claude Code (or run `/reload-plugins`). Then:
 
 ### Cursor
 
-Cursor loads the plugins that are installed for Claude Code, so install the plugin with the commands above and restart Cursor. A route for machines that have Cursor only is not documented yet.
+Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above, restart Cursor, and check that the three MCP servers of the plugin (`make-app-context`, `make`, `atlassian`) appear in the MCP settings of Cursor. A route for machines that have Cursor only is not documented yet.
 
 ## Update
 
-Third-party marketplaces do not update by themselves. Either turn on auto-update (`/plugin`, Marketplaces, `make-custom-app`, Enable auto-update; or `autoUpdate: true` on the marketplace entry in your settings), or update by hand with both commands, in this order:
+Third-party marketplaces do not update by themselves. Either turn on auto-update (`/plugin`, Marketplaces, `make-custom-app`, Enable auto-update), or update by hand with both commands, in this order:
 
 ```bash
 claude plugin marketplace update make-custom-app
@@ -81,7 +81,7 @@ Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/sh
 | `update-app.js` | Pushes code changes to Make through the SDK Admin API |
 | `review-changes.js` | Fetches the uncommitted changes of an app for a code review |
 | `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition |
-| `create-component.js` | Creates a module, RPC, function, connection, or webhook |
+| `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint |
 | `update-component.js` | Updates component metadata |
 | `delete-component.js` | Deletes a component (public apps: RPCs and functions only) |
 | `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`) |
@@ -94,7 +94,7 @@ The scripts take `--editor claude|cursor` when no editor variable reaches them. 
 
 ## Configuration
 
-`~/.make-custom-app-skill-secrets` holds one `key: value` per line (mode 600, never inside the plugin, never read by the agent). The wizard writes it:
+`~/.make-custom-app-skill-secrets` holds one `key: value` per line (mode 600, never inside the plugin, never read by the agent). The wizard writes the file; `make-app-setup` adds the `editor` line when the editor cannot be told:
 
 | Key | Meaning |
 |---|---|
@@ -106,7 +106,7 @@ The scripts take `--editor claude|cursor` when no editor variable reaches them. 
 | `pinecone-api-key`, `pinecone-index-name`, `openai-api-key` | Keys of the shared app-context server (optional; the index name defaults to `make-app-contexts`) |
 | `editor` | `claude` or `cursor`, used only when no editor variable is set |
 
-Create the Make token at https://eu1.make.com/user/api. Scopes for `run-component.js`: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection, and optionally `endpoints:run` and `credential-requests:write`. Create the Jira token at https://id.atlassian.com/manage-profile/security/api-tokens (choose **Create API token**, not the one with scopes).
+Create the Make token at https://eu1.make.com/user/api. Scopes: `apps:read apps:write sdk-apps:read sdk-apps:write`, plus any admin scope you have. `run-component.js` needs more: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection, and optionally `endpoints:run` and `credential-requests:write`. Create the Jira token at https://id.atlassian.com/manage-profile/security/api-tokens (choose **Create API token**, not the one with scopes).
 
 ## MCP servers
 
@@ -120,15 +120,21 @@ Create the Make token at https://eu1.make.com/user/api. Scopes for `run-componen
 
 The context server reads its keys from `MAKE_APP_CONTEXT_PINECONE_API_KEY`, `MAKE_APP_CONTEXT_OPENAI_API_KEY`, and `MAKE_APP_CONTEXT_PINECONE_INDEX` first, then from the secrets file. The generic names `PINECONE_API_KEY` and `OPENAI_API_KEY` are not read.
 
-In Claude Code the tools are named `mcp__plugin_make-custom-app_make-app-context__<tool>`. A plugin cannot ship permission rules, so the first call of each tool asks. To stop that for the three read tools, add these to your own settings, and nothing broader (no wildcard, and not `upsert_app_context` or `upsert_jira_ticket`, which write to the shared index and need your approval):
+In Claude Code the tools are named `mcp__plugin_make-custom-app_make-app-context__<tool>`. A plugin cannot ship permission rules, so the first call of each tool asks. To stop that for the three read tools, add these to `permissions.allow` in your own settings (`~/.claude/settings.json`, or a project settings file), and nothing broader (no wildcard, and not `upsert_app_context` or `upsert_jira_ticket`, which write to the shared index and need your approval):
 
 ```json
-"allow": [
-  "mcp__plugin_make-custom-app_make-app-context__search_app_knowledge",
-  "mcp__plugin_make-custom-app_make-app-context__get_app_summary",
-  "mcp__plugin_make-custom-app_make-app-context__list_apps"
-]
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_make-custom-app_make-app-context__search_app_knowledge",
+      "mcp__plugin_make-custom-app_make-app-context__get_app_summary",
+      "mcp__plugin_make-custom-app_make-app-context__list_apps"
+    ]
+  }
+}
 ```
+
+If the file already has a `permissions.allow` list, add the three names to it.
 
 ## Repository
 

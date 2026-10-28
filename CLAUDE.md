@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This repository is the `make-custom-app` plugin for Claude Code and Cursor, and its own marketplace. The repo root is the plugin root. Users get the plugin through `claude plugin marketplace add` and `claude plugin install`; Cursor loads the same install. The old single skill (`skill/`, `rules/`, four installers, `version.json`) stays on master only until the migration period ends, because 2.x clients download it.
+This repository is the `make-custom-app` plugin for Claude Code and Cursor, and its own marketplace. The repo root is the plugin root. Users get the plugin through `claude plugin marketplace add` and `claude plugin install`; Cursor can load the same install. The old single skill (`skill/`, `rules/`, four installers, `version.json`) stays on master only until the migration period ends, because 2.x clients download it.
 
 ## Layout
 
@@ -29,7 +29,7 @@ node --test ".github/scripts/__tests__/*.test.js" "tools/__tests__/*.test.js"
 node tools/sync-hard-rules.js          # copy shared/hard-rules.md into every SKILL.md (add --check to only compare)
 
 # Scripts (Node 22 and 24 in CI; 90% line, branch, and function coverage)
-node --test --experimental-test-coverage --test-coverage-exclude="**/__tests__/**" --test-coverage-exclude="shared/scripts/*.js" "shared/scripts/lib/__tests__/*.test.js"
+node --test --experimental-test-coverage --test-coverage-exclude="**/__tests__/**" --test-coverage-exclude="shared/scripts/*.js" --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90 "shared/scripts/lib/__tests__/*.test.js"
 
 # MCP server (from mcp-server/), then rebuild and commit the bundle
 npm ci && npm run lint && npm run build && npm test
@@ -56,15 +56,15 @@ Keep the test globs quoted so Node expands them in any shell. The MCP server is 
 
 ### Hard rules
 
-`shared/hard-rules.md` is the single source. `tools/sync-hard-rules.js` copies it verbatim into the block of every `SKILL.md`; CI fails on drift (`--check`). Never edit a generated block by hand. The source must not contain `${CLAUDE_*}`, `$ARGUMENTS`, `$0` to `$9`, a backslash before a dollar sign, or a line-leading exclamation mark followed by a backtick, because Claude rewrites or runs them when it loads a skill.
+`shared/hard-rules.md` is the single source. `tools/sync-hard-rules.js` copies it verbatim into the block of every `SKILL.md`; CI fails on drift (`--check`). Never edit a generated block by hand. The source must not contain `${CLAUDE_*}`, `${user_config.*}`, `$ARGUMENTS`, `$0` to `$9`, a backslash before a dollar sign, or an exclamation mark followed by a backtick at a line start or after whitespace, because Claude rewrites or runs them when it loads a skill.
 
 ### Paths
 
-Documents write `<plugin root>/shared/...`. The plugin root is the directory on the `Plugin root:` line at the top of the running skill. `${CLAUDE_PLUGIN_ROOT}` is substituted only in a `SKILL.md` body and in `allowed-tools`, never in a file that is read with the Read tool, and it is not in the Bash environment. Cursor leaves it literal when the model (not the user) invokes a skill, so the anchor carries a fallback: the root is two levels above the folder of the `SKILL.md`. A relative `../../shared` path in a skill fails on the first read in Claude Code.
+Documents write `<plugin root>/shared/...`. The plugin root is the directory on the `Plugin root:` line at the top of the running skill. In a skill, `${CLAUDE_PLUGIN_ROOT}` is substituted only in a `SKILL.md` body and in `allowed-tools`, never in a file that is read with the Read tool, and it is not in the Bash environment. The `args` in `mcp.json` use it as well. Cursor leaves it literal when the model (not the user) invokes a skill, so the anchor carries a fallback: the root is two levels above the folder of the `SKILL.md`. A relative `../../shared` path in a skill fails on the first read in Claude Code.
 
 ### Skills and triggering
 
-Skills trigger by description: trigger first, a `Not for` clause, a plain one-line YAML value, a warning above 400 characters and a failure above 1,024, and a budget for the nine together. `plugin-check.js` enforces these. A skill may pre-approve exactly two scripts with `allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/<name>.js"*)`: `check-setup` and `review-changes`. The quoted form is the one that matches: an unquoted command and any other script still prompt. All other scripts keep the harness permission prompt on top of the hard rules.
+Skills trigger by description, so write the trigger first. `plugin-check.js` enforces the `Not for` clause, a plain one-line YAML value, a warning above 400 characters and a failure above 1,024, and a budget for the nine together. A skill may pre-approve exactly two scripts with `allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/<name>.js"*)`: `check-setup` and `review-changes`. The quoted form is the one that matches: an unquoted command and any other script still prompt. All other scripts keep the harness permission prompt on top of the hard rules.
 
 ### Editor and contexts
 
@@ -82,16 +82,16 @@ Scripts resolve the editor with `shared/scripts/lib/paths.js`: the `--editor cla
 - `legacy-bridge`: installs the 2.x skill in a fake `HOME` from this checkout and drives its built server (`tools/legacy-bridge.js`), while the installers exist.
 - `skill-scripts` (Node 22 and 24): the script tests with coverage, for `shared/scripts` and for the old tree.
 - `skill-check`: `check-skill.js` for the old tree (an unreleased top CHANGELOG entry is skipped), and the guard that `skill/`, `rules/`, the installers, and `version.json` are unchanged on integration branches.
-- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and on pull requests and pushes to master the release rule (`--release-base`).
+- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
 - `plugin-validate`: `claude plugin validate` with a pinned Claude Code version.
-- `lint-misc`: `shellcheck` on the installers and `actionlint`.
+- `lint-misc`: `shellcheck` on the two `.sh` installers and `actionlint`.
 
 ## Scripts in `shared/scripts`
 
 Plain Node CommonJS. No `package.json`, no build, no TypeScript. Cursor loads the same invariants from `.cursor/rules/skill-scripts.mdc`.
 
 - `require()`, not ESM `import`.
-- New entry script: `#!/usr/bin/env node`; `require('./lib/settings').takeEditorFlagOrExit(process.argv)` before anything reads `process.argv`; `require('./lib/access-guard').ensureInternalUser()` (`check-setup.js` and `setup-secrets.js` skip it because they report the account check themselves). `lib/__tests__/layout.test.js` and `entry-scripts.test.js` enforce this.
+- New entry script: `#!/usr/bin/env node`; `require('./lib/settings').takeEditorFlagOrExit(process.argv)` before anything reads `process.argv` (`setup-secrets.js` parses `--editor` itself instead); `require('./lib/access-guard').ensureInternalUser()` (`check-setup.js` and `setup-secrets.js` skip it because they report the account check themselves). `lib/__tests__/layout.test.js` and `entry-scripts.test.js` enforce this.
 - Paths and the editor come from `lib/paths.js`; never rebuild them from `process.argv[1]`. Read config through `lib/settings.js`. Never print token values to logs or stdout.
 - A script that needs tests keeps its I/O (network, files, exit codes) in `scripts/<name>.js` and its decisions as pure functions in `scripts/lib/<name>-logic.js`. Tests: `lib/__tests__/<name>-logic.test.js` and `lib/__tests__/<name>.test.js` (against a mock server, example: `run-component.js`).
 - Adding or renaming a script: update the Scripts table of `README.md` (CI compares it with `shared/scripts/*.js`) and the scripts line of `shared/index.md`.
