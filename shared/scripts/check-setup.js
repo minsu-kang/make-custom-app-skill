@@ -8,9 +8,11 @@
  *   node check-setup.js                          human-readable report
  *   node check-setup.js --json                   machine-readable report
  *   node check-setup.js --editor claude|cursor   (or --editor=cursor) when no editor variable is set and the secrets file has no editor: line
+ *   node check-setup.js --skip-update-check      do not look for a newer version on master (also: MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK set to any value)
  *
  * Exit codes: 0 = every required item OK, 1 = a required item is missing or the editor cannot be told.
- * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) never change the exit code.
+ * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) and a newer version on master (an UPDATE_AVAILABLE notice)
+ * never change the exit code.
  */
 const fs = require('fs');
 const { PLUGIN_ROOT, setupCommand } = require('./lib/paths');
@@ -19,6 +21,7 @@ const { isValidId } = require('./lib/run-component-logic');
 const { checkAccess } = require('./lib/access-guard');
 const { denyMessage } = require('./lib/access-guard-logic');
 const { detectLegacyInstall, legacyInstallLines } = require('./lib/legacy-install');
+const { checkForUpdate, installedVersion } = require('./lib/update-notice');
 
 takeEditorFlagOrExit(process.argv);
 const argv = process.argv.slice(2);
@@ -138,21 +141,26 @@ if (isClaude) {
 	}
 }
 
-// 5. MCP server (optional — shared Pinecone context). The plugin's server is not recorded in
-// ~/.claude.json or ~/.cursor/mcp.json, so only the keys it reads from the secrets file can be checked.
+// 5. MCP server (optional — shared Pinecone context). The plugin's server is not recorded in ~/.claude.json or
+// ~/.cursor/mcp.json, so registration cannot be checked. The server reads the two keys from the MAKE_APP_CONTEXT_*
+// variables first and then from the secrets file; the index name has a default and is not required.
 {
-	const missing = ['pinecone-api-key', 'pinecone-index-name', 'openai-api-key'].filter((key) => !readSkillConfig(key));
+	const keys = [
+		{ key: 'pinecone-api-key', variable: 'MAKE_APP_CONTEXT_PINECONE_API_KEY' },
+		{ key: 'openai-api-key', variable: 'MAKE_APP_CONTEXT_OPENAI_API_KEY' },
+	];
+	const missing = keys.filter(({ key, variable }) => !process.env[variable] && !readSkillConfig(key));
 	if (missing.length === 0) {
 		add(
 			'mcp-server',
 			'ok',
-			`keys are in ${SECRETS_PATH} (cannot check whether the server is registered: plugin MCP servers are not listed in ~/.claude.json or ~/.cursor/mcp.json)`,
+			`keys are set (environment or ${SECRETS_PATH}); cannot check whether the server is registered: plugin MCP servers are not listed in ~/.claude.json or ~/.cursor/mcp.json`,
 		);
 	} else {
 		add(
 			'mcp-server',
 			'optional-missing',
-			`missing in ${SECRETS_PATH}: ${missing.join(', ')}`,
+			`missing: ${missing.map(({ key }) => key).join(', ')} (set ${missing.map(({ variable }) => variable).join(', ')} or the same key in ${SECRETS_PATH})`,
 			`${SETUP_HINT}\nOptional — the wizard asks for the Pinecone and OpenAI keys of the shared app-context server and saves them in the secrets file.`,
 		);
 	}
@@ -160,21 +168,30 @@ if (isClaude) {
 
 const ok = items.every((i) => i.status !== 'missing');
 const legacyInstall = detectLegacyInstall();
+const skipUpdateCheck = argv.includes('--skip-update-check') || Boolean(process.env.MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK);
 
-if (argv.includes('--json')) {
-	process.stdout.write(JSON.stringify({ ok, editor, pluginRoot: PLUGIN_ROOT, setupCommand: SETUP_CMD, items, legacyInstall }, null, 2) + '\n');
-} else {
-	const mark = { ok: 'OK      ', missing: 'MISSING ', 'optional-missing': 'OPTIONAL' };
-	console.log(`make-custom-app setup — ${editor} — ${PLUGIN_ROOT}\n`);
-	for (const i of items) console.log(`${mark[i.status]} ${i.key}: ${i.detail}`);
-	const fixes = items.filter((i) => i.fix);
-	if (fixes.length) {
-		console.log('\nFixes:');
-		console.log(`\nInteractive wizard (your terminal, not the agent):\n  ${SETUP_CMD}`);
-		for (const i of fixes) console.log(`\n[${i.status === 'missing' ? 'REQUIRED' : 'optional'}] ${i.key}\n${i.fix}`);
+async function main() {
+	const update = skipUpdateCheck ? null : await checkForUpdate({ editor, installed: installedVersion(PLUGIN_ROOT) });
+	if (argv.includes('--json')) {
+		const report = { ok, editor, pluginRoot: PLUGIN_ROOT, setupCommand: SETUP_CMD, items, legacyInstall };
+		report.update = update ? { installed: update.installed, available: update.available } : null;
+		process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+	} else {
+		const mark = { ok: 'OK      ', missing: 'MISSING ', 'optional-missing': 'OPTIONAL' };
+		console.log(`make-custom-app setup — ${editor} — ${PLUGIN_ROOT}\n`);
+		for (const i of items) console.log(`${mark[i.status]} ${i.key}: ${i.detail}`);
+		const fixes = items.filter((i) => i.fix);
+		if (fixes.length) {
+			console.log('\nFixes:');
+			console.log(`\nInteractive wizard (your terminal, not the agent):\n  ${SETUP_CMD}`);
+			for (const i of fixes) console.log(`\n[${i.status === 'missing' ? 'REQUIRED' : 'optional'}] ${i.key}\n${i.fix}`);
+		}
+		const legacyWarning = legacyInstallLines(legacyInstall);
+		if (legacyWarning.length) console.log(`\n${legacyWarning.join('\n')}`);
+		if (update) console.log(`\n${update.lines.join('\n')}`);
+		console.log(ok ? '\nSetup OK.' : '\nSetup INCOMPLETE — required items missing. Stop and apply the REQUIRED fixes above.');
 	}
-	const legacyWarning = legacyInstallLines(legacyInstall);
-	if (legacyWarning.length) console.log(`\n${legacyWarning.join('\n')}`);
-	console.log(ok ? '\nSetup OK.' : '\nSetup INCOMPLETE — required items missing. Stop and apply the REQUIRED fixes above.');
+	process.exit(ok ? 0 : 1);
 }
-process.exit(ok ? 0 : 1);
+
+main();

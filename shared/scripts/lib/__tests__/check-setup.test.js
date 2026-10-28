@@ -27,7 +27,8 @@ const CACHE_FILE = path.join(tmp, 'make-custom-app-access-check.json');
 const BLOCKER = path.join(aux, 'block-network.js');
 const NET_LOG = path.join(aux, 'net.log');
 const EMAIL = 'dev@make.com';
-const SECRET_VALUES = ['MAKE_KEY_secret_value', 'JIRA_TOKEN_secret_value', 'PINECONE_secret_value', 'OPENAI_secret_value'];
+const SECRET_VALUES = ['MAKE_KEY_secret_value', 'JIRA_TOKEN_secret_value', 'PINECONE_secret_value', 'OPENAI_secret_value', 'ENV_OPENAI_secret_value'];
+const UPDATE_CACHE_FILE = path.join(tmp, 'make-custom-app-update-check.json');
 
 fs.writeFileSync(
 	BLOCKER,
@@ -53,7 +54,7 @@ after(() => fs.rmSync(work, { recursive: true, force: true }));
 
 function run(args = [], env = {}) {
 	return spawnSync(process.execPath, [CHECK_SETUP, ...args], {
-		env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, NODE_OPTIONS: `--require ${JSON.stringify(BLOCKER)}`, ...env },
+		env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, NODE_OPTIONS: `--require ${JSON.stringify(BLOCKER)}`, MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK: '1', ...env },
 		encoding: 'utf8',
 	});
 }
@@ -158,7 +159,7 @@ describe('check-setup in a fake HOME, Claude Code', () => {
 		const items = parseItems(r.stdout);
 		assert.equal(items['make account'].detail, EMAIL);
 		assert.equal(items['make-api-key'].detail, 'set (https://eu1.make.com/api/v2/admin)');
-		assert.match(items['mcp-server'].detail, /keys are in .*make-custom-app-skill-secrets.*cannot check whether the server is registered/);
+		assert.match(items['mcp-server'].detail, /keys are set \(environment or .*make-custom-app-skill-secrets\); cannot check whether the server is registered/);
 		assert.ok(r.stdout.trimEnd().endsWith('Setup OK.'), r.stdout);
 		assert.doesNotMatch(r.stdout, /Fixes:/);
 		assertNoSecrets(r);
@@ -177,7 +178,7 @@ describe('check-setup in a fake HOME, Claude Code', () => {
 
 	it('treats missing Pinecone and OpenAI keys as optional and names them, whatever an old MCP registration says', () => {
 		const config = fullConfig();
-		delete config['pinecone-index-name'];
+		delete config['pinecone-api-key'];
 		delete config['openai-api-key'];
 		save(config);
 		fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node' } } }));
@@ -185,8 +186,25 @@ describe('check-setup in a fake HOME, Claude Code', () => {
 		assert.equal(r.status, 0, r.stdout + r.stderr);
 		const item = parseItems(r.stdout)['mcp-server'];
 		assert.equal(item.status, 'OPTIONAL');
-		assert.match(item.detail, /missing in .*make-custom-app-skill-secrets: pinecone-index-name, openai-api-key$/);
+		assert.match(item.detail, /^missing: pinecone-api-key, openai-api-key \(set MAKE_APP_CONTEXT_PINECONE_API_KEY, MAKE_APP_CONTEXT_OPENAI_API_KEY or the same key in .*make-custom-app-skill-secrets\)$/);
 		assert.ok(r.stdout.includes(`  ${setupCommand('claude')}`), r.stdout);
+	});
+
+	it('does not ask for the index name, which the server defaults', () => {
+		const config = fullConfig();
+		delete config['pinecone-index-name'];
+		save(config);
+		const r = run([], CLAUDE);
+		assert.equal(parseItems(r.stdout)['mcp-server'].status, 'OK');
+	});
+
+	it('takes a key from the MAKE_APP_CONTEXT_* variable, and never prints its value', () => {
+		const config = fullConfig();
+		delete config['openai-api-key'];
+		save(config);
+		const r = run([], { ...CLAUDE, MAKE_APP_CONTEXT_OPENAI_API_KEY: SECRET_VALUES[4] });
+		assert.equal(parseItems(r.stdout)['mcp-server'].status, 'OK');
+		assertNoSecrets(r);
 	});
 
 	it('writes machine-readable JSON with --json and nothing else on stdout', () => {
@@ -404,5 +422,70 @@ describe('check-setup in a fake HOME, old 2.x install left behind', () => {
 		save(fullConfig());
 		const r = run(['--json'], CLAUDE);
 		assert.deepEqual(JSON.parse(r.stdout).legacyInstall, []);
+	});
+});
+
+describe('check-setup update notice', () => {
+	const CLAUDE = { CLAUDECODE: '1' };
+	const NOTICE = { MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK: '' };
+	const PLUGIN_VERSION = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+
+	function cacheVersion(version, checkedAt = Date.now()) {
+		fs.writeFileSync(UPDATE_CACHE_FILE, JSON.stringify({ checkedAt, version }));
+	}
+
+	it('prints the two Claude Code commands when master has a newer version, and still exits 0', () => {
+		save(fullConfig());
+		cacheVersion('99.0.0');
+		const r = run([], { ...CLAUDE, ...NOTICE });
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.ok(r.stdout.includes(`UPDATE_AVAILABLE: make-custom-app 99.0.0 is available (installed: ${PLUGIN_VERSION}).`), r.stdout);
+		assert.ok(r.stdout.includes('  claude plugin marketplace update make-custom-app\n  claude plugin update make-custom-app@make-custom-app'), r.stdout);
+		assert.ok(r.stdout.trimEnd().endsWith('Setup OK.'), r.stdout);
+		assert.equal(connectAttempts(), 0);
+	});
+
+	it('points Cursor users to the README', () => {
+		save(fullConfig());
+		cacheVersion('99.0.0');
+		const r = run([], { CURSOR_AGENT: '1', ...NOTICE });
+		assert.match(r.stdout, /How to update in Cursor: https:\/\/github\.com\/minsu-kang\/make-custom-app-skill#update/);
+		assert.doesNotMatch(r.stdout, /claude plugin update/);
+	});
+
+	it('prints nothing when master has the same or an older version, or the cache holds no version', () => {
+		save(fullConfig());
+		for (const version of [PLUGIN_VERSION, '0.0.1', null]) {
+			cacheVersion(version);
+			const r = run([], { ...CLAUDE, ...NOTICE });
+			assert.doesNotMatch(r.stdout, /UPDATE_AVAILABLE/, String(version));
+			assert.equal(r.status, 0);
+		}
+	});
+
+	it('adds the versions to --json and keeps stdout pure JSON', () => {
+		save(fullConfig());
+		cacheVersion('99.0.0');
+		const report = JSON.parse(run(['--json'], { ...CLAUDE, ...NOTICE }).stdout);
+		assert.deepEqual(report.update, { installed: PLUGIN_VERSION, available: '99.0.0' });
+		cacheVersion(PLUGIN_VERSION);
+		assert.equal(JSON.parse(run(['--json'], { ...CLAUDE, ...NOTICE }).stdout).update, null);
+	});
+
+	it('--skip-update-check and the skip variable turn the check off, even with a newer version cached', () => {
+		save(fullConfig());
+		cacheVersion('99.0.0');
+		assert.doesNotMatch(run(['--skip-update-check'], { ...CLAUDE, ...NOTICE }).stdout, /UPDATE_AVAILABLE/);
+		assert.doesNotMatch(run([], CLAUDE).stdout, /UPDATE_AVAILABLE/);
+	});
+
+	it('fails open: no cache and no network means no notice, no error, and the same exit code', () => {
+		save(fullConfig());
+		const r = run([], { ...CLAUDE, ...NOTICE });
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.equal(r.stderr, '');
+		assert.doesNotMatch(r.stdout, /UPDATE_AVAILABLE/);
+		assert.ok(connectAttempts() >= 1, 'the check tried the network');
+		assert.equal(JSON.parse(fs.readFileSync(UPDATE_CACHE_FILE, 'utf8')).version, null);
 	});
 });
