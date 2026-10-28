@@ -4,11 +4,12 @@
 // CI consistency checks for the plugin content. Not part of the plugin payload.
 // Usage: node .github/scripts/plugin-check.js [repoRoot] [--scope=<path>]... [--skills=<name,name,...>] [--release-base=<git ref>]
 // --scope is a path relative to the repo root: a folder (scans its Markdown files) or one .md file.
-// A leading ./ and repeated or trailing slashes are ignored. Default: shared and skills, each skipped when missing.
+// A leading ./ and repeated or trailing slashes are ignored. Default: shared, skills, README.md and CLAUDE.md, each skipped when missing.
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
-// by shared/index.md, the syntax of tools/, .github/scripts/ and shared/scripts/, and mcp.json and the plugin manifests when they exist.
+// by shared/index.md, that README.md lists every entry script of shared/scripts, the syntax of tools/, .github/scripts/ and
+// shared/scripts/, and mcp.json and the plugin manifests when they exist.
 // --release-base=<ref> adds the release rule (spec 9.2 item 8): when the payload (skills/, shared/, mcp/, mcp.json, hooks/,
 // either plugin.json) differs from <ref>, the plugin version must be greater than the one on <ref>. CI sets it for pull
 // requests and pushes whose base is master; the integration branch does not use it.
@@ -23,7 +24,7 @@ const args = process.argv.slice(2);
 const ROOT = path.resolve(args.find((a) => !a.startsWith('--')) || path.join(__dirname, '..', '..'));
 const normaliseScope = (value) => value.replace(/\/{2,}/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, '');
 const scopeArgs = args.filter((a) => a.startsWith('--scope=')).map((a) => normaliseScope(a.slice('--scope='.length)));
-const SCOPE = scopeArgs.length ? scopeArgs : ['shared', 'skills'];
+const SCOPE = scopeArgs.length ? scopeArgs : ['shared', 'skills', 'README.md', 'CLAUDE.md'];
 const FULL_RUN = scopeArgs.length === 0;
 const EXPECTED_SKILLS = [
 	'make-app-task-refinement',
@@ -75,7 +76,8 @@ const SHARED_STEP_WORKFLOWS = new Set(['lifecycle.md', 'jira-ticket.md', 'push-c
 const NO_TASK_POINTERS = new Set([...SHARED_STEP_WORKFLOWS, 'run-live.md']);
 const TASK_ONLY_NAME = /(?<![\w-])(?:app-question|app-task|bug-investigation|code-review|create-endpoint|feature-request|task-refinement)\.md/;
 const OLD_INSTALL_PATH = /\.(?:claude|cursor)\/(?:skills\/make-custom-app|make-app-contexts)(?![\w-])|make-app-contexts\//;
-const OLD_PATH_EXEMPT_PREFIX = 'skills/make-app-setup/';
+// make-app-setup names the old install to clean it up; README.md and CLAUDE.md explain the migration.
+const isOldPathExempt = (rel) => rel.startsWith('skills/make-app-setup/') || rel === 'README.md' || rel === 'CLAUDE.md';
 const SECTION_RUN = '§\\s*\\d+(?:\\s*(?:(?:,\\s*(?:(?:and|or)\\s*)?|(?:and|or|&)\\s*)§\\s*\\d+|(?:to|[\\u2013-])\\s*(?:§\\s*)?\\d+))*';
 const LIFECYCLE_RUN = new RegExp(`\\blifecycle(\\.md)?\\)?\\s*(${SECTION_RUN})`, 'g');
 const LIFECYCLE_SPELLED = /\blifecycle(?:\.md)?\)?\s+sections?\s+(\d+)/g;
@@ -155,7 +157,7 @@ function eachLine(text, fn) {
 }
 
 function checkPlaceholders(rel, text) {
-	const oldPathAllowed = rel.startsWith(OLD_PATH_EXEMPT_PREFIX);
+	const oldPathAllowed = isOldPathExempt(rel);
 	eachLine(text, (line, n) => {
 		if (/\$\{SKILL_ROOT\}|\$\{CONTEXTS_DIR\}/.test(line)) error(rel, 'old ${SKILL_ROOT} or ${CONTEXTS_DIR} placeholder', n);
 		if (/<!--\s*Variables:/.test(line)) error(rel, 'old "Variables" comment', n);
@@ -448,6 +450,21 @@ function checkReleaseRule(baseRef) {
 	}
 }
 
+function checkReadmeScripts() {
+	const scripts = listFiles('shared/scripts', (name) => name.endsWith('.js'))
+		.filter((file) => path.posix.dirname(file) === 'shared/scripts')
+		.map((file) => path.posix.basename(file));
+	if (!scripts.length || !fs.existsSync(path.join(ROOT, 'README.md'))) return;
+	const lines = (read('README.md') || '').split('\n');
+	const start = lines.indexOf('## Scripts');
+	if (start < 0) return error('README.md', 'has no "## Scripts" section');
+	const next = lines.findIndex((line, i) => i > start && line.startsWith('## '));
+	const rows = lines.slice(start + 1, next < 0 ? lines.length : next);
+	const listed = new Set(rows.map((line) => /^\|\s*`([\w-]+\.js)`\s*\|/.exec(line)).filter(Boolean).map((m) => m[1]));
+	for (const name of scripts) if (!listed.has(name)) error('README.md', `Scripts table does not list ${name}`);
+	for (const name of listed) if (!scripts.includes(name)) error('README.md', `Scripts table lists ${name}, which is not in shared/scripts`);
+}
+
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
 	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
@@ -476,6 +493,7 @@ if (FULL_RUN) {
 	if (fs.existsSync(path.join(ROOT, 'skills'))) checkSkillLayer();
 	if (fs.existsSync(path.join(ROOT, 'skills')) || fs.existsSync(path.join(ROOT, hardRules.SOURCE))) checkHardRules();
 	checkReferenceIndex();
+	checkReadmeScripts();
 	if (fs.existsSync(path.join(ROOT, 'mcp.json'))) checkMcpConfig();
 	if (fs.existsSync(path.join(ROOT, '.claude-plugin')) || fs.existsSync(path.join(ROOT, '.cursor-plugin'))) checkManifests();
 	checkSyntax();

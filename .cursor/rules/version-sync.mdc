@@ -1,34 +1,28 @@
 ---
-description: Auto-bump semver, sync versions, and update CHANGELOG on every commit for the Make Custom App skill repo
+description: Version and CHANGELOG protocol for the Make Custom App plugin repo
 globs: 
 alwaysApply: true
 ---
 
 # Version & Changelog Sync Rule
 
-## Commit & Push Workflow
+## Commits to master
 
-When the user asks to commit and push, **always** perform these steps in order:
+Every commit to master is one release:
 
-1. **Determine version bump** based on semver and the nature of changes:
-   - **Major** (X.0.0): Breaking changes, incompatible API/workflow changes
-   - **Minor** (x.Y.0): New features, new files, significant additions
-   - **Patch** (x.y.Z): Bug fixes, refactoring, documentation updates, small improvements
-2. **Bump version** in both `version.json` and `skill/SKILL.md` frontmatter, and set `released` in `version.json` to the date of the new CHANGELOG entry
-3. **Update `CHANGELOG.md`** — add a new version section at the top
-4. **Commit** all changes with a descriptive message
-5. **Push** to remote
+1. Pick the bump: **patch** (fixes, documentation), **minor** (new skills, workflows, references, scripts), **major** (breaking changes).
+2. Set the same `version` in `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json`.
+3. Prepend `## X.Y.Z — YYYY-MM-DD` and the change summary to `CHANGELOG.md`.
+4. Commit with the message `X.Y.Z: <description>`.
 
-Never skip version bump or CHANGELOG update when committing.
+A change to the payload (`skills/`, `shared/`, `mcp/`, `mcp.json`, `hooks/`, either `plugin.json`) without a higher version fails CI. Rebuild `mcp/index.mjs` (`node tools/build-mcp.js`) after a change to `mcp-server/` and commit it.
 
-## Version Sync
+## Integration branch and the old tree
 
-When `version.json`'s `version` field is changed:
-1. Update `skill/SKILL.md` frontmatter `version` to the same value
-2. Search `skill/SKILL.md` body for any hardcoded version strings (e.g. `` `1.x.x` ``) and update them
-3. **Never hardcode version numbers in body text** — if a reference to "current version" exists, it should say "Read the `version` field from the frontmatter" without repeating the actual number
+- On the branch `plugin`, versions and CHANGELOG release entries change only in the merge commit. The top CHANGELOG entry is `## 3.0.0 (unreleased)`.
+- `version.json` and `skill/SKILL.md` are for the 2.x clients: change them only in a named bridge commit, together, with equal versions. Never change them for plugin work.
 
-## CHANGELOG Format
+## CHANGELOG format
 
 ```markdown
 ## x.y.z — YYYY-MM-DD
