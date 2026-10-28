@@ -3,14 +3,10 @@
 // intermittent `ERR_STREAM_PREMATURE_CLOSE` while decompressing gzip'd
 // responses under Node 20+/24 — undici handles compressed responses reliably.
 
+import { getOpenAiApiKey } from './config.js';
+
 const MODEL = 'text-embedding-3-small';
 const ENDPOINT = 'https://api.openai.com/v1/embeddings';
-
-function getApiKey(): string {
-	const apiKey = process.env.OPENAI_API_KEY;
-	if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
-	return apiKey;
-}
 
 interface EmbeddingResponse {
 	data: { embedding: number[] }[];
@@ -20,7 +16,7 @@ async function requestEmbeddings(input: string | string[]): Promise<number[][]> 
 	const res = await fetch(ENDPOINT, {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${getApiKey()}`,
+			Authorization: `Bearer ${getOpenAiApiKey()}`,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({ model: MODEL, input }),

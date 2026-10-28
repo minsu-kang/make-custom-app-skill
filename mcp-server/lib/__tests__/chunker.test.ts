@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { splitMarkdownSections, summarizeMetadata, mergeWorkHistory } from '../chunker.js';
+import { readFileSync } from 'fs';
+import path from 'path';
+import { splitMarkdownSections, summarizeMetadata, mergeWorkHistory, resolveContextsDir } from '../chunker.js';
+
+const contextCases = JSON.parse(readFileSync(new URL('./fixtures/contexts-dir-cases.json', import.meta.url), 'utf-8')) as {
+	name: string;
+	argv1: string;
+	home: string;
+	expected: string[];
+	claudeDirExists?: boolean;
+}[];
+
+describe('resolveContextsDir (shared cases with paths.js)', () => {
+	for (const c of contextCases) {
+		it(c.name, () => {
+			const result = resolveContextsDir(c.argv1, c.home, () => c.claudeDirExists === true);
+			expect(result).toBe(path.join(c.home, ...c.expected));
+		});
+	}
+});
 
 describe('splitMarkdownSections', () => {
 	it('returns empty array for empty string', () => {

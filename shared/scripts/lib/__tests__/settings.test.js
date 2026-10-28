@@ -19,6 +19,9 @@ const secretsPath = path.join(home, '.make-custom-app-skill-secrets');
 const settings = require('../settings');
 const { EditorError, setupCommand, takeEditorFlag, getEditorFlag, resetEditorFlag } = require('../paths');
 
+const FIXTURES = path.join(__dirname, '..', '..', '..', '..', 'mcp-server', 'lib', '__tests__', 'fixtures');
+const secretsCases = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'secrets-cases.json'), 'utf8'));
+
 after(() => fs.rmSync(home, { recursive: true, force: true }));
 afterEach(() => {
 	resetEditorFlag();
@@ -83,6 +86,15 @@ describe('readSkillConfig', () => {
 		fs.writeFileSync(secretsPath, '> jira-email: quoted@make.com\n  jira-base-url:   https://x.atlassian.net  \n');
 		assert.equal(settings.readSkillConfig('jira-email'), null);
 		assert.equal(settings.readSkillConfig('jira-base-url'), 'https://x.atlassian.net');
+	});
+
+	describe('cases shared with mcp-server/lib/config.ts', () => {
+		for (const c of secretsCases) {
+			it(c.name, () => {
+				fs.writeFileSync(secretsPath, c.text);
+				assert.equal(settings.readSkillConfig(c.key), c.expected);
+			});
+		}
 	});
 });
 

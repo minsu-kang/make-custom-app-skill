@@ -1,5 +1,6 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const path = require('path');
 const {
 	SCRIPTS_DIR,
@@ -25,6 +26,16 @@ test('SCRIPTS_DIR and PLUGIN_ROOT follow the shared/scripts layout', () => {
 test('getContextsDir is the editor-neutral folder under the given home', () => {
 	assert.equal(getContextsDir('/home/u'), path.join('/home/u', '.make-custom-app', 'contexts'));
 });
+
+const CONTEXT_CASES = JSON.parse(
+	fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'mcp-server', 'lib', '__tests__', 'fixtures', 'contexts-dir-cases.json'), 'utf8'),
+);
+
+for (const c of CONTEXT_CASES.filter((entry) => entry.plugin)) {
+	test(`getContextsDir agrees with mcp-server/lib/chunker.ts: ${c.name}`, () => {
+		assert.equal(getContextsDir(c.home), path.join(c.home, ...c.expected));
+	});
+}
 
 const MATRIX = [
 	{ name: 'neither variable set', env: {}, expected: null },
