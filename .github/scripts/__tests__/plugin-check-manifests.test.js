@@ -132,4 +132,28 @@ test('the top CHANGELOG entry must equal the plugin version, released or not', (
 	assert.match(stale.out, /CHANGELOG\.md: top entry 2\.3\.13 differs from the plugin version 3\.0\.0/);
 	const odd = run({ ...good(), 'CHANGELOG.md': '# Changelog\n\n## Unreleased\n' });
 	assert.match(odd.out, /CHANGELOG\.md: first heading "## Unreleased" does not match/);
+	const bare = run({ ...good(), 'CHANGELOG.md': '# Changelog\n\n## 3.0.0\n\nText.\n' });
+	assert.equal(bare.status, 1);
+	assert.match(bare.out, /CHANGELOG\.md: first heading "## 3\.0\.0" does not match/);
+});
+
+test('a manifest that is valid JSON but not an object is an error', () => {
+	for (const body of ['null', 'false', '0', '"text"', '[]']) {
+		const r = run({ ...good(), '.claude-plugin/plugin.json': `${body}\n` });
+		assert.equal(r.status, 1, `${body}: ${r.out}`);
+		assert.match(r.out, /\.claude-plugin\/plugin\.json: must be a JSON object/, body);
+	}
+});
+
+test('plugin-rules that is a file and a version that is not a string are errors', () => {
+	const asFile = good();
+	delete asFile['plugin-rules/.gitkeep'];
+	const file = run({ ...asFile, 'plugin-rules': '' });
+	assert.equal(file.status, 1);
+	assert.match(file.out, /plugin-rules: is not a folder/);
+	const list = run(good((claude, cursor) => {
+		cursor.version = ['3.0.0'];
+	}));
+	assert.equal(list.status, 1);
+	assert.match(list.out, /\.cursor-plugin\/plugin\.json: version "3\.0\.0" is not X\.Y\.Z/);
 });

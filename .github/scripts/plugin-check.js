@@ -44,7 +44,7 @@ const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
 const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
 const PLUGIN_NAME = 'make-custom-app';
 const SEMVER = /^\d+\.\d+\.\d+$/;
-const CHANGELOG_TOP = /^## (\d+\.\d+\.\d+)(?: \u2014 \d{4}-\d{2}-\d{2}| \(unreleased\))?$/;
+const CHANGELOG_TOP = /^## (\d+\.\d+\.\d+)(?: \u2014 \d{4}-\d{2}-\d{2}| \(unreleased\))$/;
 const MCP_LOCAL = 'make-app-context';
 const MCP_REMOTE = { make: 'https://mcp.make.com/v2', atlassian: 'https://mcp.atlassian.com/v1/mcp' };
 const MCP_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}/';
@@ -365,12 +365,18 @@ function checkMcpConfig() {
 function readJson(rel) {
 	const text = read(rel);
 	if (text === null) return null;
+	let value;
 	try {
-		return JSON.parse(text);
+		value = JSON.parse(text);
 	} catch (err) {
 		error(rel, `is not valid JSON: ${err.message}`);
 		return null;
 	}
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+		error(rel, 'must be a JSON object');
+		return null;
+	}
+	return value;
 }
 
 function checkManifests() {
@@ -379,7 +385,7 @@ function checkManifests() {
 	if (!claude || !cursor) return;
 	for (const [rel, manifest] of [['.claude-plugin/plugin.json', claude], ['.cursor-plugin/plugin.json', cursor]]) {
 		if (manifest.name !== PLUGIN_NAME) error(rel, `name is "${manifest.name}", expected "${PLUGIN_NAME}"`);
-		if (!SEMVER.test(manifest.version || '')) error(rel, `version "${manifest.version}" is not X.Y.Z`);
+		if (typeof manifest.version !== 'string' || !SEMVER.test(manifest.version)) error(rel, `version "${manifest.version}" is not X.Y.Z`);
 		if (typeof manifest.description !== 'string' || !manifest.description.trim()) error(rel, 'description is empty');
 	}
 	if (claude.version !== cursor.version) error('.cursor-plugin/plugin.json', `version ${cursor.version} differs from ${claude.version} in .claude-plugin/plugin.json`);
@@ -389,6 +395,7 @@ function checkManifests() {
 	if (cursor.rules !== './plugin-rules/') error('.cursor-plugin/plugin.json', 'rules must be "./plugin-rules/", an empty folder, so that the old rules/ folder is not taken for plugin rules');
 	const rulesDir = path.join(ROOT, 'plugin-rules');
 	if (!fs.existsSync(rulesDir)) error('plugin-rules', 'folder is missing (it holds .gitkeep so that git keeps it)');
+	else if (!fs.statSync(rulesDir).isDirectory()) error('plugin-rules', 'is not a folder');
 	else for (const name of fs.readdirSync(rulesDir)) if (name !== '.gitkeep') error(`plugin-rules/${name}`, 'plugin-rules must stay empty: a rule file here would load in Cursor');
 
 	const changelog = read('CHANGELOG.md');
