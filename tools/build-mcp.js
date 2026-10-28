@@ -14,13 +14,17 @@ const path = require('path');
 const { createRequire } = require('module');
 
 const ROOT = path.resolve(__dirname, '..');
-const BUNDLE = path.join('mcp', 'index.mjs');
+const BUNDLE = 'mcp/index.mjs';
 
 // Bundled CommonJS dependencies call require(); an ES module has none, so give the bundle one.
 const BANNER = "import { createRequire as __mcpCreateRequire } from 'module';\nconst require = __mcpCreateRequire(import.meta.url);";
 
 function loadEsbuild(root) {
-	return createRequire(path.join(root, 'mcp-server', 'package.json'))('esbuild');
+	try {
+		return createRequire(path.join(root, 'mcp-server', 'package.json'))('esbuild');
+	} catch (err) {
+		throw new Error(`esbuild is not installed under ${path.join(root, 'mcp-server')}. Run npm ci in mcp-server first. (${err.message.split('\n')[0]})`);
+	}
 }
 
 /** The bundle text, built in memory. */

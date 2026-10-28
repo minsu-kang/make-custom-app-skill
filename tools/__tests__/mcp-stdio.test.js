@@ -20,6 +20,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 	const reply = (result) => console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
 	if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: {}, serverInfo: { name: 'fake', version: '1' } });
 	else if (message.method === 'tools/list') reply({ tools: [{ name: 'b' }, { name: 'a' }] });
+	else if (message.method === 'tools/call' && message.params.name === 'boom') console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32602, message: 'unknown tool boom' } }));
 	else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'echo ' + message.params.arguments.word }], isError: message.params.name === 'fail' });
 });
 `;
@@ -37,6 +38,11 @@ test('listToolNames and callToolText run the handshake and read the replies', as
 	assert.deepEqual(await listToolNames(options), ['a', 'b']);
 	assert.deepEqual(await callToolText(options, 'say', { word: 'hi' }), { text: 'echo hi', isError: false });
 	assert.deepEqual(await callToolText(options, 'fail', { word: 'x' }), { text: 'echo x', isError: true });
+});
+
+test('a JSON-RPC error reply becomes an error with the server message', async () => {
+	const options = { command: process.execPath, args: [writeScript(FAKE_SERVER)] };
+	await assert.rejects(callToolText(options, 'boom', { word: 'x' }), /tools\/call failed: unknown tool boom/);
 });
 
 test('exchange returns every response in request order', async () => {

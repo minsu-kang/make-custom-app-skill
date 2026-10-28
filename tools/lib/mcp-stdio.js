@@ -39,6 +39,8 @@ function exchange({ command, args = [], env = process.env, requests, timeoutMs =
 				send({ id, method, params });
 			});
 
+		child.stdout.setEncoding('utf8');
+		child.stderr.setEncoding('utf8');
 		child.stderr.on('data', (chunk) => {
 			stderr += chunk;
 		});
@@ -63,7 +65,7 @@ function exchange({ command, args = [], env = process.env, requests, timeoutMs =
 			}
 		});
 		child.on('error', (err) => finish(err));
-		child.on('exit', (code, signal) => finish(new Error(`MCP server exited early (code ${code}, signal ${signal}). stderr: ${stderr.trim()}`)));
+		child.on('close', (code, signal) => finish(new Error(`MCP server exited early (code ${code}, signal ${signal}). stderr: ${stderr.trim()}`)));
 
 		(async () => {
 			const init = await request('initialize', {
@@ -81,16 +83,23 @@ function exchange({ command, args = [], env = process.env, requests, timeoutMs =
 	});
 }
 
+/** The result of a JSON-RPC response; a JSON-RPC error becomes an Error that carries the server's message. */
+function resultOf(response, method) {
+	if (response.error) throw new Error(`${method} failed: ${response.error.message}`);
+	return response.result;
+}
+
 /** The names of the tools the server lists, sorted. */
 async function listToolNames(options) {
 	const { responses } = await exchange({ ...options, requests: [{ method: 'tools/list', params: {} }] });
-	return responses[0].result.tools.map((tool) => tool.name).sort();
+	const { tools } = resultOf(responses[0], 'tools/list');
+	return tools.map((tool) => tool.name).sort();
 }
 
 /** The text of the first content item that tools/call returns, and whether it is an error. */
 async function callToolText(options, name, args) {
 	const { responses } = await exchange({ ...options, requests: [{ method: 'tools/call', params: { name, arguments: args } }] });
-	const result = responses[0].result;
+	const result = resultOf(responses[0], 'tools/call');
 	return { text: result.content[0].text, isError: result.isError === true };
 }
 

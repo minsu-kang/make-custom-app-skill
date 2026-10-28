@@ -54,13 +54,29 @@ test('as a plugin it reads ~/.make-custom-app/contexts and the keys of the secre
 		assert.match(found.text, /pinecone-api-key is not set\. Set MAKE_APP_CONTEXT_PINECONE_API_KEY/);
 		const missing = await callToolText(options, 'upsert_app_context', { slug: 'ghost', version: '1' });
 		assert.ok(missing.text.includes(path.join(home, '.make-custom-app', 'contexts', 'ghost-v1.md')), missing.text);
+		fs.writeFileSync(path.join(home, '.make-custom-app-skill-secrets'), 'pinecone-api-key: pcsk_test_value\n');
+		const withFile = await callToolText(options, 'upsert_app_context', { slug: 'demo', version: '1' });
+		assert.equal(withFile.isError, true);
+		assert.match(withFile.text, /openai-api-key is not set\. Set MAKE_APP_CONTEXT_OPENAI_API_KEY/);
 	} finally {
 		fs.rmSync(home, { recursive: true, force: true });
 	}
 });
 
-test('as a plugin it ignores the generic key names and the old contexts folder', async () => {
+test('as a plugin it ignores the generic key names', async () => {
 	const { home, options } = setup(PLUGIN_AT, { PINECONE_API_KEY: 'unrelated', OPENAI_API_KEY: 'unrelated' });
+	try {
+		seedContext(path.join(home, '.make-custom-app', 'contexts'));
+		const result = await callToolText(options, 'upsert_app_context', { slug: 'demo', version: '1' });
+		assert.equal(result.isError, true);
+		assert.match(result.text, /pinecone-api-key is not set\. Set MAKE_APP_CONTEXT_PINECONE_API_KEY/);
+	} finally {
+		fs.rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test('as a plugin it ignores the old contexts folder', async () => {
+	const { home, options } = setup(PLUGIN_AT);
 	try {
 		seedContext(path.join(home, '.claude', 'make-app-contexts'));
 		const result = await callToolText(options, 'upsert_app_context', { slug: 'demo', version: '1' });

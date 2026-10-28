@@ -86,6 +86,15 @@ test('--check fails when the bundle differs or is missing, and names the fix', a
 	}
 });
 
+test('without esbuild installed the error says to run npm ci in mcp-server', async () => {
+	const root = tempRoot();
+	try {
+		await assert.rejects(run([], { root }), /npm ci/);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test('an unknown argument is an error and builds nothing', async () => {
 	const root = tempRoot();
 	try {
