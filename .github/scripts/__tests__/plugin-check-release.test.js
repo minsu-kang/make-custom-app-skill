@@ -8,7 +8,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const SCRIPT = path.join(__dirname, '..', 'plugin-check.js');
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com', GITHUB_ACTIONS: '' };
+const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com', GITHUB_ACTIONS: '', GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
 
 function git(root, ...args) {
 	const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: GIT_ENV });
@@ -31,19 +31,24 @@ const manifest = (version) => `${JSON.stringify({ name: 'make-custom-app', versi
  */
 function repo({ baseFiles, changes }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-check-release-'));
-	git(root, 'init', '-q', '-b', 'main');
-	write(root, { 'docs/note.md': '# Note\n', ...baseFiles });
-	git(root, 'add', '-A');
-	git(root, 'commit', '-q', '-m', 'base');
-	git(root, 'tag', 'base');
-	git(root, 'checkout', '-q', '-b', 'work');
-	for (const [rel, body] of Object.entries(changes)) {
-		if (body === null) fs.rmSync(path.join(root, rel));
-		else write(root, { [rel]: body });
+	try {
+		git(root, 'init', '-q', '-b', 'main');
+		write(root, { 'docs/note.md': '# Note\n', ...baseFiles });
+		git(root, 'add', '-A');
+		git(root, 'commit', '-q', '-m', 'base');
+		git(root, 'tag', 'base');
+		git(root, 'checkout', '-q', '-b', 'work');
+		for (const [rel, body] of Object.entries(changes)) {
+			if (body === null) fs.rmSync(path.join(root, rel));
+			else write(root, { [rel]: body });
+		}
+		git(root, 'add', '-A');
+		git(root, 'commit', '-q', '-m', 'work');
+		return root;
+	} catch (err) {
+		fs.rmSync(root, { recursive: true, force: true });
+		throw err;
 	}
-	git(root, 'add', '-A');
-	git(root, 'commit', '-q', '-m', 'work');
-	return root;
 }
 
 function run(root, base = 'base') {
@@ -70,7 +75,7 @@ test('a payload change with the same version is an error that names the file and
 });
 
 test('every payload path counts: shared, mcp, mcp.json, hooks and both manifests', () => {
-	for (const rel of ['shared/x.md', 'mcp/index.mjs', 'mcp.json', 'hooks/hooks.json', '.cursor-plugin/plugin.json']) {
+	for (const rel of ['shared/x.md', 'mcp/index.mjs', 'mcp.json', 'hooks/hooks.json', '.cursor-plugin/plugin.json', 'skills/\u00e9/SKILL.md']) {
 		const r = run(repo({ baseFiles: BASE_FILES, changes: { [rel]: 'new\n' } }));
 		assert.equal(r.status, 1, rel);
 		assert.match(r.out, /payload changed/, rel);
@@ -80,6 +85,13 @@ test('every payload path counts: shared, mcp, mcp.json, hooks and both manifests
 test('a deleted payload file counts', () => {
 	const r = run(repo({ baseFiles: BASE_FILES, changes: { 'skills/a/SKILL.md': null } }));
 	assert.equal(r.status, 1);
+	assert.match(r.out, /payload changed/);
+});
+
+test('a payload file moved out of the payload counts', () => {
+	const r = run(repo({ baseFiles: BASE_FILES, changes: { 'skills/a/SKILL.md': null, 'docs/a.md': 'old\n' } }));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /payload changed \(1 file\(s\), for example skills\/a\/SKILL\.md\)/);
 });
 
 test('a higher version passes, a lower one does not, and the numbers are compared as numbers', () => {
@@ -87,6 +99,7 @@ test('a higher version passes, a lower one does not, and the numbers are compare
 	assert.equal(bumped.status, 0, bumped.out);
 	const lower = run(repo({ baseFiles: BASE_FILES, changes: { 'skills/a/SKILL.md': 'new\n', '.claude-plugin/plugin.json': manifest('2.9.9') } }));
 	assert.equal(lower.status, 1);
+	assert.match(lower.out, /not greater than/);
 	const tens = run(repo({ baseFiles: { ...BASE_FILES, '.claude-plugin/plugin.json': manifest('3.0.9') }, changes: { 'skills/a/SKILL.md': 'new\n', '.claude-plugin/plugin.json': manifest('3.0.10') } }));
 	assert.equal(tens.status, 0, tens.out);
 });

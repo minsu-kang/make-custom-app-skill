@@ -423,12 +423,12 @@ function semverGreater(a, b) {
 }
 
 function checkReleaseRule(baseRef) {
-	const diff = git('diff', '--name-only', `${baseRef}...HEAD`);
+	const diff = git('diff', '--name-only', '--no-renames', '-z', `${baseRef}...HEAD`);
 	if (diff.status !== 0) {
 		error('--release-base', `cannot diff against ${baseRef}: ${(diff.stderr || '').split('\n').find((l) => l.trim()) || 'git failed'}`);
 		return;
 	}
-	const touched = diff.stdout.split('\n').filter((file) => file && PAYLOAD.some((re) => re.test(file)));
+	const touched = diff.stdout.split('\0').filter((file) => file && PAYLOAD.some((re) => re.test(file)));
 	if (!touched.length) return;
 	const manifest = readJson('.claude-plugin/plugin.json');
 	if (!manifest) return;
