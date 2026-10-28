@@ -31,6 +31,8 @@ function exchange({ command, args = [], env = process.env, requests, timeoutMs =
 		};
 		const timer = setTimeout(() => finish(new Error(`MCP server did not answer within ${timeoutMs} ms. stderr: ${stderr.trim()}`)), timeoutMs);
 
+		// A write to a server that already died fails here (EPIPE); the "exited early" rejection reports it.
+		child.stdin.on('error', () => {});
 		const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
 		const request = (method, params) =>
 			new Promise((ok) => {

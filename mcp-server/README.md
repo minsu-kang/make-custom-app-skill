@@ -40,13 +40,13 @@ The plugin starts the server from `mcp/index.mjs` at the plugin root, a bundle b
 | Pinecone index (default `make-app-contexts`) | `MAKE_APP_CONTEXT_PINECONE_INDEX` | `pinecone-index-name: <value>` |
 | OpenAI API key | `MAKE_APP_CONTEXT_OPENAI_API_KEY` | `openai-api-key: <value>` |
 
-The setup wizard of the plugin writes the secrets-file lines. App contexts are read from `~/.make-custom-app/contexts`. The generic names `PINECONE_API_KEY` and `OPENAI_API_KEY` are not read, so unrelated keys in your shell are never picked up.
+The setup wizard of the plugin writes the secrets-file lines. App contexts are read from `~/.make-custom-app/contexts`. The generic names `PINECONE_API_KEY`, `OPENAI_API_KEY` and `PINECONE_INDEX_NAME` are not read, so unrelated keys in your shell are never picked up.
 
 ### In an old 2.x install
 
 The 2.x installers copy this source to `~/.claude/skills/make-custom-app/mcp-server` (or the `~/.cursor` twin), build it there, and register it with the keys from `.env` under the generic names `PINECONE_API_KEY`, `OPENAI_API_KEY` and `PINECONE_INDEX_NAME`. A server started from such a path keeps those names and reads contexts from `~/.claude/make-app-contexts` or `~/.cursor/make-app-contexts`, as the 2.x scripts write them. The path rule is `isLegacyInstall` in `lib/config.ts`.
 
-### Manual setup (development, or an old install by hand)
+### Manual setup (development)
 
 1. Install dependencies:
 
@@ -60,13 +60,7 @@ npm install
 npm run build
 ```
 
-3. Copy `.env.example` to `.env` and fill in your API keys:
-
-```bash
-cp .env.example .env
-```
-
-4. Add to Cursor MCP settings (Settings → MCP):
+3. Add to Cursor MCP settings (Settings → MCP):
 
 ```json
 {
@@ -74,15 +68,17 @@ cp .env.example .env
     "command": "node",
     "args": ["/path/to/mcp-server/dist/index.js"],
     "env": {
-      "PINECONE_API_KEY": "your-pinecone-api-key",
-      "OPENAI_API_KEY": "your-openai-api-key",
-      "PINECONE_INDEX_NAME": "make-app-contexts"
+      "MAKE_APP_CONTEXT_PINECONE_API_KEY": "your-pinecone-api-key",
+      "MAKE_APP_CONTEXT_OPENAI_API_KEY": "your-openai-api-key",
+      "MAKE_APP_CONTEXT_PINECONE_INDEX": "make-app-contexts"
     }
   }
 }
 ```
 
-5. Restart Cursor.
+4. Restart Cursor.
+
+A server started from a clone of this repository, registered by hand or by `npm run register`, is read as the plugin: it needs the `MAKE_APP_CONTEXT_*` names above or the secrets-file lines, and it ignores the generic names. Only a server under `.../skills/make-custom-app/mcp-server/`, which the 2.x installers create, keeps the generic names. `.env` and `.env.example` are read only by the 2.x installers and `register.js`.
 
 ## Development
 
