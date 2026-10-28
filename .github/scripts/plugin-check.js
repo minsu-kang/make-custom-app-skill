@@ -47,7 +47,7 @@ const MCP_LOCAL = 'make-app-context';
 const MCP_REMOTE = { make: 'https://mcp.make.com/v2', atlassian: 'https://mcp.atlassian.com/v1/mcp' };
 const MCP_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}/';
 const PLACEHOLDER = /\$\{([^}]*)\}/g;
-const SECRET_LIKE = /(?:sk-[\w-]{8,}|pcsk_[\w-]{8,}|ATATT3x[\w=-]+)/;
+const SECRET_LIKE = /(?<![\w-])(?:sk-[\w-]{8,}|pcsk_[\w-]{8,}|ATATT3x[\w=-]+)/;
 const ANCHOR = [
 	'Plugin root: ${CLAUDE_PLUGIN_ROOT}',
 	'If the line above still shows a literal ${...}, the plugin root is the directory',
@@ -332,7 +332,7 @@ function checkMcpConfig() {
 		return;
 	}
 	if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
-		error('mcp.json', 'has no mcpServers object');
+		error('mcp.json', 'has no mcpServers object; the file must be { "mcpServers": { ... } }');
 		return;
 	}
 	const expected = [MCP_LOCAL, ...Object.keys(MCP_REMOTE)];
@@ -344,7 +344,7 @@ function checkMcpConfig() {
 			continue;
 		}
 		for (const key of ['env', 'headers']) if (key in server) error('mcp.json', `server "${name}" has ${key}; mcp.json holds no secret and no environment`);
-		if (name in MCP_REMOTE) {
+		if (Object.hasOwn(MCP_REMOTE, name)) {
 			if (server.type !== 'http') error('mcp.json', `server "${name}" needs "type": "http" (Claude drops a remote entry without it)`);
 			if (server.url !== MCP_REMOTE[name]) error('mcp.json', `server "${name}" must use ${MCP_REMOTE[name]}`);
 		} else if (name === MCP_LOCAL) {
@@ -357,7 +357,7 @@ function checkMcpConfig() {
 	for (const [, variable] of text.matchAll(PLACEHOLDER)) {
 		if (variable !== 'CLAUDE_PLUGIN_ROOT') error('mcp.json', `the placeholder named ${variable} is not allowed; only CLAUDE_PLUGIN_ROOT is`);
 	}
-	if (SECRET_LIKE.test(text)) error('mcp.json', 'holds something that looks like a secret');
+	if (SECRET_LIKE.test(text)) error('mcp.json', 'holds something that looks like a secret; remove it, keys come from the environment or the secrets file (spec 7.2)');
 }
 
 function checkSyntax() {

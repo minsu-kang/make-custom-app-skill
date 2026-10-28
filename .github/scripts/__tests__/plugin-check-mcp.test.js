@@ -92,4 +92,23 @@ test('no environment, no headers, no other placeholder and no secret in mcp.json
 	assert.match(placeholder.out, /the placeholder named HOME is not allowed/);
 	const secret = run(withMcp(config((s) => (s['make-app-context'].args = ['${CLAUDE_PLUGIN_ROOT}/mcp/index.mjs', 'sk-abcdefghijklmnop']))));
 	assert.match(secret.out, /looks like a secret/);
+	for (const key of ['pcsk_abcdefghijklmnop', 'ATATT3xabcdefghij']) {
+		const shaped = run(withMcp(config((s) => (s['make-app-context'].args = ['${CLAUDE_PLUGIN_ROOT}/mcp/index.mjs', key]))));
+		assert.equal(shaped.status, 1, key);
+		assert.match(shaped.out, /looks like a secret/, key);
+	}
+});
+
+test('ordinary words that contain sk- are not taken for a secret', () => {
+	for (const word of ['risk-assessment.mjs', 'desk-organizer-tool']) {
+		const r = run(withMcp(config((s) => (s['make-app-context'].args = ['${CLAUDE_PLUGIN_ROOT}/mcp/index.mjs', word]))));
+		assert.equal(r.status, 0, r.out);
+		assert.match(r.out, /0 error\(s\)/);
+	}
+});
+
+test('a server named like an inherited property is only an unexpected server', () => {
+	const r = run(withMcp(config((s) => (s.toString = { type: 'http', url: 'https://example.com' }))));
+	assert.match(r.out, /unexpected server "toString"/);
+	assert.doesNotMatch(r.out, /must use/);
 });
