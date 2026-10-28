@@ -40,6 +40,18 @@ test('the released entry still has to equal version.json', () => {
 	assert.ok(lines.some((l) => /versions disagree/.test(l)), lines.join('\n'));
 });
 
+test('a dated 3.x entry on top is skipped and the newest 2.x entry is compared with version.json', () => {
+	const lines = run('# Changelog\n\n## 3.0.0 — 2026-11-01\n\nText.\n\n## 2.3.13 — 2026-10-27\n\nOld.\n');
+	assert.deepEqual(lines, []);
+	const stale = run('# Changelog\n\n## 3.0.0 — 2026-11-01\n\nText.\n\n## 2.3.12 — 2026-10-27\n\nOld.\n');
+	assert.ok(stale.some((l) => /versions disagree/.test(l)), stale.join('\n'));
+});
+
+test('a 2.4.x bridge entry below the dated plugin entry is the one compared', () => {
+	const lines = run('# Changelog\n\n## 3.0.0 — 2026-11-01\n\nText.\n\n## 2.4.0 — 2026-10-20\n\nBridge.\n\n## 2.3.13 — 2026-10-19\n\nOld.\n');
+	assert.ok(lines.some((l) => /versions disagree/.test(l) && /CHANGELOG\.md=2\.4\.0/.test(l)), lines.join('\n'));
+});
+
 test('a changelog without any released entry is an error', () => {
 	const lines = run('# Changelog\n\n## 3.0.0 (unreleased)\n');
 	assert.ok(lines.some((l) => /does not match "## X\.Y\.Z/.test(l)), lines.join('\n'));

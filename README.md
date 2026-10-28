@@ -47,6 +47,8 @@ claude plugin marketplace update make-custom-app
 claude plugin update make-custom-app@make-custom-app
 ```
 
+The same two commands apply when Cursor loads the Claude install.
+
 `check-setup.js` prints an `UPDATE_AVAILABLE` line, without blocking your work, when master carries a newer version.
 
 ## Coming from a 2.x install

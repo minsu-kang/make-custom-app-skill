@@ -31,7 +31,7 @@ Diagnose and fix the local setup of the Make custom app tools. It makes no edit 
 ## Procedure
 
 1. Run `node "<plugin root>/shared/scripts/check-setup.js"` (Shell, `required_permissions: ["all"]`). It checks `imt-app-runtime-path`, the Make API credentials, the `@make.com` Atlassian account behind the Jira token, and the optional mockup path, team id and MCP keys, and it prints the fix for anything missing. User config (paths, API keys, Jira credentials) lives in `~/.make-custom-app-skill-secrets`; scripts read it, you never do.
-2. Exit 0: report that the setup is complete, with any OPTIONAL items and `LEGACY_INSTALL:` lines it printed.
+2. Exit 0: report that the setup is complete, with any OPTIONAL items, `LEGACY_INSTALL:` lines, and `UPDATE_AVAILABLE:` notice it printed.
 3. Exit 1: show the output and stop (no app code, scripts, or MCP calls) until it is fixed, then run it again.
    - A `make account` refusal for a non-`@make.com` account is final: offer no workaround. Other `make account` failures follow their printed fix.
    - For MISSING config only, tell the user to run the printed `setup-secrets.js` command in their own terminal, never run it yourself (it is interactive and writes secrets).

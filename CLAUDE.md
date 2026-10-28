@@ -81,8 +81,8 @@ Scripts resolve the editor with `shared/scripts/lib/paths.js`: the `--editor cla
 - `mcp-server` (Node 22): `npm ci`, lint, build, test, and `node ../tools/build-mcp.js --check`.
 - `legacy-bridge`: installs the 2.x skill in a fake `HOME` from this checkout and drives its built server (`tools/legacy-bridge.js`), while the installers exist.
 - `skill-scripts` (Node 22 and 24): the script tests with coverage, for `shared/scripts` and for the old tree.
-- `skill-check`: `check-skill.js` for the old tree (an unreleased top CHANGELOG entry is skipped), and the guard that `skill/`, `rules/`, the installers, and `version.json` are unchanged on integration branches.
-- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
+- `skill-check`: `check-skill.js` for the old tree (it reads the newest 2.x CHANGELOG entry, so the plugin entry above it is skipped), and the guard that `skill/`, `rules/`, the installers, and `version.json` are unchanged on integration branches.
+- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, marketplace, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
 - `plugin-validate`: `claude plugin validate` with a pinned Claude Code version.
 - `lint-misc`: `shellcheck` on the two `.sh` installers and `actionlint`.
 

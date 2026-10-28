@@ -110,6 +110,18 @@ test('a base without a plugin manifest (the 2.x master) accepts any version', ()
 	assert.equal(r.status, 0, r.out);
 });
 
+test('a payload change whose top CHANGELOG heading is still unreleased is an error', () => {
+	const baseFiles = { ...BASE_FILES, 'CHANGELOG.md': '# Changelog\n\n## 3.0.0 \u2014 2026-10-01\n\nOld.\n' };
+	const changes = { 'skills/a/SKILL.md': 'new\n', '.claude-plugin/plugin.json': manifest('3.0.1'), 'CHANGELOG.md': '# Changelog\n\n## 3.0.1 (unreleased)\n\nNew.\n\n## 3.0.0 \u2014 2026-10-01\n\nOld.\n' };
+	const open = run(repo({ baseFiles, changes }));
+	assert.equal(open.status, 1);
+	assert.match(open.out, /CHANGELOG\.md: payload changed \(2 file\(s\), for example [^)]+\) but the top entry "## 3\.0\.1 \(unreleased\)" is still unreleased/);
+	const dated = run(repo({ baseFiles, changes: { ...changes, 'CHANGELOG.md': '# Changelog\n\n## 3.0.1 \u2014 2026-10-02\n\nNew.\n' } }));
+	assert.equal(dated.status, 0, dated.out);
+	const docsOnly = run(repo({ baseFiles, changes: { 'CHANGELOG.md': '# Changelog\n\n## 3.0.0 (unreleased)\n\nText.\n' } }));
+	assert.equal(docsOnly.status, 0, docsOnly.out);
+});
+
 test('a missing manifest at the head is an error when the payload changed', () => {
 	const r = run(repo({ baseFiles: BASE_FILES, changes: { '.claude-plugin/plugin.json': null, 'skills/a/SKILL.md': 'new\n' } }));
 	assert.equal(r.status, 1);

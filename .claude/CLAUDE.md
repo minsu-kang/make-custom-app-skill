@@ -17,7 +17,7 @@ Until the plugin is merged to master, work happens on the branch `plugin`. Versi
 
 ## `version.json` and the old tree
 
-`version.json` and `skill/SKILL.md` serve the 2.x clients that update themselves from master. While the old tree exists, change them only in a named bridge commit (a `2.4.x` patch for the migration scripts), together and with equal versions, and never as part of plugin work. After the cleanup, `version.json` stays at its last value and CI fails a change to it.
+`version.json` and `skill/SKILL.md` serve the 2.x clients that update themselves from master. While the old tree exists, change them only in a named bridge commit (a `2.4.x` patch for the migration scripts), together and with equal versions, and never as part of plugin work. The CHANGELOG entry of a `2.4.x` bridge commit goes below the top plugin entry, where `check-skill.js` reads the newest 2.x entry. After the cleanup, `version.json` stays at its last value and CI fails a change to it.
 
 ## Installers
 

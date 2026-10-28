@@ -432,6 +432,11 @@ function checkReleaseRule(baseRef) {
 	}
 	const touched = diff.stdout.split('\0').filter((file) => file && PAYLOAD.some((re) => re.test(file)));
 	if (!touched.length) return;
+	const changelog = fs.existsSync(path.join(ROOT, 'CHANGELOG.md')) ? read('CHANGELOG.md') : null;
+	const heading = (changelog || '').split(/\r?\n/).find((line) => line.startsWith('## '));
+	if (/\(unreleased\)\s*$/.test(heading || '')) {
+		error('CHANGELOG.md', `payload changed (${touched.length} file(s), for example ${touched[0]}) but the top entry "${heading}" is still unreleased; a payload change is a release, so give the entry a date`);
+	}
 	const manifest = readJson('.claude-plugin/plugin.json');
 	if (!manifest) return;
 	const shown = git('show', `${baseRef}:.claude-plugin/plugin.json`);
@@ -474,6 +479,7 @@ function checkMarketplace() {
 	const entries = Array.isArray(market.plugins) ? market.plugins : [];
 	if (entries.length !== 1) return error(rel, `lists ${entries.length} plugins, expected exactly one`);
 	const [entry] = entries;
+	if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return error(rel, 'plugin entry is not an object');
 	if (entry.name !== PLUGIN_NAME) error(rel, `plugin entry is named "${entry.name}", expected "${PLUGIN_NAME}"`);
 	if (entry.source !== './') error(rel, `plugin entry source is "${entry.source}", expected "./" (the repository root is the plugin)`);
 	if ('version' in entry) error(rel, 'plugin entry must not carry a version; plugin.json holds it, and a second copy would go stale');

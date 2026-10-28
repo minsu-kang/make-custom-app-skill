@@ -8,7 +8,7 @@
  *   node check-setup.js                          human-readable report
  *   node check-setup.js --json                   machine-readable report
  *   node check-setup.js --editor claude|cursor   (or --editor=cursor) when no editor variable is set and the secrets file has no editor: line
- *   node check-setup.js --skip-update-check      do not look for a newer version on master (also: MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK set to any value)
+ *   node check-setup.js --skip-update-check      do not look for a newer version on master (also: MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK set to any non-empty value)
  *
  * Exit codes: 0 = every required item OK, 1 = a required item is missing or the editor cannot be told.
  * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) and a newer version on master (an UPDATE_AVAILABLE notice)
