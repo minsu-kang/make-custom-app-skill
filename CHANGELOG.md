@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0 (unreleased)
+
+The make-custom-app skill becomes one plugin for Claude Code and Cursor. This entry is completed in the merge commit.
+
+- **Nine task skills.** `skills/make-app-*` replace the single `make-custom-app` skill: task refinement, bug investigation, code review, feature request, task, endpoint, question, live run, and setup. Each carries the same hard rules, generated from `shared/hard-rules.md`.
+- **One shared folder.** Workflows, references, and scripts live in `shared/`. Scripts find their own folder, resolve the editor through `shared/scripts/lib/paths.js`, and keep app contexts in `~/.make-custom-app/contexts` for both editors.
+- **Three MCP servers.** `mcp.json` declares `make-app-context` (a committed bundle, `mcp/index.mjs`), the Make MCP server, and the Atlassian MCP server. The context server reads its keys from `MAKE_APP_CONTEXT_*` variables or the secrets file.
+- **Checks.** `plugin-check` guards the manifests, `mcp.json`, the skills, and the shared content; `tools/build-mcp.js --check` guards the bundle.
+
 ## 2.3.13 — 2026-10-27
 
 Specify endpoint remediation for sub-resource token exchanges on deployed vs. new apps and for `arbitraryCall` on token-exposing APIs.

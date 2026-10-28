@@ -8,9 +8,8 @@
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
-// by shared/index.md, the syntax of tools/, .github/scripts/ and shared/scripts/, and mcp.json when it exists.
+// by shared/index.md, the syntax of tools/, .github/scripts/ and shared/scripts/, and mcp.json and the plugin manifests when they exist.
 // Prints warnings (a description over 400 characters) without failing. Exit 1 on any error.
-// Later plans add the version and manifest checks to this file.
 
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +42,9 @@ const DESCRIPTION_BUDGET = 4000;
 const YAML_NOT_PLAIN = /:(?:[ \t]|$)| #|^[#,[\]{}&*!|>'"%@`]/;
 const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
 const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
+const PLUGIN_NAME = 'make-custom-app';
+const SEMVER = /^\d+\.\d+\.\d+$/;
+const CHANGELOG_TOP = /^## (\d+\.\d+\.\d+)(?: \u2014 \d{4}-\d{2}-\d{2}| \(unreleased\))?$/;
 const MCP_LOCAL = 'make-app-context';
 const MCP_REMOTE = { make: 'https://mcp.make.com/v2', atlassian: 'https://mcp.atlassian.com/v1/mcp' };
 const MCP_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}/';
@@ -360,6 +362,43 @@ function checkMcpConfig() {
 	if (SECRET_LIKE.test(text)) error('mcp.json', 'holds something that looks like a secret; remove it, keys come from the environment or the secrets file (spec 7.2)');
 }
 
+function readJson(rel) {
+	const text = read(rel);
+	if (text === null) return null;
+	try {
+		return JSON.parse(text);
+	} catch (err) {
+		error(rel, `is not valid JSON: ${err.message}`);
+		return null;
+	}
+}
+
+function checkManifests() {
+	const claude = readJson('.claude-plugin/plugin.json');
+	const cursor = readJson('.cursor-plugin/plugin.json');
+	if (!claude || !cursor) return;
+	for (const [rel, manifest] of [['.claude-plugin/plugin.json', claude], ['.cursor-plugin/plugin.json', cursor]]) {
+		if (manifest.name !== PLUGIN_NAME) error(rel, `name is "${manifest.name}", expected "${PLUGIN_NAME}"`);
+		if (!SEMVER.test(manifest.version || '')) error(rel, `version "${manifest.version}" is not X.Y.Z`);
+		if (typeof manifest.description !== 'string' || !manifest.description.trim()) error(rel, 'description is empty');
+	}
+	if (claude.version !== cursor.version) error('.cursor-plugin/plugin.json', `version ${cursor.version} differs from ${claude.version} in .claude-plugin/plugin.json`);
+	if (claude.description !== cursor.description) error('.cursor-plugin/plugin.json', 'description differs from .claude-plugin/plugin.json');
+	if (JSON.stringify(claude.author) !== JSON.stringify(cursor.author)) error('.cursor-plugin/plugin.json', 'author differs from .claude-plugin/plugin.json');
+	if (claude.mcpServers !== './mcp.json') error('.claude-plugin/plugin.json', 'mcpServers must be "./mcp.json"');
+	if (cursor.rules !== './plugin-rules/') error('.cursor-plugin/plugin.json', 'rules must be "./plugin-rules/", an empty folder, so that the old rules/ folder is not taken for plugin rules');
+	const rulesDir = path.join(ROOT, 'plugin-rules');
+	if (!fs.existsSync(rulesDir)) error('plugin-rules', 'folder is missing (it holds .gitkeep so that git keeps it)');
+	else for (const name of fs.readdirSync(rulesDir)) if (name !== '.gitkeep') error(`plugin-rules/${name}`, 'plugin-rules must stay empty: a rule file here would load in Cursor');
+
+	const changelog = read('CHANGELOG.md');
+	if (changelog === null) return;
+	const heading = changelog.split(/\r?\n/).find((line) => line.startsWith('## '));
+	const top = CHANGELOG_TOP.exec(heading || '');
+	if (!top) error('CHANGELOG.md', `first heading "${heading}" does not match "## X.Y.Z (unreleased)" or "## X.Y.Z \u2014 YYYY-MM-DD"`);
+	else if (top[1] !== claude.version) error('CHANGELOG.md', `top entry ${top[1]} differs from the plugin version ${claude.version}`);
+}
+
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
 	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
@@ -389,6 +428,7 @@ if (FULL_RUN) {
 	if (fs.existsSync(path.join(ROOT, 'skills')) || fs.existsSync(path.join(ROOT, hardRules.SOURCE))) checkHardRules();
 	checkReferenceIndex();
 	if (fs.existsSync(path.join(ROOT, 'mcp.json'))) checkMcpConfig();
+	if (fs.existsSync(path.join(ROOT, '.claude-plugin')) || fs.existsSync(path.join(ROOT, '.cursor-plugin'))) checkManifests();
 	checkSyntax();
 }
 

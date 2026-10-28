@@ -76,7 +76,8 @@ function checkVersions() {
 	if (field('name') !== 'make-custom-app') error('skill/SKILL.md', `front matter name is "${field('name')}", expected "make-custom-app"`);
 	if (!field('description')) error('skill/SKILL.md', 'front matter description is empty');
 
-	const firstHeading = changelog.split(/\r?\n/).find((l) => l.startsWith('## '));
+	// An unreleased plugin entry ("## 3.0.0 (unreleased)") sits above the last released 2.x entry; the 2.x files are checked against the released one.
+	const firstHeading = changelog.split(/\r?\n/).find((l) => l.startsWith('## ') && !/\(unreleased\)\s*$/.test(l));
 	const top = /^## (\d+\.\d+\.\d+) — (\d{4}-\d{2}-\d{2})$/.exec(firstHeading || '');
 	if (!top) {
 		error('CHANGELOG.md', `first heading "${firstHeading}" does not match "## X.Y.Z — YYYY-MM-DD"`);
