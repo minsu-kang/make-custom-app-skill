@@ -8,7 +8,7 @@
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
-// by shared/index.md, and the syntax of tools/, .github/scripts/ and shared/scripts/.
+// by shared/index.md, the syntax of tools/, .github/scripts/ and shared/scripts/, and mcp.json when it exists.
 // Prints warnings (a description over 400 characters) without failing. Exit 1 on any error.
 // Later plans add the version and manifest checks to this file.
 
@@ -43,6 +43,11 @@ const DESCRIPTION_BUDGET = 4000;
 const YAML_NOT_PLAIN = /:(?:[ \t]|$)| #|^[#,[\]{}&*!|>'"%@`]/;
 const APPROVED_SCRIPTS = new Set(['check-setup', 'review-changes']);
 const ALLOWED_TOOL = /Bash\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/shared\/scripts\/([\w-]+)\.js"\*\)/g;
+const MCP_LOCAL = 'make-app-context';
+const MCP_REMOTE = { make: 'https://mcp.make.com/v2', atlassian: 'https://mcp.atlassian.com/v1/mcp' };
+const MCP_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}/';
+const PLACEHOLDER = /\$\{([^}]*)\}/g;
+const SECRET_LIKE = /(?:sk-[\w-]{8,}|pcsk_[\w-]{8,}|ATATT3x[\w=-]+)/;
 const ANCHOR = [
 	'Plugin root: ${CLAUDE_PLUGIN_ROOT}',
 	'If the line above still shows a literal ${...}, the plugin root is the directory',
@@ -315,6 +320,46 @@ function checkHardRules() {
 	for (const rel of result.drifted) error(rel, `hard-rules block differs from ${hardRules.SOURCE}; run node tools/sync-hard-rules.js`);
 }
 
+function checkMcpConfig() {
+	const text = read('mcp.json');
+	if (text === null) return;
+	let servers;
+	try {
+		const config = JSON.parse(text);
+		servers = config && config.mcpServers;
+	} catch (err) {
+		error('mcp.json', `is not valid JSON: ${err.message}`);
+		return;
+	}
+	if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
+		error('mcp.json', 'has no mcpServers object');
+		return;
+	}
+	const expected = [MCP_LOCAL, ...Object.keys(MCP_REMOTE)];
+	for (const name of expected) if (!(name in servers)) error('mcp.json', `server "${name}" is missing`);
+	for (const name of Object.keys(servers)) if (!expected.includes(name)) error('mcp.json', `unexpected server "${name}" (spec 7.1 lists ${expected.join(', ')})`);
+	for (const [name, server] of Object.entries(servers)) {
+		if (!server || typeof server !== 'object') {
+			error('mcp.json', `server "${name}" is not an object`);
+			continue;
+		}
+		for (const key of ['env', 'headers']) if (key in server) error('mcp.json', `server "${name}" has ${key}; mcp.json holds no secret and no environment`);
+		if (name in MCP_REMOTE) {
+			if (server.type !== 'http') error('mcp.json', `server "${name}" needs "type": "http" (Claude drops a remote entry without it)`);
+			if (server.url !== MCP_REMOTE[name]) error('mcp.json', `server "${name}" must use ${MCP_REMOTE[name]}`);
+		} else if (name === MCP_LOCAL) {
+			const entry = Array.isArray(server.args) ? server.args[0] : undefined;
+			if (server.command !== 'node') error('mcp.json', `server "${name}" must run node`);
+			if (typeof entry !== 'string' || !entry.startsWith(MCP_PLUGIN_ROOT)) error('mcp.json', `server "${name}" must start ${MCP_PLUGIN_ROOT}<path to the bundle> as its first argument`);
+			else if (!fs.existsSync(path.join(ROOT, entry.slice(MCP_PLUGIN_ROOT.length)))) error('mcp.json', `server "${name}" points at ${entry.slice(MCP_PLUGIN_ROOT.length)}, which does not exist`);
+		}
+	}
+	for (const [, variable] of text.matchAll(PLACEHOLDER)) {
+		if (variable !== 'CLAUDE_PLUGIN_ROOT') error('mcp.json', `the placeholder named ${variable} is not allowed; only CLAUDE_PLUGIN_ROOT is`);
+	}
+	if (SECRET_LIKE.test(text)) error('mcp.json', 'holds something that looks like a secret');
+}
+
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
 	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
@@ -343,6 +388,7 @@ if (FULL_RUN) {
 	if (fs.existsSync(path.join(ROOT, 'skills'))) checkSkillLayer();
 	if (fs.existsSync(path.join(ROOT, 'skills')) || fs.existsSync(path.join(ROOT, hardRules.SOURCE))) checkHardRules();
 	checkReferenceIndex();
+	if (fs.existsSync(path.join(ROOT, 'mcp.json'))) checkMcpConfig();
 	checkSyntax();
 }
 
