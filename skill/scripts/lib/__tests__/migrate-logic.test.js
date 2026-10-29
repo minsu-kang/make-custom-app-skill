@@ -92,6 +92,10 @@ describe('required parameters', () => {
 			findClaudeBinary: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
 			throttleFile: ['tmpdir', { tmpdir: '/t' }],
 			readDeclinedAt: ['home', { home: '/h' }],
+			childEnv: ['env and home', { env: {}, home: '/h' }],
+			spawnSpec: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
+			readSecretSources: ['home', { home: '/h' }],
+			acquireMigrationLock: ['home', { home: '/h' }],
 			migrationNotice: ['env, home, tmpdir, platform, skillRoot, and editorDir', { env: {}, home: '/h', tmpdir: '/t', platform: 'linux', skillRoot: '/s', editorDir: '.claude' }],
 		};
 		for (const [name, [names, params]] of Object.entries(full)) {
@@ -849,5 +853,865 @@ describe('migrationNotice', () => {
 		const p = clocked.params;
 		assert.equal(logic.migrationNotice({ ...p, now: () => 5000 }).due, true);
 		assert.deepEqual(JSON.parse(fs.readFileSync(clocked.throttle, 'utf8')), { state: 'ask', shownAt: 5000 });
+	});
+});
+
+const FAKE = {
+	pinecone: 'fake-pinecone-0001',
+	openai: 'fake-openai-0001',
+	other: 'fake-other-token-1111',
+	cursor: 'fake-cursor-token-2222',
+	pinecone2: 'fake-pinecone-9999',
+};
+
+function put(file, text) {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, text);
+}
+
+function errorWithCode(code) {
+	return Object.assign(new Error(`failed with ${code}`), { code });
+}
+
+describe('task 4 constants', () => {
+	it('exports ENV_TO_KEY and LOCK_STALE_MS', () => {
+		assert.deepEqual(logic.ENV_TO_KEY, { PINECONE_API_KEY: 'pinecone-api-key', OPENAI_API_KEY: 'openai-api-key', PINECONE_INDEX_NAME: 'pinecone-index-name' });
+		assert.equal(logic.LOCK_STALE_MS, 600000);
+	});
+});
+
+describe('parseArgs', () => {
+	const DEFAULTS = { dryRun: false, json: false, skipVersion: false, timeoutSec: 75, error: null };
+	const TIMEOUT_ERROR = '--timeout needs a whole number of seconds from 5 to 600';
+
+	it('parseArgs: no arguments give the defaults, and each flag sets only its own field', () => {
+		assert.deepEqual(logic.parseArgs([]), DEFAULTS);
+		assert.deepEqual(logic.parseArgs(), DEFAULTS);
+		assert.deepEqual(logic.parseArgs(['--json']), { ...DEFAULTS, json: true });
+		assert.deepEqual(logic.parseArgs(['--skip-version']), { ...DEFAULTS, skipVersion: true });
+		assert.deepEqual(logic.parseArgs(['--json', '--skip-version']), { ...DEFAULTS, json: true, skipVersion: true });
+	});
+
+	it('parseArgs: --dry-run implies --skip-version, in any order and together with it', () => {
+		assert.deepEqual(logic.parseArgs(['--dry-run']), { ...DEFAULTS, dryRun: true, skipVersion: true });
+		assert.deepEqual(logic.parseArgs(['--json', '--dry-run']), { ...DEFAULTS, json: true, dryRun: true, skipVersion: true });
+		assert.deepEqual(logic.parseArgs(['--skip-version', '--dry-run', '--timeout=9']), { ...DEFAULTS, dryRun: true, skipVersion: true, timeoutSec: 9 });
+	});
+
+	it('parseArgs: --timeout takes both forms, the range 5 to 600, and the last value wins', () => {
+		assert.equal(logic.parseArgs(['--timeout', '30']).timeoutSec, 30);
+		assert.equal(logic.parseArgs(['--timeout=30']).timeoutSec, 30);
+		assert.equal(logic.parseArgs(['--timeout', '5']).timeoutSec, 5);
+		assert.equal(logic.parseArgs(['--timeout=600']).timeoutSec, 600);
+		assert.equal(logic.parseArgs(['--timeout', '0075']).timeoutSec, 75);
+		assert.deepEqual(logic.parseArgs(['--timeout', '20', '--json', '--timeout=40']), { ...DEFAULTS, json: true, timeoutSec: 40 });
+		assert.equal(logic.parseArgs(['--timeout', '30']).error, null);
+	});
+
+	it('parseArgs: a missing, non-numeric, fractional, signed, or out-of-range --timeout gives the timeout error', () => {
+		const bad = [['--timeout'], ['--timeout', ''], ['--timeout', '4'], ['--timeout', '601'], ['--timeout', 'abc'], ['--timeout', '1.5'], ['--timeout', '-5'], ['--timeout', ' 10'], ['--timeout', '1e2'], ['--timeout', '0x10'], ['--timeout', '--json'], ['--timeout', '99999999999999999999999'], ['--timeout='], ['--timeout=4'], ['--timeout=601'], ['--timeout=abc'], ['--timeout=30=40']];
+		for (const argv of bad) assert.equal(logic.parseArgs(argv).error, TIMEOUT_ERROR, JSON.stringify(argv));
+	});
+
+	it('parseArgs: an unknown option or a positional argument gives "Unknown option", and the first error stops the scan', () => {
+		for (const arg of ['--bogus', '-h', '--help', 'extra', '--dry-run=1', '--json=true', '--repo', '--TIMEOUT']) {
+			assert.equal(logic.parseArgs([arg]).error, `Unknown option: ${arg}`, arg);
+		}
+		assert.equal(logic.parseArgs(['--json', '--bogus', '--timeout', '1']).error, 'Unknown option: --bogus');
+		assert.equal(logic.parseArgs(['--timeout', '1', '--bogus']).error, TIMEOUT_ERROR);
+		assert.equal(logic.parseArgs(['--timeout', '30', 'extra']).error, 'Unknown option: extra');
+	});
+});
+
+describe('childEnv and spawnSpec', () => {
+	const AGENT_ENV = {
+		CLAUDECODE: '1',
+		CLAUDE_CODE_ENTRYPOINT: 'cli',
+		CLAUDE_CODE_SSE_PORT: '1',
+		CLAUDE_CODE_SESSION_ID: '00000000-0000-0000-0000-000000000000',
+		CLAUDE_CODE_CHILD_SESSION: '1',
+		CLAUDE_PID: '1',
+		PATH: '/usr/bin',
+		HOME: '/real/home',
+		USERPROFILE: 'C:\\real',
+		GIT_CONFIG_COUNT: '1',
+	};
+	const HOME = '/tmp/fake-home';
+
+	it('childEnv: HOME and USERPROFILE are the given home, CLAUDECODE is removed, and every other variable stays', () => {
+		const before = JSON.stringify(AGENT_ENV);
+		const env = logic.childEnv({ env: AGENT_ENV, home: HOME });
+		assert.equal(Object.hasOwn(env, 'CLAUDECODE'), false);
+		assert.equal(env.HOME, HOME);
+		assert.equal(env.USERPROFILE, HOME);
+		for (const name of ['CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_PID', 'PATH', 'GIT_CONFIG_COUNT']) {
+			assert.equal(env[name], AGENT_ENV[name], name);
+		}
+		assert.deepEqual(Object.keys(env).sort(), Object.keys(AGENT_ENV).filter((name) => name !== 'CLAUDECODE').sort());
+		assert.equal(JSON.stringify(AGENT_ENV), before);
+		assert.deepEqual(logic.childEnv({ env: {}, home: HOME }), { HOME, USERPROFILE: HOME });
+	});
+
+	it('spawnSpec: the POSIX form and the .exe form keep the binary and the arguments, with the fixed options', () => {
+		const args = ['plugin', 'marketplace', 'list', '--json'];
+		const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: logic.childEnv({ env: AGENT_ENV, home: HOME }), cwd: HOME, timeout: 75000, windowsHide: true };
+		assert.deepEqual(logic.spawnSpec({ bin: '/usr/local/bin/claude', args, platform: 'linux', env: AGENT_ENV, home: HOME, timeoutMs: 75000 }), { command: '/usr/local/bin/claude', args, options });
+		assert.deepEqual(logic.spawnSpec({ bin: 'C:\\Tools\\claude.exe', args, platform: 'win32', env: AGENT_ENV, home: HOME, timeoutMs: 75000 }), { command: 'C:\\Tools\\claude.exe', args, options });
+		assert.deepEqual(logic.spawnSpec({ bin: '/usr/local/bin/claude.cmd', args, platform: 'darwin', env: AGENT_ENV, home: HOME, timeoutMs: 75000 }), { command: '/usr/local/bin/claude.cmd', args, options });
+		const bare = logic.spawnSpec({ bin: '/b/claude', platform: 'linux', env: {}, home: HOME });
+		assert.deepEqual(bare.args, []);
+		assert.equal(bare.options.timeout, undefined);
+		assert.equal(Object.hasOwn(bare.options, 'windowsVerbatimArguments'), false);
+	});
+
+	it('spawnSpec: a .cmd on Windows (any case) runs through cmd.exe /d /s /c with one verbatim command string', () => {
+		for (const bin of ['C:\\Users\\a\\AppData\\Roaming\\npm\\claude.cmd', 'C:\\x\\CLAUDE.CMD', 'C:\\x\\claude.Cmd']) {
+			const spec = logic.spawnSpec({ bin, args: ['--version'], platform: 'win32', env: AGENT_ENV, home: HOME, timeoutMs: 10000 });
+			assert.equal(spec.command, 'cmd.exe');
+			assert.deepEqual(spec.args, ['/d', '/s', '/c', `"${bin}" --version`]);
+			assert.deepEqual(spec.options, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: logic.childEnv({ env: AGENT_ENV, home: HOME }), cwd: HOME, timeout: 10000, windowsHide: true, windowsVerbatimArguments: true });
+		}
+		const several = logic.spawnSpec({ bin: 'C:\\x\\claude.cmd', args: ['plugin', 'install', 'make-custom-app@make-custom-app'], platform: 'win32', env: {}, home: HOME, timeoutMs: 1 });
+		assert.equal(several.args[3], '"C:\\x\\claude.cmd" plugin install make-custom-app@make-custom-app');
+		assert.equal(logic.spawnSpec({ bin: 'C:\\x\\claude.cmd.exe', args: [], platform: 'win32', env: {}, home: HOME, timeoutMs: 1 }).command, 'C:\\x\\claude.cmd.exe');
+	});
+
+	it('childEnv and spawnSpec: a TypeError without env, home, or platform', () => {
+		assert.throws(() => logic.childEnv({ home: HOME }), { name: 'TypeError', message: 'childEnv needs env and home' });
+		assert.throws(() => logic.childEnv({ env: {} }), { name: 'TypeError', message: 'childEnv needs env and home' });
+		assert.throws(() => logic.childEnv(), { name: 'TypeError', message: 'childEnv needs env and home' });
+		const full = { bin: '/b/claude', args: [], platform: 'linux', env: {}, home: HOME };
+		for (const key of ['env', 'home', 'platform']) {
+			const partial = { ...full };
+			delete partial[key];
+			assert.throws(() => logic.spawnSpec(partial), { name: 'TypeError', message: 'spawnSpec needs env, home, and platform' }, key);
+		}
+		assert.throws(() => logic.spawnSpec(), { name: 'TypeError', message: 'spawnSpec needs env, home, and platform' });
+	});
+});
+
+describe('describeError', () => {
+	it('describeError: a SyntaxError whose message quotes a fake secret gives only the path', () => {
+		let parseError;
+		try {
+			JSON.parse(`{"PINECONE_API_KEY": ${FAKE.pinecone} }`);
+		} catch (err) {
+			parseError = err;
+		}
+		assert.ok(parseError instanceof SyntaxError);
+		assert.equal(logic.describeError(parseError, '/h/.claude.json'), '/h/.claude.json is not valid JSON');
+		const quoting = new SyntaxError(`Unexpected token in ${FAKE.openai}`);
+		const text = logic.describeError(quoting, '/h/x.json');
+		assert.equal(text, '/h/x.json is not valid JSON');
+		assert.equal(text.includes('fake-'), false);
+		const withCode = Object.assign(new SyntaxError('x'), { code: 'EFAKE' });
+		assert.equal(logic.describeError(withCode, '/h/y.json'), '/h/y.json is not valid JSON');
+	});
+
+	it('describeError: an error with a string code gives the code and the path', () => {
+		assert.equal(logic.describeError(errorWithCode('ENOENT'), '/h/z.json'), 'ENOENT on /h/z.json');
+		assert.equal(logic.describeError(errorWithCode('EACCES'), '/h/z.json'), 'EACCES on /h/z.json');
+		const withMessage = Object.assign(new Error(`secret ${FAKE.other}`), { code: 'EISDIR' });
+		assert.equal(logic.describeError(withMessage, '/h/dir'), 'EISDIR on /h/dir');
+	});
+
+	it('describeError: anything else gives the fixed text and never the message', () => {
+		const fixed = 'an unexpected error occurred';
+		assert.equal(logic.describeError(new Error(`boom ${FAKE.other}`), '/h/a'), fixed);
+		assert.equal(logic.describeError(Object.assign(new Error('x'), { code: 13 }), '/h/a'), fixed);
+		assert.equal(logic.describeError(new TypeError('bad'), '/h/a'), fixed);
+		for (const value of [undefined, null, 'text', 42, {}]) assert.equal(logic.describeError(value, '/h/a'), fixed, String(value));
+	});
+});
+
+describe('parseJsonc', () => {
+	it('parseJsonc: line comments, block comments, and trailing commas are removed', () => {
+		const text = ['// leading', '{', '\t/* block', '\t   over lines */', '\t"a": 1, // after a value', '\t"list": [1, 2, 3,],', '\t"nested": { "x": [ { "y": true, }, ], },', '\t"b"/* inside */: /* before value */ 2 ,', '}'].join('\n');
+		assert.deepEqual(logic.parseJsonc(text), { a: 1, list: [1, 2, 3], nested: { x: [{ y: true }] }, b: 2 });
+	});
+
+	it('parseJsonc: a // or /* inside a string stays, also after an escaped quote', () => {
+		const text = '{ "url": "http://proxy.corp:8080/a", "glob": "src/**/*.js", "q": "say \\"//\\" now", "c": "a,}b" }';
+		assert.deepEqual(logic.parseJsonc(text), { url: 'http://proxy.corp:8080/a', glob: 'src/**/*.js', q: 'say "//" now', c: 'a,}b' });
+		assert.deepEqual(logic.parseJsonc('["a, ]", "b" , ]'), ['a, ]', 'b']);
+	});
+
+	it('parseJsonc: a block comment never joins two tokens, a leading BOM is ignored, and plain JSON still parses', () => {
+		assert.deepEqual(logic.parseJsonc('[1/**/,2]'), [1, 2]);
+		assert.throws(() => logic.parseJsonc('[1/**/2]'), SyntaxError);
+		assert.deepEqual(logic.parseJsonc('\uFEFF{"a": [1, 2]}'), { a: [1, 2] });
+		assert.deepEqual(logic.parseJsonc('{"a": {"b": null}}'), { a: { b: null } });
+		assert.deepEqual(logic.parseJsonc('{"a": 1} /* unterminated'), { a: 1 });
+	});
+
+	it('parseJsonc: input that is still invalid after the cleanup throws a SyntaxError', () => {
+		for (const text of ['', '{', '[,]', '[1,,]', '{,}', '{"a": }', '{"a": 1,, }', '{ "a": fake-value }', undefined]) {
+			assert.throws(() => logic.parseJsonc(text), SyntaxError, String(text));
+		}
+	});
+});
+
+describe('parseMarketplaceList', () => {
+	const GIT = { name: 'make-custom-app', source: 'git', url: 'https://github.com/minsu-kang/make-custom-app-skill.git', installLocation: '/h/.claude/plugins/marketplaces/make-custom-app' };
+	const DIRECTORY = { name: 'make-custom-app', source: 'directory', path: '/work/clone', installLocation: '/work/clone' };
+
+	it('parseMarketplaceList: the flat shape of M1 gives the url of a git entry and the path of a directory entry', () => {
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT])), [{ name: 'make-custom-app', source: 'https://github.com/minsu-kang/make-custom-app-skill.git' }]);
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([DIRECTORY])), [{ name: 'make-custom-app', source: '/work/clone' }]);
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT, DIRECTORY, { name: 'third', source: 'github', repo: 'o/r' }])).map((entry) => entry.source), ['https://github.com/minsu-kang/make-custom-app-skill.git', '/work/clone', 'o/r']);
+	});
+
+	it('parseMarketplaceList: an entry with only a string source gives that string, and an entry with nothing gives null', () => {
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([{ name: 'a', source: 'git' }, { name: 'b' }, { name: 'c', source: '' }, { name: 'd', url: '' }, { name: 'e', source: 5 }])), [
+			{ name: 'a', source: 'git' },
+			{ name: 'b', source: null },
+			{ name: 'c', source: null },
+			{ name: 'd', source: null },
+			{ name: 'e', source: null },
+		]);
+	});
+
+	it('parseMarketplaceList: the first non-empty of url, path, repo wins, then the same fields of a source object, then the kind string', () => {
+		const entry = (fields) => logic.parseMarketplaceList(JSON.stringify([{ name: 'm', ...fields }]))[0].source;
+		assert.equal(entry({ url: 'U', path: 'P', repo: 'R' }), 'U');
+		assert.equal(entry({ url: '', path: 'P', repo: 'R' }), 'P');
+		assert.equal(entry({ repo: 'R', source: 'git' }), 'R');
+		assert.equal(entry({ source: { url: 'SU', path: 'SP' } }), 'SU');
+		assert.equal(entry({ source: { source: 'git', repo: 'SR' } }), 'SR');
+		assert.equal(entry({ path: 'P', source: { url: 'SU' } }), 'P');
+		assert.equal(entry({ source: { source: 'git' } }), null);
+		assert.equal(entry({ url: 5, path: null, repo: ['x'] }), null);
+	});
+
+	it('parseMarketplaceList: an array, an object with marketplaces, and a leading BOM are read', () => {
+		const list = [{ name: 'a', url: 'U1' }, { name: 'b', source: { path: 'P2' } }];
+		const want = [{ name: 'a', source: 'U1' }, { name: 'b', source: 'P2' }];
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify(list)), want);
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify({ marketplaces: list })), want);
+		assert.deepEqual(logic.parseMarketplaceList(`\uFEFF${JSON.stringify(list)}`), want);
+	});
+
+	it('parseMarketplaceList: text that is not JSON, other shapes, and entries without a name give an empty list or are skipped', () => {
+		for (const text of ['', 'not json', 'Marketplaces:\n- make-custom-app', '{', 'null', '42', '"x"', '{}', '{"marketplaces": {}}', '{"other": []}', undefined, null]) {
+			assert.deepEqual(logic.parseMarketplaceList(text), [], String(text));
+		}
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([null, 'x', 5, [], { url: 'U' }, { name: 7, url: 'U' }, { name: '', url: 'U' }, { name: 'ok', url: 'U' }])), [{ name: 'ok', source: 'U' }]);
+	});
+});
+
+describe('usableValue', () => {
+	it('usableValue: a good value is usable, also with surrounding spaces', () => {
+		assert.equal(logic.usableValue(FAKE.pinecone), true);
+		assert.equal(logic.usableValue('  fake-openai-0001  '), true);
+		assert.equal(logic.usableValue('a b'), true);
+	});
+
+	it('usableValue: empty, spaces only, and a line break anywhere are not usable', () => {
+		for (const value of ['', '   ', '\t', 'a\nb', 'a\r\nb', 'a\rb', 'abc\n', '\nabc', ' abc\r']) assert.equal(logic.usableValue(value), false, JSON.stringify(value));
+	});
+
+	it('usableValue: each placeholder marker of lib/settings.js is not usable', () => {
+		for (const value of ['your-key-here', '<token>', 'a>b', 'someone@example.com', 'ATATT3x...', '/path/provided/by/user', '/path/to/mcp-server', '{path-to-skill}']) {
+			assert.equal(logic.usableValue(value), false, value);
+		}
+	});
+
+	it('usableValue: a value that is not a string is not usable', () => {
+		for (const value of [undefined, null, 5, true, {}, ['x']]) assert.equal(logic.usableValue(value), false, String(value));
+	});
+});
+
+describe('parseEnvText', () => {
+	it('parseEnvText: a leading BOM, CRLF line ends, comments, and blank lines are handled', () => {
+		const text = '\uFEFF# header\r\nPINECONE_API_KEY=fake-pinecone-0001\r\n\r\n   \r\n  # indented comment\r\nOPENAI_API_KEY = fake-openai-0001 \r\n#PINECONE_INDEX_NAME=hidden\r\n';
+		assert.deepEqual(logic.parseEnvText(text), { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai });
+	});
+
+	it('parseEnvText: the last assignment wins, a value keeps later = signs, an empty value is kept, and a line without = is skipped', () => {
+		const text = 'A=1\nB=x=y\nA=2\nC=\nno equals sign\n=orphan\nD=first\nD=\n';
+		assert.deepEqual(logic.parseEnvText(text), { A: '2', B: 'x=y', C: '', D: '' });
+		assert.deepEqual(logic.parseEnvText(''), {});
+		assert.deepEqual(logic.parseEnvText('\n\n'), {});
+	});
+
+	it('parseEnvText: a name such as __proto__ never changes the result object', () => {
+		const parsed = logic.parseEnvText('__proto__=x\nPINECONE_API_KEY=fake-pinecone-0001\n');
+		assert.equal(Object.getPrototypeOf(parsed), Object.prototype);
+		assert.equal(parsed.PINECONE_API_KEY, FAKE.pinecone);
+		assert.equal({}.x, undefined);
+	});
+});
+
+describe('pointsIntoOldSkill and isOldRegistration', () => {
+	const POSIX_SKILL = '/Users/a/.claude/skills/make-custom-app/mcp-server/dist/index.js';
+	const WINDOWS_SKILL = 'C:\\Users\\a\\.cursor\\skills\\make-custom-app\\mcp-server\\dist\\index.js';
+	const PLUGIN_BUNDLE = '/Users/a/.claude/plugins/cache/make-custom-app/make-custom-app/3.0.0/mcp/index.mjs';
+
+	it('pointsIntoOldSkill: either separator, in the command or in an argument', () => {
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: [POSIX_SKILL] }), true);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: [WINDOWS_SKILL] }), true);
+		assert.equal(logic.pointsIntoOldSkill({ command: POSIX_SKILL, args: [] }), true);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['--flag', '--path=/h/.cursor/skills/make-custom-app'] }), true);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'C:\\x\\skills\\make-custom-app', args: [] }), true);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['/x/skills/make-custom-app\\mcp-server'] }), true);
+	});
+
+	it('pointsIntoOldSkill: a plugin cache path, an unrelated path, a longer folder name, and malformed entries are not old', () => {
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: [PLUGIN_BUNDLE] }), false);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'npx', args: ['-y', 'some-server'] }), false);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['/x/skills/make-custom-app-v2/index.js'] }), false);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['/x/myskills/make-custom-app/index.js'] }), false);
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: POSIX_SKILL }), false);
+		assert.equal(logic.pointsIntoOldSkill({ command: 7, args: [null, 5] }), false);
+		for (const entry of [undefined, null, 'node', 5, [], {}]) assert.equal(logic.pointsIntoOldSkill(entry), false, String(entry));
+	});
+
+	it('isOldRegistration: an old skill path with either separator counts without mcpServerPath', () => {
+		assert.equal(logic.isOldRegistration({ command: 'node', args: [POSIX_SKILL] }), true);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: [WINDOWS_SKILL] }, undefined), true);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: [POSIX_SKILL] }, '/elsewhere'), true);
+	});
+
+	it('isOldRegistration: the plugin bundle and an unrelated path are not old, also with an unrelated mcpServerPath', () => {
+		assert.equal(logic.isOldRegistration({ command: 'node', args: [PLUGIN_BUNDLE] }), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: [PLUGIN_BUNDLE] }, '/opt/mcp'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/opt/other/dist/index.js'] }, '/opt/mcp'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/opt/mcp/dist/index.js'] }), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/opt/mcp/dist/index.js'] }, ''), false);
+		assert.equal(logic.isOldRegistration(null, '/opt/mcp'), false);
+	});
+
+	it('isOldRegistration: a command or an argument inside mcpServerPath counts, resolved and with either separator', () => {
+		const old = (parts, folder) => logic.isOldRegistration({ command: parts[0], args: parts.slice(1) }, folder);
+		assert.equal(old(['node', '/opt/mcp/dist/index.js'], '/opt/mcp'), true);
+		assert.equal(old(['node', '/opt/mcp/dist/index.js'], '/opt/mcp/'), true);
+		assert.equal(old(['/opt/mcp/run.sh'], '/opt/mcp'), true);
+		assert.equal(old(['node', '/opt/mcp'], '/opt/mcp'), true);
+		assert.equal(old(['node', '/opt/./mcp//dist/../dist/index.js'], '/opt/mcp'), true);
+		assert.equal(old(['node', 'C:\\srv\\mcp\\dist\\index.js'], 'C:\\srv\\mcp'), true);
+		assert.equal(old(['node', 'C:/srv/mcp/dist/index.js'], 'C:\\srv\\mcp\\'), true);
+		assert.equal(old(['node', 'C:\\srv\\mcp\\dist\\index.js'], 'C:/srv/mcp'), true);
+		assert.equal(old(['node', '/opt/mcp-other/dist/index.js'], '/opt/mcp'), false);
+		assert.equal(old(['node', '/opt/mc/dist/index.js'], '/opt/mcp'), false);
+		assert.equal(old(['node', '/opt/mcp/../other/index.js'], '/opt/mcp'), false);
+		assert.equal(old(['node', 'C:\\srv\\mcp-other\\index.js'], 'C:\\srv\\mcp'), false);
+	});
+
+	it('isOldRegistration: a relative or root mcpServerPath never matches, and relative parts are not resolved against the current folder', () => {
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['mcp/dist/index.js'] }, 'mcp'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/opt/mcp/dist/index.js'] }, 'opt/mcp'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['mcp/dist/index.js'] }, '/opt/mcp'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/anything/at/all'] }, '/'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['C:\\anything'] }, 'C:\\'), false);
+		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/x'] }, 5), false);
+	});
+});
+
+describe('secretsValue', () => {
+	it('secretsValue: the last match wins and the value is trimmed', () => {
+		const text = ['pinecone-api-key: fake-pinecone-0001', 'openai-api-key:fake-openai-0001', '  pinecone-api-key:   fake-pinecone-9999  \r', '> pinecone-api-key: fake-other-token-1111', 'xpinecone-api-key: fake-other-token-1111', 'pinecone-api-key-2: fake-other-token-1111'].join('\n');
+		assert.equal(logic.secretsValue(text, 'pinecone-api-key'), FAKE.pinecone2);
+		assert.equal(logic.secretsValue(text, 'openai-api-key'), FAKE.openai);
+		assert.equal(logic.secretsValue(`\uFEFFpinecone-api-key: ${FAKE.pinecone}\n`, 'pinecone-api-key'), FAKE.pinecone);
+	});
+
+	it('secretsValue: a missing key, an empty value, and a placeholder are null', () => {
+		const text = ['openai-api-key: your-openai-key', 'pinecone-index-name:', 'mcp-server-path: /path/to/mcp-server', 'jira-email: someone@example.com'].join('\n');
+		for (const key of ['openai-api-key', 'pinecone-index-name', 'mcp-server-path', 'jira-email', 'pinecone-api-key']) assert.equal(logic.secretsValue(text, key), null, key);
+		for (const empty of ['', undefined, null]) assert.equal(logic.secretsValue(empty, 'openai-api-key'), null);
+	});
+
+	it('secretsValue: a placeholder on the last line gives the earlier usable value, as the reader of lib/settings.js does', () => {
+		assert.equal(logic.secretsValue(`openai-api-key: ${FAKE.openai}\nopenai-api-key: your-openai-key\nopenai-api-key:\n`, 'openai-api-key'), FAKE.openai);
+		assert.equal(logic.secretsValue('openai-api-key: your-openai-key\nopenai-api-key: your-other-key\n', 'openai-api-key'), null);
+	});
+
+	it('secretsValue: a key with regular expression characters is matched literally', () => {
+		assert.equal(logic.secretsValue('a.b: one\naxb: two\n', 'a.b'), 'one');
+	});
+});
+
+describe('planSecrets', () => {
+	const source = (label, values) => ({ label, values });
+
+	it('planSecrets: the first usable source wins per key, and an unusable value does not block a later one', () => {
+		const plan = logic.planSecrets({
+			sources: [
+				source('claude-registration', { PINECONE_API_KEY: ` ${FAKE.pinecone} `, OPENAI_API_KEY: 'your-openai-key', PINECONE_INDEX_NAME: 'make-apps' }),
+				source('claude-env', { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai }),
+			],
+			existingText: '',
+		});
+		assert.deepEqual(plan, {
+			updates: { 'pinecone-api-key': FAKE.pinecone, 'openai-api-key': FAKE.openai, 'pinecone-index-name': 'make-apps' },
+			copied: ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name'],
+			keptExisting: [],
+			conflicts: [],
+			skipped: [],
+		});
+	});
+
+	it('planSecrets: other differing usable sources are conflicts by key and label, and equal ones are not', () => {
+		const plan = logic.planSecrets({
+			sources: [
+				source('claude-registration', { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai }),
+				source('claude-env', { PINECONE_API_KEY: FAKE.pinecone2, OPENAI_API_KEY: FAKE.openai }),
+				source('cursor-registration:make-app-context', { PINECONE_API_KEY: FAKE.cursor, OPENAI_API_KEY: 'your-openai-key' }),
+				source('cursor-env', { PINECONE_API_KEY: FAKE.pinecone }),
+			],
+			existingText: '',
+		});
+		assert.deepEqual(plan.updates, { 'pinecone-api-key': FAKE.pinecone, 'openai-api-key': FAKE.openai });
+		assert.deepEqual(plan.conflicts, [{ key: 'pinecone-api-key', used: 'claude-registration', others: ['claude-env', 'cursor-registration:make-app-context'] }]);
+		assert.deepEqual(plan.copied, ['pinecone-api-key', 'openai-api-key']);
+		assert.deepEqual(plan.skipped, []);
+	});
+
+	it('planSecrets: an existing usable value wins and is kept, and a placeholder in the file does not', () => {
+		const sources = [source('claude-registration', { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai, PINECONE_INDEX_NAME: 'make-apps' })];
+		const existingText = `pinecone-api-key: ${FAKE.pinecone2}\nopenai-api-key: your-openai-key\n`;
+		assert.deepEqual(logic.planSecrets({ sources, existingText }), {
+			updates: { 'openai-api-key': FAKE.openai, 'pinecone-index-name': 'make-apps' },
+			copied: ['openai-api-key', 'pinecone-index-name'],
+			keptExisting: ['pinecone-api-key'],
+			conflicts: [],
+			skipped: [],
+		});
+		const nothingToOffer = logic.planSecrets({ sources: [], existingText });
+		assert.deepEqual(nothingToOffer, { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] });
+	});
+
+	it('planSecrets: a key with only placeholder or multiline values is skipped with its reason, and a key without any value is not listed', () => {
+		const plan = logic.planSecrets({
+			sources: [
+				source('claude-registration', { PINECONE_API_KEY: 'your-pinecone-key', OPENAI_API_KEY: 'fake-openai\n0001' }),
+				source('claude-env', { PINECONE_API_KEY: '<token>', OPENAI_API_KEY: 'your-openai-key' }),
+			],
+			existingText: '',
+		});
+		assert.deepEqual(plan, {
+			updates: {},
+			copied: [],
+			keptExisting: [],
+			conflicts: [],
+			skipped: [
+				{ key: 'pinecone-api-key', reason: 'placeholder' },
+				{ key: 'openai-api-key', reason: 'multiline' },
+			],
+		});
+		const empty = logic.planSecrets({ sources: [source('claude-env', { PINECONE_API_KEY: '' })], existingText: '' });
+		assert.deepEqual(empty.skipped, [{ key: 'pinecone-api-key', reason: 'placeholder' }]);
+		const covered = logic.planSecrets({ sources: [source('claude-env', { PINECONE_API_KEY: 'your-pinecone-key' })], existingText: `pinecone-api-key: ${FAKE.pinecone}\n` });
+		assert.deepEqual(covered, { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] });
+	});
+
+	it('planSecrets: the result follows the key order of ENV_TO_KEY, and malformed sources and missing arguments are ignored', () => {
+		const plan = logic.planSecrets({
+			sources: [null, 'x', source('a', null), source('b', { PINECONE_INDEX_NAME: 'idx', OPENAI_API_KEY: FAKE.openai, PINECONE_API_KEY: 5, UNRELATED: FAKE.other })],
+			existingText: undefined,
+		});
+		assert.deepEqual(plan.copied, ['openai-api-key', 'pinecone-index-name']);
+		assert.deepEqual(Object.keys(plan.updates), ['openai-api-key', 'pinecone-index-name']);
+		const none = { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] };
+		assert.deepEqual(logic.planSecrets({}), none);
+		assert.deepEqual(logic.planSecrets(), none);
+	});
+});
+
+describe('readSecretSources', () => {
+	const noSleep = () => {
+		throw new Error('unexpected sleep');
+	};
+
+	function countingFs() {
+		const reads = [];
+		return {
+			reads,
+			readFileSync(file, encoding) {
+				reads.push(file);
+				return fs.readFileSync(file, encoding);
+			},
+		};
+	}
+
+	function oldInstall(label) {
+		const home = caseDir(label);
+		const skill = (editor) => path.join(home, editor, 'skills', 'make-custom-app');
+		const server = (editor) => path.join(skill(editor), 'mcp-server', 'dist', 'index.js');
+		const custom = path.join(home, 'custom', 'mcp-server');
+		put(
+			path.join(home, '.claude.json'),
+			JSON.stringify({
+				numStartups: 3,
+				mcpServers: {
+					'make-custom-app': { command: process.execPath, args: [server('.claude')], env: { PINECONE_API_KEY: ` ${FAKE.pinecone} `, OPENAI_API_KEY: FAKE.openai, PINECONE_INDEX_NAME: 'make-apps', EXTRA_TOKEN: FAKE.other } },
+					'other-server': { command: 'npx', args: ['other'], env: { PINECONE_API_KEY: FAKE.other, OPENAI_API_KEY: FAKE.other, TOKEN: FAKE.other } },
+				},
+				projects: { '/some/project': { mcpServers: { 'make-custom-app': { command: process.execPath, args: [server('.claude')], env: { PINECONE_API_KEY: FAKE.other } } } } },
+			}),
+		);
+		put(path.join(skill('.claude'), 'mcp-server', '.env'), `PINECONE_API_KEY=${FAKE.pinecone}\r\nOPENAI_API_KEY=${FAKE.openai}\r\n# note\r\nUNRELATED=${FAKE.other}\r\n`);
+		put(
+			path.join(home, '.cursor', 'mcp.json'),
+			JSON.stringify({
+				mcpServers: {
+					unrelated: { command: 'npx', args: ['x'], env: { PINECONE_API_KEY: FAKE.other, TOKEN: FAKE.other } },
+					'make-app-context': { command: process.execPath, args: [server('.cursor')], env: { PINECONE_API_KEY: FAKE.cursor, PINECONE_INDEX_NAME: 'cursor-index', EXTRA_TOKEN: FAKE.other } },
+					'second-old': { command: 'node', args: [`${skill('.cursor')}\\mcp-server\\dist\\index.js`], env: { OPENAI_API_KEY: FAKE.openai } },
+				},
+			}),
+		);
+		put(path.join(skill('.cursor'), 'mcp-server', '.env'), `PINECONE_API_KEY=${FAKE.cursor}\n`);
+		put(path.join(custom, '.env'), `OPENAI_API_KEY=${FAKE.openai}\nUNRELATED=${FAKE.other}\n`);
+		return { home, skill, server, custom };
+	}
+
+	it('readSecretSources: the order and labels of the five sources, only the three names, and no token of another server or of a project', () => {
+		const { home, custom } = oldInstall('rs-main');
+		const result = logic.readSecretSources({ home, sleep: noSleep, mcpServerPath: custom });
+		assert.deepEqual(result.errors, []);
+		assert.deepEqual(result.sources, [
+			{ label: 'claude-registration', values: { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai, PINECONE_INDEX_NAME: 'make-apps' } },
+			{ label: 'claude-env', values: { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai } },
+			{ label: 'cursor-registration:make-app-context', values: { PINECONE_API_KEY: FAKE.cursor, PINECONE_INDEX_NAME: 'cursor-index' } },
+			{ label: 'cursor-registration:second-old', values: { OPENAI_API_KEY: FAKE.openai } },
+			{ label: 'cursor-env', values: { PINECONE_API_KEY: FAKE.cursor } },
+			{ label: 'mcp-server-path-env', values: { OPENAI_API_KEY: FAKE.openai } },
+		]);
+		assert.equal(JSON.stringify(result).includes(FAKE.other), false);
+		const withoutPath = logic.readSecretSources({ home, sleep: noSleep });
+		assert.deepEqual(withoutPath.sources.map((entry) => entry.label), ['claude-registration', 'claude-env', 'cursor-registration:make-app-context', 'cursor-registration:second-old', 'cursor-env']);
+	});
+
+	it('readSecretSources: a home without any old install gives no sources and no errors, and reads exactly four files', () => {
+		const home = caseDir('rs-empty');
+		const files = countingFs();
+		assert.deepEqual(logic.readSecretSources({ home, fs: files, sleep: noSleep }), { sources: [], errors: [] });
+		assert.deepEqual(files.reads, [path.join(home, '.claude.json'), path.join(home, '.claude', 'skills', 'make-custom-app', 'mcp-server', '.env'), path.join(home, '.cursor', 'mcp.json'), path.join(home, '.cursor', 'skills', 'make-custom-app', 'mcp-server', '.env')]);
+	});
+
+	it('readSecretSources: a torn ~/.claude.json is read again after 100 ms and then used', () => {
+		const home = '/fake/home';
+		const claudeJson = path.join(home, '.claude.json');
+		const good = JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: ['/fake/home/.claude/skills/make-custom-app/mcp-server/dist/index.js'], env: { OPENAI_API_KEY: FAKE.openai } } } });
+		const files = fakeFs(new Map([[claudeJson, ['{"mcpServers": {"make-custom', good]]]));
+		const sleeps = [];
+		const result = logic.readSecretSources({ home, fs: files, sleep: (ms) => sleeps.push(ms) });
+		assert.deepEqual(result, { sources: [{ label: 'claude-registration', values: { OPENAI_API_KEY: FAKE.openai } }], errors: [] });
+		assert.deepEqual(sleeps, [100]);
+		assert.equal(files.reads.filter((file) => file === claudeJson).length, 2);
+	});
+
+	it('readSecretSources: a malformed ~/.claude.json whose bad position holds a fake secret gives "<path> is not valid JSON" after 3 reads and no secret anywhere', () => {
+		const home = caseDir('rs-malformed');
+		const claudeJson = path.join(home, '.claude.json');
+		put(claudeJson, `{"mcpServers":{"make-custom-app":{"env":{"PINECONE_API_KEY":${FAKE.pinecone},"OPENAI_API_KEY":"${FAKE.openai}"}}}}`);
+		const files = countingFs();
+		const sleeps = [];
+		const result = logic.readSecretSources({ home, fs: files, sleep: (ms) => sleeps.push(ms) });
+		assert.deepEqual(result, { sources: [], errors: [`${claudeJson} is not valid JSON`] });
+		assert.equal(files.reads.filter((file) => file === claudeJson).length, 3);
+		assert.deepEqual(sleeps, [100, 100]);
+		assert.equal(JSON.stringify(result).includes('fake-'), false);
+	});
+
+	it('readSecretSources: a Claude entry that is not an old registration is no source, unless it lies inside mcp-server-path', () => {
+		const home = caseDir('rs-not-old');
+		const bundle = path.join(home, '.claude', 'plugins', 'cache', 'make-custom-app', 'make-custom-app', '3.0.0', 'mcp', 'index.mjs');
+		const entry = (file) => ({ mcpServers: { 'make-custom-app': { command: process.execPath, args: [file], env: { PINECONE_API_KEY: FAKE.pinecone } } } });
+		put(path.join(home, '.claude.json'), JSON.stringify(entry(bundle)));
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }), { sources: [], errors: [] });
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep, mcpServerPath: path.join(home, 'elsewhere') }), { sources: [], errors: [] });
+
+		const server = path.join(home, 'server');
+		put(path.join(home, '.claude.json'), JSON.stringify(entry(path.join(server, 'dist', 'index.js'))));
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }), { sources: [], errors: [] });
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep, mcpServerPath: server }), { sources: [{ label: 'claude-registration', values: { PINECONE_API_KEY: FAKE.pinecone } }], errors: [] });
+		put(path.join(server, '.env'), `OPENAI_API_KEY=${FAKE.openai}\n`);
+		const both = logic.readSecretSources({ home, sleep: noSleep, mcpServerPath: ` ${server} ` });
+		assert.deepEqual(both.sources.map((source) => source.label), ['claude-registration', 'mcp-server-path-env']);
+	});
+
+	it('readSecretSources: a Cursor mcp.json with comments and trailing commas is read', () => {
+		const home = caseDir('rs-jsonc');
+		const old = path.join(home, '.cursor', 'skills', 'make-custom-app', 'mcp-server', 'dist', 'index.js');
+		const text = ['// Cursor MCP servers', '{', '\t/* the old server */', '\t"mcpServers": {', '\t\t"make-app-context": {', '\t\t\t"command": "node", // runs the old build', `\t\t\t"args": [${JSON.stringify(old)},],`, `\t\t\t"env": { "PINECONE_API_KEY": "${FAKE.cursor}", },`, '\t\t},', '\t},', '}'].join('\n');
+		put(path.join(home, '.cursor', 'mcp.json'), text);
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }), { sources: [{ label: 'cursor-registration:make-app-context', values: { PINECONE_API_KEY: FAKE.cursor } }], errors: [] });
+	});
+
+	it('readSecretSources: a Cursor mcp.json that never parses gives the error of the path, after one read, and no secret', () => {
+		const home = caseDir('rs-cursor-bad');
+		const cursorJson = path.join(home, '.cursor', 'mcp.json');
+		put(cursorJson, `{"mcpServers": {"x": {"env": {"PINECONE_API_KEY": ${FAKE.cursor} // c\n}}}}`);
+		const files = countingFs();
+		const result = logic.readSecretSources({ home, fs: files, sleep: noSleep });
+		assert.deepEqual(result, { sources: [], errors: [`${cursorJson} is not valid JSON`] });
+		assert.equal(files.reads.filter((file) => file === cursorJson).length, 1);
+		assert.equal(JSON.stringify(result).includes('fake-'), false);
+	});
+
+	it('readSecretSources: mcp-server-path inside an old skill folder, a relative one, and the root are ignored', () => {
+		const run = oldInstall('rs-ignored');
+		const expected = [path.join(run.home, '.claude.json'), path.join(run.skill('.claude'), 'mcp-server', '.env'), path.join(run.home, '.cursor', 'mcp.json'), path.join(run.skill('.cursor'), 'mcp-server', '.env')];
+		const inside = [path.join(run.skill('.claude'), 'mcp-server'), run.skill('.claude'), run.skill('.cursor'), path.join(run.skill('.cursor'), 'mcp-server'), `${path.join(run.skill('.cursor'), 'mcp-server')}${path.sep}`];
+		for (const mcpServerPath of [...inside, 'custom/mcp-server', '..', '.', '/', '', '   ', undefined, null, 5]) {
+			const files = countingFs();
+			const result = logic.readSecretSources({ home: run.home, fs: files, sleep: noSleep, mcpServerPath });
+			assert.deepEqual(files.reads, expected, String(mcpServerPath));
+			assert.equal(result.sources.some((source) => source.label === 'mcp-server-path-env'), false, String(mcpServerPath));
+			assert.equal(result.sources.length, 5, String(mcpServerPath));
+		}
+		const used = countingFs();
+		logic.readSecretSources({ home: run.home, fs: used, sleep: noSleep, mcpServerPath: run.custom });
+		assert.deepEqual(used.reads, [...expected, path.join(run.custom, '.env')]);
+	});
+
+	it('readSecretSources: a missing .env is no source and no error, also when its folder is a file', () => {
+		const home = caseDir('rs-missing-env');
+		put(path.join(home, 'file-not-folder'), 'x');
+		for (const mcpServerPath of [path.join(home, 'nope'), path.join(home, 'file-not-folder')]) {
+			assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep, mcpServerPath }), { sources: [], errors: [] }, mcpServerPath);
+		}
+	});
+
+	it('readSecretSources: read errors other than a missing file are reported by code and path, and ENOTDIR is silent', () => {
+		const home = '/fake/home';
+		const claudeJson = path.join(home, '.claude.json');
+		const claudeEnv = path.join(home, '.claude', 'skills', 'make-custom-app', 'mcp-server', '.env');
+		const cursorJson = path.join(home, '.cursor', 'mcp.json');
+		const cursorEnv = path.join(home, '.cursor', 'skills', 'make-custom-app', 'mcp-server', '.env');
+		const custom = '/fake/custom';
+		const files = fakeFs(
+			new Map([
+				[claudeJson, [errorWithCode('EACCES')]],
+				[claudeEnv, [errorWithCode('EISDIR')]],
+				[cursorJson, [errorWithCode('EPERM')]],
+				[cursorEnv, [errorWithCode('ENOTDIR')]],
+				[path.join(custom, '.env'), [errorWithCode('EBUSY')]],
+			]),
+		);
+		const sleeps = [];
+		const result = logic.readSecretSources({ home, fs: files, sleep: (ms) => sleeps.push(ms), mcpServerPath: custom });
+		assert.deepEqual(result, { sources: [], errors: [`EACCES on ${claudeJson}`, `EISDIR on ${claudeEnv}`, `EPERM on ${cursorJson}`, `EBUSY on ${path.join(custom, '.env')}`] });
+		assert.equal(files.reads.filter((file) => file === claudeJson).length, 3);
+		assert.deepEqual(sleeps, [100, 100]);
+		const quiet = fakeFs(new Map([[claudeJson, [new Error('secret fake-other-token-1111')]]]));
+		assert.deepEqual(logic.readSecretSources({ home, fs: quiet, sleep: () => {} }).errors, [`an unexpected error occurred`]);
+	});
+
+	it('readSecretSources: odd shapes give no sources and no errors, and a leading BOM is ignored', () => {
+		const shapes = [
+			['.claude.json', '[]'],
+			['.claude.json', '{"mcpServers": []}'],
+			['.claude.json', '{"mcpServers": {"make-custom-app": "x"}}'],
+			['.claude.json', JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: ['/x/skills/make-custom-app/y'], env: { PINECONE_API_KEY: 5, OPENAI_API_KEY: null, PINECONE_INDEX_NAME: ['x'] } } } })],
+			['.claude.json', JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: ['/x/skills/make-custom-app/y'], env: 'x' } } })],
+			['.claude.json', JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: ['/x/skills/make-custom-app/y'], env: { OTHER_NAME: FAKE.other } } } })],
+			['.cursor/mcp.json', '{"mcpServers": {"a": null, "b": [], "c": {"command": "node", "args": ["/x/skills/make-custom-app/y"], "env": {"OTHER": "v"}}, "d": {"command": "node", "args": ["/x/skills/make-custom-app/y"]}}}'],
+			['.cursor/mcp.json', '{"mcpServers": "x"}'],
+			['.cursor/mcp.json', '42'],
+		];
+		for (const [name, text] of shapes) {
+			const home = caseDir('rs-shape');
+			put(path.join(home, name), text);
+			assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }), { sources: [], errors: [] }, `${name} ${text}`);
+		}
+		const bom = caseDir('rs-bom');
+		put(path.join(bom, '.claude.json'), `\uFEFF${JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: ['/x/skills/make-custom-app/y'], env: { OPENAI_API_KEY: FAKE.openai } } } })}`);
+		put(path.join(bom, '.cursor', 'skills', 'make-custom-app', 'mcp-server', '.env'), `\uFEFFPINECONE_API_KEY=${FAKE.cursor}\n`);
+		assert.deepEqual(logic.readSecretSources({ home: bom, sleep: noSleep }), {
+			sources: [
+				{ label: 'claude-registration', values: { OPENAI_API_KEY: FAKE.openai } },
+				{ label: 'cursor-env', values: { PINECONE_API_KEY: FAKE.cursor } },
+			],
+			errors: [],
+		});
+	});
+
+	it('readSecretSources: values keep empty and placeholder strings for planSecrets, trimmed', () => {
+		const home = caseDir('rs-unusable');
+		put(path.join(home, '.claude', 'skills', 'make-custom-app', 'mcp-server', '.env'), 'PINECONE_API_KEY=\nOPENAI_API_KEY=  your-openai-key  \n');
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }).sources, [{ label: 'claude-env', values: { PINECONE_API_KEY: '', OPENAI_API_KEY: 'your-openai-key' } }]);
+	});
+});
+
+describe('acquireMigrationLock', () => {
+	const NOW = 1700000000000;
+	const lockDir = (home) => path.join(home, '.make-custom-app');
+	const lockFile = (home) => path.join(lockDir(home), 'cleanup.lock');
+	const alive = () => true;
+
+	it('acquireMigrationLock: a free lock is created with mode 0700 for the folder, mode 0600 for the file, and the pid and time as content', () => {
+		const home = caseDir('lock-free');
+		const lock = logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive });
+		assert.equal(lock.ok, true);
+		assert.equal(typeof lock.release, 'function');
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), '{"pid":4242,"at":1700000000000}');
+		if (process.platform !== 'win32') {
+			assert.equal(fs.statSync(lockFile(home)).mode & 0o777, 0o600);
+			assert.equal(fs.statSync(lockDir(home)).mode & 0o777, 0o700);
+		}
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: a lock held by a live pid is not taken and not changed', () => {
+		const home = caseDir('lock-held');
+		assert.equal(logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive }).ok, true);
+		const asked = [];
+		const second = logic.acquireMigrationLock({ home, pid: 5151, now: NOW + 1000, isAlive: (pid) => (asked.push(pid), true) });
+		assert.deepEqual(second, { ok: false, pid: 4242 });
+		assert.deepEqual(asked, [4242]);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), '{"pid":4242,"at":1700000000000}');
+	});
+
+	it('acquireMigrationLock: a lock whose pid is not alive is replaced', () => {
+		const home = caseDir('lock-dead');
+		logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive });
+		const second = logic.acquireMigrationLock({ home, pid: 5151, now: NOW + 5, isAlive: (pid) => pid !== 4242 });
+		assert.equal(second.ok, true);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW + 5}}`);
+	});
+
+	it('acquireMigrationLock: a lock older than LOCK_STALE_MS is replaced, one of exactly that age is not', () => {
+		const home = caseDir('lock-age');
+		logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive });
+		assert.deepEqual(logic.acquireMigrationLock({ home, pid: 5151, now: NOW + logic.LOCK_STALE_MS, isAlive: alive }), { ok: false, pid: 4242 });
+		const later = logic.acquireMigrationLock({ home, pid: 5151, now: () => NOW + logic.LOCK_STALE_MS + 1, isAlive: alive });
+		assert.equal(later.ok, true);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW + logic.LOCK_STALE_MS + 1}}`);
+	});
+
+	it('acquireMigrationLock: release removes our lock once, never another process lock, and the lock can be taken again', () => {
+		const home = caseDir('lock-release');
+		const first = logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive });
+		first.release();
+		assert.equal(fs.existsSync(lockFile(home)), false);
+		assert.doesNotThrow(() => first.release());
+		const second = logic.acquireMigrationLock({ home, pid: 5151, now: NOW, isAlive: alive });
+		assert.equal(second.ok, true);
+		first.release();
+		assert.equal(fs.existsSync(lockFile(home)), true);
+		fs.writeFileSync(lockFile(home), '{"pid":7,"at":1}');
+		second.release();
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), '{"pid":7,"at":1}');
+	});
+
+	it('acquireMigrationLock: content that is not a pid and a time counts as stale and never reaches isAlive', () => {
+		const bad = ['', 'garbage', '[]', '{"pid":0,"at":1}', '{"pid":-3,"at":1}', '{"pid":1.5,"at":1}', '{"pid":"7","at":1}', '{"pid":4242}', '{"pid":4242,"at":"now"}', '\uFEFF{"pid":4242,"at":"x"}'];
+		for (const content of bad) {
+			const home = caseDir('lock-bad');
+			put(lockFile(home), content);
+			const asked = [];
+			const lock = logic.acquireMigrationLock({ home, pid: 5151, now: NOW, isAlive: (pid) => (asked.push(pid), true) });
+			assert.equal(lock.ok, true, JSON.stringify(content));
+			assert.deepEqual(asked, [], JSON.stringify(content));
+			assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW}}`);
+		}
+	});
+
+	it('acquireMigrationLock: a stale lock is replaced once, and a lock that reappears at once is reported as held', () => {
+		const stale = '{"pid":4242,"at":1}';
+		const fresh = `{"pid":7,"at":${NOW}}`;
+		const calls = [];
+		const reads = [stale, fresh];
+		const racing = {
+			mkdirSync: (dir, options) => calls.push(['mkdir', dir, options]),
+			writeFileSync: (file, content, options) => {
+				calls.push(['write', file, content, options.flag, options.mode]);
+				throw errorWithCode('EEXIST');
+			},
+			readFileSync: () => reads.shift(),
+			unlinkSync: (file) => calls.push(['unlink', file]),
+		};
+		const home = '/fake/home';
+		const result = logic.acquireMigrationLock({ home, fs: racing, pid: 5151, now: NOW, isAlive: (pid) => pid !== 4242 });
+		assert.deepEqual(result, { ok: false, pid: 7 });
+		assert.deepEqual(
+			calls.map((call) => call[0]),
+			['mkdir', 'write', 'unlink', 'write'],
+		);
+		assert.deepEqual(calls[0], ['mkdir', lockDir(home), { recursive: true, mode: 0o700 }]);
+		assert.deepEqual(calls[1], ['write', lockFile(home), `{"pid":5151,"at":${NOW}}`, 'wx', 0o600]);
+		assert.deepEqual(calls[2], ['unlink', lockFile(home)]);
+	});
+
+	it('acquireMigrationLock: a write error other than EEXIST, and an unlink error other than ENOENT, are thrown', () => {
+		const base = { mkdirSync() {}, readFileSync: () => '{"pid":4242,"at":1}' };
+		const denied = { ...base, writeFileSync: () => { throw errorWithCode('EACCES'); }, unlinkSync() {} };
+		assert.throws(() => logic.acquireMigrationLock({ home: '/h', fs: denied, now: NOW }), { code: 'EACCES' });
+		const stuck = { ...base, writeFileSync: () => { throw errorWithCode('EEXIST'); }, unlinkSync: () => { throw errorWithCode('EPERM'); } };
+		assert.throws(() => logic.acquireMigrationLock({ home: '/h', fs: stuck, now: NOW, isAlive: () => false }), { code: 'EPERM' });
+		let writes = 0;
+		const gone = {
+			...base,
+			writeFileSync: () => {
+				if (++writes === 1) throw errorWithCode('EEXIST');
+			},
+			unlinkSync: () => { throw errorWithCode('ENOENT'); },
+		};
+		assert.equal(logic.acquireMigrationLock({ home: '/h', fs: gone, now: NOW, isAlive: () => false }).ok, true);
+		assert.equal(writes, 2);
+	});
+
+	it('acquireMigrationLock: a lock that disappears between the failed create and the read is replaced without error', () => {
+		let writes = 0;
+		const vanishing = {
+			mkdirSync() {},
+			writeFileSync: () => {
+				if (++writes === 1) throw errorWithCode('EEXIST');
+			},
+			readFileSync: () => {
+				throw errorWithCode('ENOENT');
+			},
+			unlinkSync: () => {
+				throw errorWithCode('ENOENT');
+			},
+		};
+		const lock = logic.acquireMigrationLock({ home: '/h', fs: vanishing, now: NOW, isAlive: () => assert.fail('isAlive must not be asked') });
+		assert.equal(lock.ok, true);
+		assert.equal(writes, 2);
+		assert.doesNotThrow(() => lock.release());
+	});
+
+	it('acquireMigrationLock: the defaults are this process, the clock, and a kill-based liveness check', () => {
+		const home = caseDir('lock-defaults');
+		const first = logic.acquireMigrationLock({ home });
+		assert.equal(first.ok, true);
+		const content = JSON.parse(fs.readFileSync(lockFile(home), 'utf8'));
+		assert.equal(content.pid, process.pid);
+		assert.ok(Math.abs(content.at - Date.now()) < 60000);
+		assert.deepEqual(logic.acquireMigrationLock({ home }), { ok: false, pid: process.pid });
+		first.release();
+
+		const finished = spawnSync(process.execPath, ['-e', '0']);
+		put(lockFile(home), JSON.stringify({ pid: finished.pid, at: Date.now() }));
+		assert.equal(logic.acquireMigrationLock({ home }).ok, true);
+		assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, process.pid);
+	});
+
+	it('acquireMigrationLock: the default liveness check treats ESRCH as gone and every other kill result as alive', () => {
+		const realKill = process.kill;
+		const outcomes = [['ESRCH', true], ['EPERM', false], ['EINVAL', false]];
+		try {
+			for (const [code, replaced] of outcomes) {
+				const home = caseDir('lock-kill');
+				put(lockFile(home), `{"pid":4242,"at":${NOW}}`);
+				process.kill = (pid, signal) => {
+					assert.equal(pid, 4242);
+					assert.equal(signal, 0);
+					throw errorWithCode(code);
+				};
+				assert.equal(logic.acquireMigrationLock({ home, pid: 5151, now: NOW }).ok, replaced, code);
+			}
+		} finally {
+			process.kill = realKill;
+		}
+	});
+
+	it('acquireMigrationLock: a TypeError without home', () => {
+		assert.throws(() => logic.acquireMigrationLock(), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
+		assert.throws(() => logic.acquireMigrationLock({ pid: 1 }), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
+		assert.throws(() => logic.readSecretSources(), { name: 'TypeError', message: 'readSecretSources needs home' });
 	});
 });

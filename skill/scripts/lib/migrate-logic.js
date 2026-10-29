@@ -1,14 +1,16 @@
 /**
  * migrate-logic.js: the decisions behind the plugin migration prompt of check-setup.js and the migrate-to-plugin.js script.
  *
- * Role: plugin status, finding the claude binary without running it, the PLUGIN_MIGRATION line, and its throttle. Any function that
+ * Role: plugin status, finding the claude binary without running it, the PLUGIN_MIGRATION line, and its throttle; the arguments,
+ * child process setup, secret sources and plan, and the lock of migrate-to-plugin.js. Any function that
  * reads or writes under a home, temp, or Claude config folder takes those folders (and env, platform, and so on) as required
  * parameters and throws a TypeError without them, so a test or a script can never reach a real home by default.
- * Runs on Node 18 or newer. Needs only Node built-ins.
+ * Runs on Node 18 or newer. Needs only Node built-ins and ./settings.
  */
 const nodeFs = require('fs');
 const nodeOs = require('os');
 const path = require('path');
+const { isPlaceholder } = require('./settings');
 
 const PLUGIN_ID = 'make-custom-app@make-custom-app';
 const MARKETPLACE_NAME = 'make-custom-app';
@@ -321,6 +323,373 @@ function migrationNotice(params) {
 	}
 }
 
+const DEFAULT_TIMEOUT_SEC = 75;
+const TIMEOUT_ERROR = '--timeout needs a whole number of seconds from 5 to 600';
+
+function parseTimeout(raw) {
+	if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null;
+	const seconds = Number(raw);
+	return seconds >= 5 && seconds <= 600 ? seconds : null;
+}
+
+function parseArgs(argv) {
+	const args = Array.isArray(argv) ? argv : [];
+	const result = { dryRun: false, json: false, skipVersion: false, timeoutSec: DEFAULT_TIMEOUT_SEC, error: null };
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === '--dry-run') {
+			result.dryRun = true;
+			result.skipVersion = true;
+		} else if (arg === '--json') {
+			result.json = true;
+		} else if (arg === '--skip-version') {
+			result.skipVersion = true;
+		} else if (arg === '--timeout' || (typeof arg === 'string' && arg.startsWith('--timeout='))) {
+			const seconds = parseTimeout(arg === '--timeout' ? args[++i] : arg.slice('--timeout='.length));
+			if (seconds === null) {
+				result.error = TIMEOUT_ERROR;
+				return result;
+			}
+			result.timeoutSec = seconds;
+		} else {
+			result.error = `Unknown option: ${arg}`;
+			return result;
+		}
+	}
+	return result;
+}
+
+function childEnv(params) {
+	requireParams('childEnv', params, ['env', 'home']);
+	const { env, home } = params;
+	const out = { ...env, HOME: home, USERPROFILE: home };
+	delete out.CLAUDECODE;
+	return out;
+}
+
+function spawnSpec(params) {
+	requireParams('spawnSpec', params, ['env', 'home', 'platform']);
+	const { bin, args = [], platform, env, home, timeoutMs } = params;
+	const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: childEnv({ env, home }), cwd: home, timeout: timeoutMs, windowsHide: true };
+	if (platform === 'win32' && /\.cmd$/i.test(bin)) {
+		return { command: 'cmd.exe', args: ['/d', '/s', '/c', `"${bin}" ${args.join(' ')}`], options: { ...options, windowsVerbatimArguments: true } };
+	}
+	return { command: bin, args, options };
+}
+
+function describeError(err, filePath) {
+	if (err instanceof SyntaxError) return `${filePath} is not valid JSON`;
+	if (err && typeof err.code === 'string') return `${err.code} on ${filePath}`;
+	return 'an unexpected error occurred';
+}
+
+function stripBom(text) {
+	return String(text).replace(/^\uFEFF/, '');
+}
+
+function stripJsonComments(text) {
+	const out = [];
+	let lastComma = -1;
+	let prev = '';
+	let i = 0;
+	while (i < text.length) {
+		const ch = text[i];
+		if (ch === '"') {
+			let end = i + 1;
+			while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+			out.push(text.slice(i, end + 1));
+			lastComma = -1;
+			prev = '"';
+			i = end + 1;
+		} else if (ch === '/' && text[i + 1] === '/') {
+			while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++;
+		} else if (ch === '/' && text[i + 1] === '*') {
+			const close = text.indexOf('*/', i + 2);
+			out.push(' ');
+			i = close === -1 ? text.length : close + 2;
+		} else {
+			if (ch === ',') {
+				lastComma = /[\]}"\w]/.test(prev) ? out.length : -1;
+			} else if (ch === '}' || ch === ']') {
+				if (lastComma !== -1) out[lastComma] = '';
+				lastComma = -1;
+			} else if (!/\s/.test(ch)) {
+				lastComma = -1;
+			}
+			if (!/\s/.test(ch)) prev = ch;
+			out.push(ch);
+			i++;
+		}
+	}
+	return out.join('');
+}
+
+function parseJsonc(text) {
+	return JSON.parse(stripJsonComments(stripBom(text)));
+}
+
+const ADDRESS_FIELDS = ['url', 'path', 'repo'];
+
+function firstAddress(holder) {
+	if (!isPlainObject(holder)) return null;
+	const field = ADDRESS_FIELDS.find((name) => typeof holder[name] === 'string' && holder[name] !== '');
+	return field === undefined ? null : holder[field];
+}
+
+function marketplaceSource(entry) {
+	const direct = firstAddress(entry);
+	if (direct !== null) return direct;
+	const nested = firstAddress(entry.source);
+	if (nested !== null) return nested;
+	return typeof entry.source === 'string' && entry.source !== '' ? entry.source : null;
+}
+
+function parseMarketplaceList(text) {
+	let data;
+	try {
+		data = JSON.parse(stripBom(text));
+	} catch {
+		return [];
+	}
+	const list = Array.isArray(data) ? data : isPlainObject(data) && Array.isArray(data.marketplaces) ? data.marketplaces : [];
+	return list.filter((entry) => isPlainObject(entry) && typeof entry.name === 'string' && entry.name !== '').map((entry) => ({ name: entry.name, source: marketplaceSource(entry) }));
+}
+
+const CR_OR_LF = /[\r\n]/;
+
+function usableValue(value) {
+	return typeof value === 'string' && value.trim() !== '' && !CR_OR_LF.test(value) && !isPlaceholder(value.trim());
+}
+
+function parseEnvText(text) {
+	const values = {};
+	for (const line of stripBom(text).split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (trimmed === '' || trimmed.startsWith('#')) continue;
+		const split = trimmed.indexOf('=');
+		if (split === -1) continue;
+		const key = trimmed.slice(0, split).trim();
+		if (key !== '') values[key] = trimmed.slice(split + 1).trim();
+	}
+	return values;
+}
+
+const OLD_SKILL_FOLDER = /[\\/]skills[\\/]make-custom-app(?:[\\/]|$)/;
+
+function entryParts(entry) {
+	if (!isPlainObject(entry)) return [];
+	return [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter((part) => typeof part === 'string');
+}
+
+function pointsIntoOldSkill(entry) {
+	return entryParts(entry).some((part) => OLD_SKILL_FOLDER.test(part));
+}
+
+function absolutePath(value) {
+	if (typeof value !== 'string' || value === '') return null;
+	const unified = path.posix.normalize(value.replace(/\\/g, '/'));
+	if (!/^(?:\/|[A-Za-z]:\/)/.test(unified)) return null;
+	return unified.length > 1 && unified.endsWith('/') ? unified.slice(0, -1) : unified;
+}
+
+function folderPath(value) {
+	const folder = absolutePath(value);
+	return folder === null || folder === '/' || /^[A-Za-z]:$/.test(folder) ? null : folder;
+}
+
+function liesInside(file, folder) {
+	const target = absolutePath(file);
+	const base = folderPath(folder);
+	if (target === null || base === null) return false;
+	return target === base || target.startsWith(`${base}/`);
+}
+
+function isOldRegistration(entry, mcpServerPath) {
+	if (pointsIntoOldSkill(entry)) return true;
+	if (typeof mcpServerPath !== 'string' || mcpServerPath === '') return false;
+	return entryParts(entry).some((part) => liesInside(part, mcpServerPath));
+}
+
+const ENV_TO_KEY = { PINECONE_API_KEY: 'pinecone-api-key', OPENAI_API_KEY: 'openai-api-key', PINECONE_INDEX_NAME: 'pinecone-index-name' };
+
+function escapeRegExp(text) {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function secretsValue(text, key) {
+	const pattern = new RegExp(`^${escapeRegExp(key)}:\\s*(.+)$`);
+	const lines = String(text ?? '').split('\n');
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const match = pattern.exec(lines[i].trim());
+		if (match !== null && usableValue(match[1])) return match[1];
+	}
+	return null;
+}
+
+const CLAUDE_JSON_ATTEMPTS = 3;
+const CLAUDE_JSON_RETRY_MS = 100;
+const OLD_SKILL_ENV = ['skills', 'make-custom-app', 'mcp-server', '.env'];
+
+function isMissingFile(err) {
+	return err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+}
+
+function readParsed({ fs, file, parse, attempts, sleep }) {
+	let failure;
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		if (attempt > 0) sleep(CLAUDE_JSON_RETRY_MS);
+		let text;
+		try {
+			text = fs.readFileSync(file, 'utf8');
+		} catch (err) {
+			if (isMissingFile(err)) return { missing: true };
+			failure = err;
+			continue;
+		}
+		try {
+			return { value: parse(text) };
+		} catch (err) {
+			failure = err;
+		}
+	}
+	return { failure };
+}
+
+function parseJsonOrJsonc(text) {
+	try {
+		return JSON.parse(stripBom(text));
+	} catch {
+		return parseJsonc(text);
+	}
+}
+
+function envValues(env) {
+	const values = {};
+	if (!isPlainObject(env)) return values;
+	for (const name of Object.keys(ENV_TO_KEY)) {
+		if (typeof env[name] === 'string') values[name] = env[name].trim();
+	}
+	return values;
+}
+
+function readSecretSources(params) {
+	requireParams('readSecretSources', params, ['home']);
+	const { home, fs = nodeFs, sleep = sleepMs } = params;
+	const oldSkillFolders = ['.claude', '.cursor'].map((editor) => path.join(home, editor, 'skills', 'make-custom-app'));
+	const given = typeof params.mcpServerPath === 'string' ? params.mcpServerPath.trim() : '';
+	const mcpServerPath = path.isAbsolute(given) && folderPath(given) !== null && !oldSkillFolders.some((folder) => liesInside(given, folder)) ? given : undefined;
+	const sources = [];
+	const errors = [];
+	const add = (label, env) => {
+		const values = envValues(env);
+		if (Object.keys(values).length > 0) sources.push({ label, values });
+	};
+	const readFile = (file, parse, attempts) => {
+		const read = readParsed({ fs, file, parse, attempts, sleep });
+		if (Object.hasOwn(read, 'failure')) errors.push(describeError(read.failure, file));
+		return Object.hasOwn(read, 'value') ? read.value : null;
+	};
+	const addEnvFile = (label, file) => {
+		const values = readFile(file, parseEnvText, 1);
+		if (values !== null) add(label, values);
+	};
+	const serversOf = (config) => (isPlainObject(config) && isPlainObject(config.mcpServers) ? config.mcpServers : {});
+
+	const claudeServers = serversOf(readFile(path.join(home, '.claude.json'), (text) => JSON.parse(stripBom(text)), CLAUDE_JSON_ATTEMPTS));
+	const claudeEntry = claudeServers['make-custom-app'];
+	if (isOldRegistration(claudeEntry, mcpServerPath)) add('claude-registration', claudeEntry.env);
+	addEnvFile('claude-env', path.join(home, '.claude', ...OLD_SKILL_ENV));
+
+	for (const [key, entry] of Object.entries(serversOf(readFile(path.join(home, '.cursor', 'mcp.json'), parseJsonOrJsonc, 1)))) {
+		if (pointsIntoOldSkill(entry)) add(`cursor-registration:${key}`, entry.env);
+	}
+	addEnvFile('cursor-env', path.join(home, '.cursor', ...OLD_SKILL_ENV));
+	if (mcpServerPath !== undefined) addEnvFile('mcp-server-path-env', path.join(mcpServerPath, '.env'));
+	return { sources, errors };
+}
+
+function planSecrets({ sources = [], existingText = '' } = {}) {
+	const plan = { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] };
+	for (const [envName, key] of Object.entries(ENV_TO_KEY)) {
+		const candidates = sources
+			.filter((source) => isPlainObject(source) && isPlainObject(source.values) && typeof source.values[envName] === 'string')
+			.map((source) => ({ label: source.label, value: source.values[envName].trim() }));
+		const usable = candidates.filter((candidate) => usableValue(candidate.value));
+		const existing = secretsValue(existingText, key) !== null;
+		if (usable.length > 0 && existing) {
+			plan.keptExisting.push(key);
+		} else if (usable.length > 0) {
+			const [winner] = usable;
+			plan.updates[key] = winner.value;
+			plan.copied.push(key);
+			const others = usable.filter((candidate) => candidate.value !== winner.value).map((candidate) => candidate.label);
+			if (others.length > 0) plan.conflicts.push({ key, used: winner.label, others });
+		} else if (candidates.length > 0 && !existing) {
+			plan.skipped.push({ key, reason: CR_OR_LF.test(candidates[0].value) ? 'multiline' : 'placeholder' });
+		}
+	}
+	return plan;
+}
+
+const LOCK_STALE_MS = 600000;
+
+function defaultIsAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return !(err && err.code === 'ESRCH');
+	}
+}
+
+function readLock(fs, file) {
+	let lock;
+	try {
+		lock = parseObject(fs.readFileSync(file, 'utf8'));
+	} catch {
+		return null;
+	}
+	return lock !== null && Number.isInteger(lock.pid) && lock.pid > 0 && Number.isFinite(lock.at) ? { pid: lock.pid, at: lock.at } : null;
+}
+
+function acquireMigrationLock(params) {
+	requireParams('acquireMigrationLock', params, ['home']);
+	const { home, fs = nodeFs, pid = process.pid, isAlive = defaultIsAlive } = params;
+	const now = resolveNow(params.now);
+	const dir = path.join(home, '.make-custom-app');
+	const file = path.join(dir, 'cleanup.lock');
+	const content = JSON.stringify({ pid, at: now });
+	const create = () => {
+		try {
+			fs.writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
+			return true;
+		} catch (err) {
+			if (err && err.code === 'EEXIST') return false;
+			throw err;
+		}
+	};
+	const held = (holder) => ({ ok: false, pid: holder === null ? null : holder.pid });
+	const acquired = () => ({
+		ok: true,
+		release() {
+			try {
+				if (fs.readFileSync(file, 'utf8') === content) fs.unlinkSync(file);
+			} catch {}
+		},
+	});
+
+	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+	if (create()) return acquired();
+	const holder = readLock(fs, file);
+	if (holder !== null && isAlive(holder.pid) && now - holder.at <= LOCK_STALE_MS) return held(holder);
+	try {
+		fs.unlinkSync(file);
+	} catch (err) {
+		if (!err || err.code !== 'ENOENT') throw err;
+	}
+	return create() ? acquired() : held(readLock(fs, file));
+}
+
 module.exports = {
 	PLUGIN_ID,
 	MARKETPLACE_NAME,
@@ -347,4 +716,20 @@ module.exports = {
 	removeThrottle,
 	readDeclinedAt,
 	migrationNotice,
+	ENV_TO_KEY,
+	LOCK_STALE_MS,
+	parseArgs,
+	childEnv,
+	spawnSpec,
+	describeError,
+	parseJsonc,
+	parseMarketplaceList,
+	usableValue,
+	parseEnvText,
+	pointsIntoOldSkill,
+	isOldRegistration,
+	secretsValue,
+	readSecretSources,
+	planSecrets,
+	acquireMigrationLock,
 };
