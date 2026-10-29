@@ -337,14 +337,10 @@ function createConnectionLines({ host, teamId, connection, foreign, request, slu
 	} else {
 		lines.push(`Create one in Make: open ${connectionsUrl(host, teamId)} and add a connection for the app (type ${type}).`);
 		if (request && request.reason) lines.push(`(An authorization link could not be requested: ${request.reason}.)`);
-		if (slug) {
-			const appName = `app#${plain(slug)}`;
-			lines.push(
-				`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
-			);
-		} else {
-			lines.push(`If a Make MCP server is connected, the agent can request that link with its credential-requests_create-by-credentials tool (team ${teamId}, connection type ${plain(connection.types[0] || '?')}).`);
-		}
+		const appName = `app#${plain(slug)}`;
+		lines.push(
+			`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
+		);
 		const scopes = scopeLines(connection);
 		if (scopes.length) lines.push('Grant these scopes:', ...scopes);
 	}

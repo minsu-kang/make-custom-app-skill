@@ -648,7 +648,6 @@ describe('connections', () => {
 		assert.equal(credPosts()[0].body.teamId, 7);
 		assert.ok(!JSON.stringify(credPosts()[0].body).includes('prefill'));
 		assert.ok(r.stderr.includes(link));
-		assert.ok(!r.stderr.includes('credential-requests_create-by-credentials'));
 		assert.equal(execPosts().length, 0);
 		noLeak(r, 'credential request');
 	});

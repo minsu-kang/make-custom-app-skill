@@ -478,6 +478,7 @@ describe('connectionAction', () => {
 		assert.match(text, /The account type above is the form's connection type, not the app name/);
 		assert.match(text, /Grant these scopes:\n {2}app#x-account: read/);
 		assert.match(a.lines[a.lines.length - 1], /Then run the script again/);
+		assert.doesNotMatch(text, /credential-requests_/);
 	});
 
 	it('none without other people connections or scopes stays short', () => {
@@ -492,14 +493,13 @@ describe('connectionAction', () => {
 		assert.match(text, /https:\/\/eu1\.make\.com\/7\/credentials-requests\/inbox\?requestId=abc/);
 		assert.match(text, /nothing passes through this script/);
 		assert.equal(text.includes('/7/connections'), false);
-		assert.equal(text.includes('credential-requests_create-by-credentials'), false);
+		assert.doesNotMatch(text, /credential-requests_/);
 	});
 
 	it('none with a failed request says why and falls back to the manual steps', () => {
 		const text = rc.connectionAction({ state: 'none', foreign: 0 }, { ...ctx, request: { reason: 'HTTP 403: Denied' } }).lines.join('\n');
 		assert.match(text, /\(An authorization link could not be requested: HTTP 403: Denied\.\)/);
 		assert.match(text, /\/7\/connections/);
-		assert.equal(text.includes('credential-requests_create-by-credentials'), false);
 	});
 
 	it('blocked lists each own row with its reason and a link that highlights it', () => {
@@ -1121,7 +1121,7 @@ describe('text taken from the app form', () => {
 
 	it('a scope value that is not an array does not throw', () => {
 		const connection = { types: ['t'], scopes: { t: 'read' } };
-		assert.doesNotThrow(() => rc.connectionAction({ state: 'none', foreign: 0 }, { host: 'https://eu1.make.com', teamId: 7, connection }));
+		assert.doesNotThrow(() => rc.connectionAction({ state: 'none', foreign: 0 }, { host: 'https://eu1.make.com', teamId: 7, connection, slug: 'x-app' }));
 	});
 });
 

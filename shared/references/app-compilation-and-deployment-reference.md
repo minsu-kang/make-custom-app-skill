@@ -205,7 +205,7 @@ The instance loader picks the source by app type (verified in `imt-web-api` work
 - **Disposition wording**: for an uncompiled app the forward action is **compile**, not commit — ask "Did you compile the app, or return it?" (See code-review.md § "Disposition gate".)
 - **`download-app.js` always reads the SDK/DB code**, never the compiled package — so reviews are always against source, which is correct.
 - **A committed/compiled app's behavior in production** comes from the installed `imt_modules` package, which is regenerated from the SDK code at compile time. Reviewing the SDK code is therefore reviewing what will be compiled.
-- **Live connection requests for SDK endpoints** use app name `app#{slug}` (the Make MCP connection-creation tool's `appName`, and the execute body `appName`). The compiled slug `{slug}` does not list endpoints that are not compiled yet. The account type on a live-run `CREATE_CONNECTION` message is the form's connection type, not that app name. See [run-live.md](../workflows/run-live.md).
+- **Live connection requests for SDK endpoints** use app name `app#{slug}` (the `appName` of the connection-creation tool of this plugin's `make` server, and the `appName` in the body of the v1 execute request of `run-component.js`). The compiled slug `{slug}` does not list endpoints that are not compiled yet. The account type on a live-run `CREATE_CONNECTION` message is the form's connection type, not that app name. See [run-live.md](../workflows/run-live.md).
 
 ## 9. Source map
 
