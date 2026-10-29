@@ -40,7 +40,7 @@ function isPlainObject(value) {
 
 function parseObject(text) {
 	try {
-		const value = JSON.parse(text);
+		const value = JSON.parse(String(text).replace(/^\uFEFF/, ''));
 		return isPlainObject(value) ? value : null;
 	} catch {
 		return null;
@@ -195,13 +195,19 @@ function shouldShow({ cache, state, now }) {
 	return now - cache.shownAt >= PROMPT_INTERVAL_MS[state];
 }
 
+const LINE_BREAK = /[\r\n\u2028\u2029]/;
+const WINDOWS_UNSAFE = /[$`%^&!"\x00-\x1f\x7f]/;
+
 function migrationCommand(skillRoot, platform) {
+	if (LINE_BREAK.test(skillRoot)) return null;
 	const script = pathFor(platform).join(skillRoot, 'scripts', 'migrate-to-plugin.js');
-	return `node "${script.replace(/"/g, '\\"')}"`;
+	if (platform === 'win32') return WINDOWS_UNSAFE.test(script) ? null : `node "${script}"`;
+	return `node '${script.replace(/'/g, "'\\''")}'`;
 }
 
 function migrationLine({ state, reason, skillRoot, editorDir, installPath, platform }) {
 	const cmd = migrationCommand(skillRoot, platform);
+	if (cmd === null && (state === 'ask' || state === 'handoff')) return null;
 	if (state === 'ask') {
 		const where = reason === 'project-only' || reason === 'cache-missing' ? 'not installed for your user account' : 'not installed';
 		return `PLUGIN_MIGRATION: ask | The make-custom-app plugin replaces this skill and is ${where}. Ask the user yes or no before other work. Yes runs: ${cmd}`;
@@ -304,6 +310,7 @@ function migrationNotice(params) {
 		const state = promptState({ status: status.status, claudeBin, editorDir, declinedAt, now });
 		if (state === null) return null;
 		const line = migrationLine({ state, reason: status.reason, skillRoot, editorDir, installPath: status.installPath, platform });
+		if (line === null) return null;
 		const file = throttleFile({ tmpdir, platform, uid, username });
 		const due = shouldShow({ cache: readThrottle({ file, fs }), state, now });
 		if (due && !json) writeThrottle({ file, fs, pid: process.pid, state, now });

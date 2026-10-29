@@ -11,6 +11,7 @@ process.env.CLAUDE_CONFIG_DIR = path.join(TEST_ROOT, 'claude-config');
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('child_process');
 const logic = require('../migrate-logic');
 
 const ID = 'make-custom-app@make-custom-app';
@@ -277,6 +278,35 @@ describe('readPluginStatus', () => {
 		assert.equal(logic.readPluginStatus(params).reason, 'not-recorded');
 	});
 
+	it('readPluginStatus: a plugin.json that is a directory is cache-missing', () => {
+		const home = caseDir('rps-dir');
+		const config = path.join(home, '.claude');
+		const found = installPlugin(config, { enabled: true });
+		const manifestPath = path.join(found, '.claude-plugin', 'plugin.json');
+		fs.rmSync(manifestPath);
+		fs.mkdirSync(manifestPath);
+		const result = logic.readPluginStatus({ env: {}, home });
+		assert.deepEqual(result, { status: 'absent', reason: 'cache-missing', id: null, installPath: null, version: null });
+	});
+
+	it('readPluginStatus: a leading BOM in installed_plugins.json or settings.json is ignored, with no second read', () => {
+		const BOM = '\ufeff';
+		assert.deepEqual(logic.parseInstalledPlugins(BOM + good).entries.map((e) => e.scope), ['user']);
+		assert.equal(logic.parseInstalledPlugins(BOM + good).ok, true);
+		const bom = run(
+			new Map([
+				[installedFile, BOM + good],
+				[settingsFile, BOM + JSON.stringify({ enabledPlugins: { [ID]: false } })],
+			]),
+		);
+		assert.equal(bom.result.status, 'inactive');
+		assert.deepEqual(bom.sleeps, []);
+		assert.equal(bom.reads.length, 2);
+		assert.equal(run(new Map([[installedFile, BOM + good]])).result.status, 'usable');
+		assert.equal(logic.pluginStatus({ installedText: BOM + good, settingsText: BOM + '{"enabledPlugins":{"make-custom-app@make-custom-app":false}}', hasManifest: () => true }).status, 'inactive');
+		assert.equal(logic.parseInstalledPlugins(BOM).ok, false);
+	});
+
 	it('readPluginStatus: the default sleep waits about 50 ms before the second read', () => {
 		const home = caseDir('rps-sleep');
 		fs.mkdirSync(path.join(home, '.claude', 'plugins'), { recursive: true });
@@ -419,7 +449,7 @@ describe('promptState and shouldShow', () => {
 
 describe('migrationCommand and migrationLine', () => {
 	const SKILL = '/home/u/.claude/skills/make-custom-app';
-	const CMD = `node "${SKILL}/scripts/migrate-to-plugin.js"`;
+	const CMD = `node '${SKILL}/scripts/migrate-to-plugin.js'`;
 	const line = (extra) => logic.migrationLine({ state: 'ask', reason: 'not-recorded', skillRoot: SKILL, editorDir: '.claude', installPath: '/p/3.0.0', platform: 'linux', ...extra });
 
 	it('migrationLine: the exact text of every state and editor, each matching LINE_PATTERN, and both handoff texts name <cmd> before the second step', () => {
@@ -456,13 +486,96 @@ describe('migrationCommand and migrationLine', () => {
 		assert.throws(() => line({ state: 'other' }), { name: 'Error', message: 'unknown migration state: other' });
 	});
 
-	it('migrationLine: a skill root with a double quote is escaped', () => {
-		const root = '/home/we"ird/.claude/skills/make-custom-app';
-		const want = 'node "/home/we\\"ird/.claude/skills/make-custom-app/scripts/migrate-to-plugin.js"';
-		assert.equal(logic.migrationCommand(root, 'linux'), want);
-		assert.ok(line({ skillRoot: root }).endsWith(`Yes runs: ${want}`));
+	const STUB = "node() { printf '[%s]\\n' \"$@\"; }\n";
+	const through = (command) => {
+		const result = spawnSync('/bin/sh', ['-c', STUB + command], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: path.join(TEST_ROOT, 'home') } });
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stderr, '');
+		return result.stdout;
+	};
+
+	it('migrationCommand: the POSIX form single-quotes the path and replaces each single quote with quote, backslash, quote, quote', () => {
+		assert.equal(logic.migrationCommand(SKILL, 'linux'), CMD);
 		assert.equal(logic.migrationCommand(SKILL, 'darwin'), CMD);
+		assert.equal(logic.migrationCommand('/home/it\'s/skills/make-custom-app', 'linux'), "node '/home/it'\\''s/skills/make-custom-app/scripts/migrate-to-plugin.js'");
+		assert.equal(logic.migrationCommand("/a'b'c", 'freebsd'), "node '/a'\\''b'\\''c/scripts/migrate-to-plugin.js'");
+	});
+
+	it('migrationCommand: through sh -c the script path arrives as one exact argument for roots with a $ form, a backtick, a backslash, quotes, !, a space, $HOME, and shell operators', POSIX_ONLY, () => {
+		const roots = [
+			'/r/$HOME/skills/make-custom-app',
+			'/r/${HOME}/skills/make-custom-app',
+			'/r/~/skills/make-custom-app',
+			'/r/a\\b\\$c/skills/make-custom-app',
+			'/r/trailing\\/skills/make-custom-app',
+			"/r/it's/skills/make-custom-app",
+			"/r/'a'b''/skills/make-custom-app",
+			"/r/'/skills/make-custom-app",
+			'/r/we"ird/skills/make-custom-app',
+			'/r/"$HOME"/skills/make-custom-app',
+			'/r/bang!/skills/make-custom-app',
+			'/r/!!/skills/make-custom-app',
+			'/r/with space/and  two/skills/make-custom-app',
+			'/r/tab\there/skills/make-custom-app',
+			'/r/a;b&&c|d||e/skills/make-custom-app',
+			'/r/*?[ab]#x/skills/make-custom-app',
+			'/r/<in>out/skills/make-custom-app',
+			'/r/%PATH%^&/skills/make-custom-app',
+			'/r/caf\u00e9/skills/make-custom-app',
+		];
+		for (const root of roots) {
+			const command = logic.migrationCommand(root, 'linux');
+			const script = path.posix.join(root, 'scripts', 'migrate-to-plugin.js');
+			assert.ok(command.startsWith("node '") && command.endsWith("'"), command);
+			assert.equal(through(command), `[${script}]\n`, JSON.stringify(root));
+		}
+	});
+
+	it('migrationCommand: a command substitution or a backtick form in the root never runs', POSIX_ONLY, () => {
+		const dir = caseDir('cmd-injection');
+		const marker = path.join(dir, 'marker');
+		const backtickMarker = path.join(dir, 'backtick-marker');
+		const quotedMarker = path.join(dir, 'quoted-marker');
+		const roots = [
+			`/r/$(touch ${marker})/skills/make-custom-app`,
+			`/r/\`touch ${backtickMarker}\`/skills/make-custom-app`,
+			`/r/'$(touch ${quotedMarker})'/skills/make-custom-app`,
+			`/r/'; touch ${quotedMarker}; '/skills/make-custom-app`,
+		];
+		for (const root of roots) {
+			const script = path.posix.join(root, 'scripts', 'migrate-to-plugin.js');
+			assert.equal(through(logic.migrationCommand(root, 'linux')), `[${script}]\n`, root);
+			assert.ok(line({ skillRoot: root }).endsWith(`Yes runs: ${logic.migrationCommand(root, 'linux')}`));
+		}
+		assert.deepEqual(fs.readdirSync(dir), []);
+	});
+
+	it('migrationCommand: Windows keeps the double-quoted form and refuses $, a backtick, %, ^, &, !, a double quote, and control characters', () => {
+		const root = (middle) => `C:\\Users\\a${middle}b\\.claude\\skills\\make-custom-app`;
 		assert.equal(logic.migrationCommand('C:\\Users\\u\\.claude\\skills\\make-custom-app', 'win32'), 'node "C:\\Users\\u\\.claude\\skills\\make-custom-app\\scripts\\migrate-to-plugin.js"');
+		for (const ch of [' ', '(', ')', "'", ';', ',', '#', '@', '~', '+', '=', '[', ']', '{', '}', '\u00e9']) {
+			assert.equal(logic.migrationCommand(root(ch), 'win32'), `node "C:\\Users\\a${ch}b\\.claude\\skills\\make-custom-app\\scripts\\migrate-to-plugin.js"`, JSON.stringify(ch));
+		}
+		for (const ch of ['$', '`', '%', '^', '&', '!', '"', '\x00', '\x01', '\t', '\x1b', '\x7f', '\n', '\r']) {
+			assert.equal(logic.migrationCommand(root(ch), 'win32'), null, JSON.stringify(ch));
+			assert.equal(line({ skillRoot: root(ch), platform: 'win32' }), null, JSON.stringify(ch));
+			assert.equal(line({ skillRoot: root(ch), platform: 'win32', state: 'handoff', reason: null }), null, JSON.stringify(ch));
+		}
+		assert.equal(logic.migrationCommand('C:\\Users\\a$\\x', 'linux'), "node 'C:\\Users\\a$\\x/scripts/migrate-to-plugin.js'");
+	});
+
+	it('migrationCommand and migrationLine: a line break in the skill root gives no command and no ask or handoff line, on both platforms', () => {
+		for (const platform of ['linux', 'darwin', 'win32']) {
+			for (const br of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+				const skillRoot = `/home/u${br}x/.claude/skills/make-custom-app`;
+				assert.equal(logic.migrationCommand(skillRoot, platform), null, `${platform} ${JSON.stringify(br)}`);
+				for (const state of ['ask', 'handoff']) {
+					assert.equal(logic.migrationLine({ state, reason: 'not-recorded', skillRoot, editorDir: '.claude', installPath: '/p', platform }), null, `${platform} ${state} ${JSON.stringify(br)}`);
+				}
+				assert.match(logic.migrationLine({ state: 'inactive', reason: 'disabled', skillRoot, editorDir: '.claude', installPath: null, platform }), logic.LINE_PATTERN);
+				assert.match(logic.migrationLine({ state: 'unsupported', reason: 'not-recorded', skillRoot, editorDir: '.cursor', installPath: null, platform }), logic.LINE_PATTERN);
+			}
+		}
 	});
 });
 
@@ -593,7 +706,7 @@ describe('migrationNotice', () => {
 		const params = { env: { CLAUDE_CONFIG_DIR: cfg }, home, tmpdir, platform: process.platform, uid: 501, now: NOW, fs, skillRoot, editorDir: '.claude', isExecutable: () => false };
 		return { root, home, tmpdir, cfg, skillRoot, params, throttle: logic.throttleFile({ tmpdir, platform: process.platform, uid: 501 }) };
 	};
-	const CMD = (skillRoot) => `node "${path.join(skillRoot, 'scripts', 'migrate-to-plugin.js')}"`;
+	const CMD = (skillRoot) => `node '${path.join(skillRoot, 'scripts', 'migrate-to-plugin.js')}'`;
 
 	it('migrationNotice: ask is due on the first call and not on the second within 24 hours; handoff is due on every call; json mode never writes; an unwritable temp folder keeps due true; a thrown error inside a reader returns null', () => {
 		const ask = setup('notice-ask');
@@ -686,6 +799,38 @@ describe('migrationNotice', () => {
 		assert.equal(none.claudeBin, null);
 		assert.equal(logic.migrationNotice({ ...found.params, editorDir: '.cursor', now: NOW + 29 * DAY }).due, false);
 		assert.equal(logic.migrationNotice({ ...found.params, editorDir: '.cursor', now: NOW + 31 * DAY }).due, true);
+	});
+
+	it('migrationNotice: a skill root that the command cannot carry gives null for ask and handoff, writes nothing, and still reports inactive and unsupported', () => {
+		const ask = setup('notice-unsafe-ask');
+		const bad = [
+			[process.platform, `${ask.home}/line\nbreak/.claude/skills/make-custom-app`],
+			['win32', `C:\\Users\\a$b\\.claude\\skills\\make-custom-app`],
+			['win32', `C:\\Users\\a%b\\.claude\\skills\\make-custom-app`],
+		];
+		for (const [platform, skillRoot] of bad) {
+			const writes = [];
+			const recording = { readFileSync: () => { throw enoent(); }, statSync: () => { throw enoent(); }, writeFileSync: (file) => writes.push(file), renameSync: (file) => writes.push(file), unlinkSync: () => {} };
+			assert.equal(logic.migrationNotice({ ...ask.params, platform, skillRoot, fs: recording }), null, `${platform} ${JSON.stringify(skillRoot)}`);
+			assert.deepEqual(writes, [], `${platform} ${JSON.stringify(skillRoot)}`);
+		}
+		assert.deepEqual(fs.readdirSync(ask.tmpdir), []);
+
+		const handoff = setup('notice-unsafe-handoff');
+		installPlugin(handoff.cfg, { enabled: true });
+		assert.equal(logic.migrationNotice({ ...handoff.params, skillRoot: `${handoff.home}/a\rb` }), null);
+		assert.deepEqual(fs.readdirSync(handoff.tmpdir), []);
+
+		const inactive = setup('notice-unsafe-inactive');
+		installPlugin(inactive.cfg, { enabled: false });
+		const disabled = logic.migrationNotice({ ...inactive.params, skillRoot: `${inactive.home}/a\nb` });
+		assert.equal(disabled.state, 'inactive');
+		assert.equal(disabled.command, CMD_ENABLE);
+
+		const cursor = setup('notice-unsafe-unsupported');
+		const unsupported = logic.migrationNotice({ ...cursor.params, editorDir: '.cursor', skillRoot: `${cursor.home}/a\nb` });
+		assert.equal(unsupported.state, 'unsupported');
+		assert.equal(unsupported.command, null);
 	});
 
 	it('migrationNotice: uid, username, now, fs, sleep, and isExecutable have defaults; now may be a function', () => {
