@@ -12,6 +12,7 @@ process.env.CLAUDE_CONFIG_DIR = path.join(TEST_ROOT, 'claude-config');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('child_process');
+const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const SKILL_SOURCE = path.join(REPO_ROOT, 'skill');
@@ -20,6 +21,10 @@ const ID = 'make-custom-app@make-custom-app';
 const DAY = 24 * 3600000;
 const POSIX_ONLY = { skip: process.platform === 'win32' };
 const BLOCK_NETWORK = path.join(TEST_ROOT, 'block-network.js');
+const SECTION_BYTES = 891;
+const PINNED_SECTION =
+	'## Plugin migration\n\n' +
+	'check-setup.js can print one `PLUGIN_MIGRATION: <state> | <text>` line. Act on it before other work, also when check-setup exits 1 (the plugin needs the same setup). `ask`: ask the user once, yes or no: "Install the make-custom-app plugin? It replaces this skill and copies your MCP keys and app contexts; nothing is deleted." Never answer for the user. On yes, run the `migrate-to-plugin.js` command printed on the line (Shell, `required_permissions: ["all"]`); on no, continue. `handoff`: do the steps of the line in order. Other states: tell the user the text once, then continue. `migrate-to-plugin.js` exit 0: relay its last lines. Exit 3: this skill was just updated; re-read this file, then run the command again. Exit 1, 4, or 5: relay its output; this skill keeps working. Then continue the user\'s task. Do the steps of a `handoff` line once per conversation.\n\n';
 
 fs.writeFileSync(BLOCK_NETWORK, "require('net').Socket.prototype.connect = function () {\n\tthrow new Error('network access is blocked in this test');\n};\n");
 
@@ -93,6 +98,18 @@ function writeDecline(home, declinedAt) {
 	fs.writeFileSync(path.join(dir, 'legacy-cleanup.json'), JSON.stringify({ schema: 1, declinedAt: new Date(declinedAt).toISOString(), digest: '0123456789abcdef' }));
 }
 
+const FAKE_JIRA = { email: 'fake.user@make.com', token: 'fake-jira-token-0001' };
+const FAKE_MAKE_KEY = 'fake-make-token-0001';
+
+function seedCompleteSetup(c) {
+	const runtimeDir = path.join(c.root, 'imt-app-runtime');
+	fs.mkdirSync(runtimeDir);
+	const secrets = [`imt-app-runtime-path: ${runtimeDir}`, `make-api-key: ${FAKE_MAKE_KEY}`, `jira-email: ${FAKE_JIRA.email}`, `jira-api-token: ${FAKE_JIRA.token}`];
+	fs.writeFileSync(path.join(c.home, '.make-custom-app-skill-secrets'), `${secrets.join('\n')}\n`, { mode: 0o600 });
+	const key = cacheKey({ baseUrl: JIRA_BASE_URL, email: FAKE_JIRA.email, token: FAKE_JIRA.token });
+	fs.writeFileSync(path.join(c.tmp, 'make-custom-app-access-check.json'), JSON.stringify({ key, email: FAKE_JIRA.email, checkedAt: Date.now() }));
+}
+
 function migrationLines(result) {
 	return result.stdout.split('\n').filter((line) => line.startsWith('PLUGIN_MIGRATION: '));
 }
@@ -103,6 +120,15 @@ function jsonOf(result) {
 
 function splitLines(text) {
 	return text.match(/[^\n]*\n|[^\n]+$/g) || [];
+}
+
+function skillMdParts() {
+	const head = splitLines(fs.readFileSync(path.join(SKILL_SOURCE, 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n'));
+	const start = head.findIndex((line) => line === '## Plugin migration\n');
+	assert.ok(start > 0, 'the section heading is missing');
+	const next = head.findIndex((line, index) => index > start && line.startsWith('## '));
+	assert.ok(next > start, 'no heading follows the section');
+	return { head, start, next };
 }
 
 function dropVersionLine(lines) {
@@ -271,6 +297,30 @@ describe('check-setup.js PLUGIN_MIGRATION', () => {
 		assert.equal(removed.join('\n'), without.stdout);
 	});
 
+	it('prints the line before Setup OK. and exits 0 when every required item is set', POSIX_ONLY, () => {
+		const c = makeCase({ claudeOnPath: true });
+		seedCompleteSetup(c);
+		const withLine = c.run();
+		assert.equal(withLine.status, 0);
+		assert.equal(withLine.stderr, '');
+		const lines = withLine.stdout.split('\n');
+		const setup = lines.indexOf('Setup OK.');
+		assert.ok(setup > 3);
+		assert.equal(lines[setup - 1], '');
+		assert.match(lines[setup - 2], /^PLUGIN_MIGRATION: ask \| /);
+		assert.equal(lines[setup - 3], '');
+		assert.match(withLine.stdout, /^OK +make account: fake\.user@make\.com$/m);
+		const without = c.run();
+		assert.equal(without.status, 0);
+		assert.equal(migrationLines(without).length, 0);
+		assert.equal(without.stdout, lines.filter((line, index) => index !== setup - 2 && index !== setup - 3).join('\n'));
+		assert.equal(withLine.stdout.includes(FAKE_JIRA.token) || withLine.stdout.includes(FAKE_MAKE_KEY), false);
+		const report = jsonOf(c.run(['--json']));
+		assert.equal(report.ok, true);
+		assert.equal(report.pluginMigration.state, 'ask');
+		assert.equal(report.pluginMigration.due, false);
+	});
+
 	it('--json reports pluginMigration with due and writes no throttle file', POSIX_ONLY, () => {
 		const c = makeCase({ claudeOnPath: true });
 		for (let run = 0; run < 2; run++) {
@@ -341,18 +391,18 @@ describe('check-setup.js PLUGIN_MIGRATION', () => {
 		assert.equal(jsonOf(json).ok, jsonOf(expected).ok);
 	});
 
-	it('SKILL.md: the Plugin migration section is 804 bytes, and without it and without the version line the file equals cd8f60b', { skip: BASE_SKILL_MD.skip }, () => {
-		const head = splitLines(fs.readFileSync(path.join(SKILL_SOURCE, 'SKILL.md'), 'utf8'));
-		const start = head.findIndex((line) => line === '## Plugin migration\n');
-		assert.ok(start > 0, 'the section heading is missing');
-		const next = head.findIndex((line, index) => index > start && line.startsWith('## '));
+	it('SKILL.md: the Plugin migration section equals the pinned text', () => {
+		const { head, start, next } = skillMdParts();
 		assert.equal(head[next], '## Workflows\n');
-		const section = head.slice(start, next);
-		assert.equal(Buffer.byteLength(section.join('')), 804);
-		assert.equal(section.length, 4);
-		assert.equal(section[1], '\n');
-		assert.equal(section[3], '\n');
-		assert.ok(!section.join('').includes('```'));
+		const lines = head.slice(start, next);
+		assert.equal(lines.join(''), PINNED_SECTION);
+		assert.equal(Buffer.byteLength(PINNED_SECTION), SECTION_BYTES);
+		assert.equal(lines.filter((line) => line.startsWith('## ')).length, 1);
+		assert.ok(!PINNED_SECTION.includes('```'));
+	});
+
+	it('SKILL.md: without the section and without the version line the file equals cd8f60b', { skip: BASE_SKILL_MD.skip }, () => {
+		const { head, start, next } = skillMdParts();
 		const rest = [...head.slice(0, start), ...head.slice(next)];
 		assert.equal(dropVersionLine(rest).join(''), dropVersionLine(splitLines(BASE_SKILL_MD.text)).join(''));
 	});

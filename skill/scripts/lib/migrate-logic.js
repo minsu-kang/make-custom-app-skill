@@ -208,7 +208,12 @@ function shouldShow({ cache, state, now }) {
 }
 
 const LINE_BREAK = /[\r\n\u2028\u2029]/;
+const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/;
 const WINDOWS_UNSAFE = /[$`%^&!"\x00-\x1f\x7f]/;
+
+function hasControlCharacter(value) {
+	return typeof value === 'string' && CONTROL_CHARACTER.test(value);
+}
 
 function migrationCommand(skillRoot, platform) {
 	if (LINE_BREAK.test(skillRoot)) return null;
@@ -220,6 +225,7 @@ function migrationCommand(skillRoot, platform) {
 function migrationLine({ state, reason, skillRoot, editorDir, installPath, platform }) {
 	const cmd = migrationCommand(skillRoot, platform);
 	if (cmd === null && (state === 'ask' || state === 'handoff')) return null;
+	if (state === 'handoff' && editorDir !== '.claude' && hasControlCharacter(installPath)) return null;
 	if (state === 'ask') {
 		const where = reason === 'project-only' || reason === 'cache-missing' ? 'not installed for your user account' : 'not installed';
 		return `PLUGIN_MIGRATION: ask | The make-custom-app plugin replaces this skill and is ${where}. Ask the user yes or no before other work. Yes runs: ${cmd}`;
@@ -317,6 +323,7 @@ function migrationNotice(params) {
 	try {
 		const now = resolveNow(params.now);
 		const status = readPluginStatus({ env, home, fs, sleep });
+		if ([status.id, status.version, status.installPath].some(hasControlCharacter)) return null;
 		const claudeBin = status.status === 'absent' ? findClaudeBinary({ env, platform, home, isExecutable }).bin : null;
 		const declinedAt = status.status === 'usable' ? readDeclinedAt({ home, fs }) : null;
 		const state = promptState({ status: status.status, claudeBin, editorDir, declinedAt, now });
