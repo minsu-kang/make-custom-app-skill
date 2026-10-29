@@ -25,9 +25,15 @@ const ENABLE_COMMAND = `claude plugin enable ${PLUGIN_ID}`;
 const THROTTLE_PREFIX = 'make-custom-app-plugin-prompt-';
 const TORN_RETRY_MS = 50;
 
+function paramIsValid(key, value) {
+	if (key === 'home' || key === 'tmpdir') return typeof value === 'string' && value !== '';
+	if (key === 'env') return isPlainObject(value);
+	return value !== undefined;
+}
+
 function requireParams(name, params, keys) {
 	const given = params || {};
-	if (!keys.some((key) => given[key] === undefined)) return;
+	if (keys.every((key) => paramIsValid(key, given[key]))) return;
 	const names = keys.length > 2 ? `${keys.slice(0, -1).join(', ')}, and ${keys[keys.length - 1]}` : keys.join(' and ');
 	throw new TypeError(`${name} needs ${names}`);
 }
@@ -367,12 +373,17 @@ function childEnv(params) {
 	return out;
 }
 
+const CMD_UNSAFE_ARGUMENT = /[\s"&|<>^%]/;
+
 function spawnSpec(params) {
 	requireParams('spawnSpec', params, ['env', 'home', 'platform']);
 	const { bin, args = [], platform, env, home, timeoutMs } = params;
 	const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: childEnv({ env, home }), cwd: home, timeout: timeoutMs, windowsHide: true };
 	if (platform === 'win32' && /\.cmd$/i.test(bin)) {
-		return { command: 'cmd.exe', args: ['/d', '/s', '/c', `"${bin}" ${args.join(' ')}`], options: { ...options, windowsVerbatimArguments: true } };
+		if (args.some((arg) => CMD_UNSAFE_ARGUMENT.test(arg))) {
+			throw new TypeError('spawnSpec: an argument for claude.cmd holds a character that cmd.exe would read as syntax');
+		}
+		return { command: 'cmd.exe', args: ['/d', '/s', '/c', `""${bin}" ${args.join(' ')}"`], options: { ...options, windowsVerbatimArguments: true } };
 	}
 	return { command: bin, args, options };
 }
@@ -458,7 +469,9 @@ function parseMarketplaceList(text) {
 const CR_OR_LF = /[\r\n]/;
 
 function usableValue(value) {
-	return typeof value === 'string' && value.trim() !== '' && !CR_OR_LF.test(value) && !isPlaceholder(value.trim());
+	if (typeof value !== 'string') return false;
+	const trimmed = value.trim();
+	return trimmed !== '' && !CR_OR_LF.test(value) && !trimmed.startsWith('${') && !isPlaceholder(trimmed);
 }
 
 function parseEnvText(text) {
@@ -504,10 +517,13 @@ function liesInside(file, folder) {
 	return target === base || target.startsWith(`${base}/`);
 }
 
+const PARENT_SEGMENT = /(?:^|[\\/])\.\.(?:[\\/]|$)/;
+
 function isOldRegistration(entry, mcpServerPath) {
-	if (pointsIntoOldSkill(entry)) return true;
+	const parts = entryParts(entry).filter((part) => !PARENT_SEGMENT.test(part));
+	if (parts.some((part) => OLD_SKILL_FOLDER.test(part))) return true;
 	if (typeof mcpServerPath !== 'string' || mcpServerPath === '') return false;
-	return entryParts(entry).some((part) => liesInside(part, mcpServerPath));
+	return parts.some((part) => liesInside(part, mcpServerPath));
 }
 
 const ENV_TO_KEY = { PINECONE_API_KEY: 'pinecone-api-key', OPENAI_API_KEY: 'openai-api-key', PINECONE_INDEX_NAME: 'pinecone-index-name' };
@@ -601,11 +617,16 @@ function readSecretSources(params) {
 	addEnvFile('claude-env', path.join(home, '.claude', ...OLD_SKILL_ENV));
 
 	for (const [key, entry] of Object.entries(serversOf(readFile(path.join(home, '.cursor', 'mcp.json'), parseJsonOrJsonc, 1)))) {
-		if (pointsIntoOldSkill(entry)) add(`cursor-registration:${key}`, entry.env);
+		if (isOldRegistration(entry)) add(`cursor-registration:${key}`, entry.env);
 	}
 	addEnvFile('cursor-env', path.join(home, '.cursor', ...OLD_SKILL_ENV));
 	if (mcpServerPath !== undefined) addEnvFile('mcp-server-path-env', path.join(mcpServerPath, '.env'));
 	return { sources, errors };
+}
+
+function skipReason(value) {
+	if (CR_OR_LF.test(value)) return 'multiline';
+	return value.startsWith('${') ? 'reference' : 'placeholder';
 }
 
 function planSecrets({ sources = [], existingText = '' } = {}) {
@@ -615,23 +636,26 @@ function planSecrets({ sources = [], existingText = '' } = {}) {
 			.filter((source) => isPlainObject(source) && isPlainObject(source.values) && typeof source.values[envName] === 'string')
 			.map((source) => ({ label: source.label, value: source.values[envName].trim() }));
 		const usable = candidates.filter((candidate) => usableValue(candidate.value));
-		const existing = secretsValue(existingText, key) !== null;
-		if (usable.length > 0 && existing) {
-			plan.keptExisting.push(key);
-		} else if (usable.length > 0) {
-			const [winner] = usable;
-			plan.updates[key] = winner.value;
-			plan.copied.push(key);
-			const others = usable.filter((candidate) => candidate.value !== winner.value).map((candidate) => candidate.label);
-			if (others.length > 0) plan.conflicts.push({ key, used: winner.label, others });
-		} else if (candidates.length > 0 && !existing) {
-			plan.skipped.push({ key, reason: CR_OR_LF.test(candidates[0].value) ? 'multiline' : 'placeholder' });
+		const existing = secretsValue(existingText, key);
+		if (usable.length > 0) {
+			const used = existing === null ? usable[0] : { label: 'secrets-file', value: existing };
+			if (existing === null) {
+				plan.updates[key] = used.value;
+				plan.copied.push(key);
+			} else {
+				plan.keptExisting.push(key);
+			}
+			const others = usable.filter((candidate) => candidate.value !== used.value).map((candidate) => candidate.label);
+			if (others.length > 0) plan.conflicts.push({ key, used: used.label, others });
+		} else if (candidates.length > 0 && existing === null) {
+			plan.skipped.push({ key, reason: skipReason(candidates[0].value) });
 		}
 	}
 	return plan;
 }
 
 const LOCK_STALE_MS = 600000;
+const LOCK_PARTIAL_MS = 5000;
 
 function defaultIsAlive(pid) {
 	try {
@@ -642,33 +666,55 @@ function defaultIsAlive(pid) {
 	}
 }
 
-function readLock(fs, file) {
-	let lock;
+function parseLock(text) {
+	const lock = parseObject(text);
+	return lock !== null && Number.isInteger(lock.pid) && lock.pid > 0 && Number.isFinite(lock.at) ? { pid: lock.pid, at: lock.at } : null;
+}
+
+function readLockFile(fs, file) {
 	try {
-		lock = parseObject(fs.readFileSync(file, 'utf8'));
+		const text = fs.readFileSync(file, 'utf8');
+		return { text, holder: parseLock(text) };
+	} catch (err) {
+		return isMissingFile(err) ? { missing: true } : { unreadable: true };
+	}
+}
+
+function fileAgeMs(fs, file, now) {
+	try {
+		return now - fs.statSync(file).mtimeMs;
 	} catch {
 		return null;
 	}
-	return lock !== null && Number.isInteger(lock.pid) && lock.pid > 0 && Number.isFinite(lock.at) ? { pid: lock.pid, at: lock.at } : null;
+}
+
+function createExclusive(fs, file, content) {
+	try {
+		fs.writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
+		return true;
+	} catch (err) {
+		if (err && err.code === 'EEXIST') return false;
+		throw err;
+	}
+}
+
+function removeIfPresent(fs, file) {
+	try {
+		fs.unlinkSync(file);
+	} catch (err) {
+		if (!err || err.code !== 'ENOENT') throw err;
+	}
 }
 
 function acquireMigrationLock(params) {
 	requireParams('acquireMigrationLock', params, ['home']);
 	const { home, fs = nodeFs, pid = process.pid, isAlive = defaultIsAlive } = params;
-	const now = resolveNow(params.now);
+	const clock = () => resolveNow(params.now);
 	const dir = path.join(home, '.make-custom-app');
 	const file = path.join(dir, 'cleanup.lock');
-	const content = JSON.stringify({ pid, at: now });
-	const create = () => {
-		try {
-			fs.writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
-			return true;
-		} catch (err) {
-			if (err && err.code === 'EEXIST') return false;
-			throw err;
-		}
-	};
-	const held = (holder) => ({ ok: false, pid: holder === null ? null : holder.pid });
+	const takeoverFile = `${file}.takeover`;
+	const content = JSON.stringify({ pid, at: clock() });
+	const heldBy = (read) => ({ ok: false, pid: read.holder ? read.holder.pid : null });
 	const acquired = () => ({
 		ok: true,
 		release() {
@@ -677,17 +723,45 @@ function acquireMigrationLock(params) {
 			} catch {}
 		},
 	});
+	const isStale = (read) => {
+		const now = clock();
+		if (read.holder !== null) return !isAlive(read.holder.pid) || read.holder.at > now || now - read.holder.at > LOCK_STALE_MS;
+		const age = fileAgeMs(fs, file, now);
+		return age !== null && age > LOCK_PARTIAL_MS;
+	};
+	const claimTakeover = () => {
+		if (createExclusive(fs, takeoverFile, content)) return true;
+		const leftover = readLockFile(fs, takeoverFile);
+		if (leftover.missing) return createExclusive(fs, takeoverFile, content);
+		if (leftover.unreadable) return false;
+		const age = fileAgeMs(fs, takeoverFile, clock());
+		if (age === null || age <= LOCK_PARTIAL_MS || (leftover.holder !== null && isAlive(leftover.holder.pid))) return false;
+		removeIfPresent(fs, takeoverFile);
+		return createExclusive(fs, takeoverFile, content);
+	};
+	const takeOver = (staleText) => {
+		if (!claimTakeover()) return { ok: false, pid: null };
+		try {
+			const again = readLockFile(fs, file);
+			if (again.unreadable) return heldBy(again);
+			if (!again.missing) {
+				if (again.text !== staleText) return heldBy(again);
+				removeIfPresent(fs, file);
+			}
+			return createExclusive(fs, file, content) ? acquired() : heldBy(readLockFile(fs, file));
+		} finally {
+			try {
+				fs.unlinkSync(takeoverFile);
+			} catch {}
+		}
+	};
 
 	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-	if (create()) return acquired();
-	const holder = readLock(fs, file);
-	if (holder !== null && isAlive(holder.pid) && now - holder.at <= LOCK_STALE_MS) return held(holder);
-	try {
-		fs.unlinkSync(file);
-	} catch (err) {
-		if (!err || err.code !== 'ENOENT') throw err;
-	}
-	return create() ? acquired() : held(readLock(fs, file));
+	if (createExclusive(fs, file, content)) return acquired();
+	const seen = readLockFile(fs, file);
+	if (seen.missing) return createExclusive(fs, file, content) ? acquired() : heldBy(readLockFile(fs, file));
+	if (seen.unreadable || !isStale(seen)) return heldBy(seen);
+	return takeOver(seen.text);
 }
 
 module.exports = {

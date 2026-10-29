@@ -31,6 +31,16 @@ function caseDir(label) {
 	return dir;
 }
 
+function inTempCwd(label, fn) {
+	const before = process.cwd();
+	process.chdir(caseDir(label));
+	try {
+		return fn();
+	} finally {
+		process.chdir(before);
+	}
+}
+
 function enoent() {
 	return Object.assign(new Error('no such file'), { code: 'ENOENT' });
 }
@@ -85,20 +95,21 @@ describe('required parameters', () => {
 		assert.throws(() => logic.requireParams('f', { a: 1 }, ['a', 'b', 'c']), { name: 'TypeError', message: 'f needs a, b, and c' });
 	});
 
+	const FULL_PARAMS = {
+		claudeConfigDir: ['env and home', { env: {}, home: '/h' }],
+		readPluginStatus: ['env and home', { env: {}, home: '/h' }],
+		findClaudeBinary: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
+		throttleFile: ['tmpdir', { tmpdir: '/t' }],
+		readDeclinedAt: ['home', { home: '/h' }],
+		childEnv: ['env and home', { env: {}, home: '/h' }],
+		spawnSpec: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
+		readSecretSources: ['home', { home: '/h' }],
+		acquireMigrationLock: ['home', { home: '/h' }],
+		migrationNotice: ['env, home, tmpdir, platform, skillRoot, and editorDir', { env: {}, home: '/h', tmpdir: '/t', platform: 'linux', skillRoot: '/s', editorDir: '.claude' }],
+	};
+
 	it('every function that touches a folder throws a TypeError without env, home, or tmpdir', () => {
-		const full = {
-			claudeConfigDir: ['env and home', { env: {}, home: '/h' }],
-			readPluginStatus: ['env and home', { env: {}, home: '/h' }],
-			findClaudeBinary: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
-			throttleFile: ['tmpdir', { tmpdir: '/t' }],
-			readDeclinedAt: ['home', { home: '/h' }],
-			childEnv: ['env and home', { env: {}, home: '/h' }],
-			spawnSpec: ['env, home, and platform', { env: {}, home: '/h', platform: 'linux' }],
-			readSecretSources: ['home', { home: '/h' }],
-			acquireMigrationLock: ['home', { home: '/h' }],
-			migrationNotice: ['env, home, tmpdir, platform, skillRoot, and editorDir', { env: {}, home: '/h', tmpdir: '/t', platform: 'linux', skillRoot: '/s', editorDir: '.claude' }],
-		};
-		for (const [name, [names, params]] of Object.entries(full)) {
+		for (const [name, [names, params]] of Object.entries(FULL_PARAMS)) {
 			const expected = { name: 'TypeError', message: `${name} needs ${names}` };
 			assert.throws(() => logic[name](), expected, `${name} without arguments`);
 			assert.throws(() => logic[name]({}), expected, `${name} with an empty object`);
@@ -108,6 +119,30 @@ describe('required parameters', () => {
 				assert.throws(() => logic[name](partial), expected, `${name} without ${key}`);
 			}
 		}
+	});
+
+	it('home and tmpdir must be non-empty strings and env a plain object, in every function that takes them', () => inTempCwd('bad-params', () => {
+		const badFolders = ['', null, 5, true, {}, [], () => '/h'];
+		const badEnvs = [null, 'PATH=/bin', 5, true, [], ['PATH']];
+		for (const [name, [names, params]] of Object.entries(FULL_PARAMS)) {
+			const expected = { name: 'TypeError', message: `${name} needs ${names}` };
+			for (const key of ['home', 'tmpdir']) {
+				if (!(key in params)) continue;
+				for (const value of badFolders) assert.throws(() => logic[name]({ ...params, [key]: value }), expected, `${name} with ${key} ${String(value)}`);
+			}
+			if ('env' in params) {
+				for (const value of badEnvs) assert.throws(() => logic[name]({ ...params, env: value }), expected, `${name} with env ${String(value)}`);
+			}
+		}
+		assert.deepEqual(fs.readdirSync(process.cwd()), []);
+	}));
+
+	it('requireParams checks the names home, tmpdir, and env by value and every other name by undefined only', () => {
+		assert.equal(logic.requireParams('f', { home: '/h', tmpdir: '/t', env: {}, platform: '' }, ['home', 'tmpdir', 'env', 'platform']), undefined);
+		assert.equal(logic.requireParams('f', { env: Object.create(null) }, ['env']), undefined);
+		assert.equal(logic.requireParams('f', { env: process.env }, ['env']), undefined);
+		assert.throws(() => logic.requireParams('f', { home: '' }, ['home']), { name: 'TypeError', message: 'f needs home' });
+		assert.throws(() => logic.requireParams('f', { home: '/h', env: null }, ['home', 'env']), { name: 'TypeError', message: 'f needs home and env' });
 	});
 });
 
@@ -964,16 +999,46 @@ describe('childEnv and spawnSpec', () => {
 		assert.equal(Object.hasOwn(bare.options, 'windowsVerbatimArguments'), false);
 	});
 
-	it('spawnSpec: a .cmd on Windows (any case) runs through cmd.exe /d /s /c with one verbatim command string', () => {
+	it('spawnSpec: a .cmd on Windows (any case) runs through cmd.exe /d /s /c with one verbatim string inside an outer quote pair', () => {
 		for (const bin of ['C:\\Users\\a\\AppData\\Roaming\\npm\\claude.cmd', 'C:\\x\\CLAUDE.CMD', 'C:\\x\\claude.Cmd']) {
 			const spec = logic.spawnSpec({ bin, args: ['--version'], platform: 'win32', env: AGENT_ENV, home: HOME, timeoutMs: 10000 });
 			assert.equal(spec.command, 'cmd.exe');
-			assert.deepEqual(spec.args, ['/d', '/s', '/c', `"${bin}" --version`]);
+			assert.deepEqual(spec.args, ['/d', '/s', '/c', `""${bin}" --version"`]);
 			assert.deepEqual(spec.options, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: logic.childEnv({ env: AGENT_ENV, home: HOME }), cwd: HOME, timeout: 10000, windowsHide: true, windowsVerbatimArguments: true });
 		}
 		const several = logic.spawnSpec({ bin: 'C:\\x\\claude.cmd', args: ['plugin', 'install', 'make-custom-app@make-custom-app'], platform: 'win32', env: {}, home: HOME, timeoutMs: 1 });
-		assert.equal(several.args[3], '"C:\\x\\claude.cmd" plugin install make-custom-app@make-custom-app');
+		assert.equal(several.args[3], '""C:\\x\\claude.cmd" plugin install make-custom-app@make-custom-app"');
+		const url = logic.spawnSpec({ bin: 'C:\\x\\claude.cmd', args: ['plugin', 'marketplace', 'add', logic.MARKETPLACE_URL, '--json'], platform: 'win32', env: {}, home: HOME, timeoutMs: 1 });
+		assert.equal(url.args[3], `""C:\\x\\claude.cmd" plugin marketplace add ${logic.MARKETPLACE_URL} --json"`);
 		assert.equal(logic.spawnSpec({ bin: 'C:\\x\\claude.cmd.exe', args: [], platform: 'win32', env: {}, home: HOME, timeoutMs: 1 }).command, 'C:\\x\\claude.cmd.exe');
+	});
+
+	it('spawnSpec: a .cmd path with spaces stays inside the inner quotes, which cmd.exe /s keeps once it strips the outer pair', () => {
+		const bin = 'C:\\Users\\First Last\\AppData\\Roaming\\npm\\claude.cmd';
+		const spec = logic.spawnSpec({ bin, args: ['--version'], platform: 'win32', env: {}, home: HOME, timeoutMs: 10000 });
+		const line = spec.args[3];
+		assert.equal(line, `""${bin}" --version"`);
+		assert.equal(line.slice(1, -1), `"${bin}" --version`);
+		assert.equal(line.startsWith('""') && line.endsWith('"'), true);
+	});
+
+	it('spawnSpec: an argument for a Windows .cmd that holds a space, a tab, a quote, or one of & | < > ^ % throws without naming the argument', () => {
+		const spawn = (args, platform = 'win32', bin = 'C:\\x\\claude.cmd') => logic.spawnSpec({ bin, args, platform, env: {}, home: HOME, timeoutMs: 1 });
+		for (const char of [' ', '\t', '"', '&', '|', '<', '>', '^', '%']) {
+			const bad = `fake-${char}-0001`;
+			let failure;
+			try {
+				spawn(['plugin', bad]);
+			} catch (err) {
+				failure = err;
+			}
+			assert.ok(failure instanceof TypeError, JSON.stringify(char));
+			assert.equal(failure.message, 'spawnSpec: an argument for claude.cmd holds a character that cmd.exe would read as syntax');
+			assert.equal(failure.message.includes('fake-'), false);
+			assert.doesNotThrow(() => spawn(['plugin', bad], 'linux'), `posix ${JSON.stringify(char)}`);
+			assert.doesNotThrow(() => spawn(['plugin', bad], 'win32', 'C:\\x\\claude.exe'), `exe ${JSON.stringify(char)}`);
+		}
+		assert.doesNotThrow(() => spawn(['plugin', 'install', 'make-custom-app@make-custom-app', '--scope=user', 'https://github.com/o/r.git']));
 	});
 
 	it('childEnv and spawnSpec: a TypeError without env, home, or platform', () => {
@@ -1116,6 +1181,11 @@ describe('usableValue', () => {
 		}
 	});
 
+	it('usableValue: a value that starts with ${ is a variable reference and is not usable, one that holds it later is', () => {
+		for (const value of ['${env:OPENAI_API_KEY}', '${PINECONE_API_KEY}', '  ${X}', '${']) assert.equal(logic.usableValue(value), false, value);
+		for (const value of ['a${b', '$', '$X', '{${}']) assert.equal(logic.usableValue(value), true, value);
+	});
+
 	it('usableValue: a value that is not a string is not usable', () => {
 		for (const value of [undefined, null, 5, true, {}, ['x']]) assert.equal(logic.usableValue(value), false, String(value));
 	});
@@ -1187,7 +1257,7 @@ describe('pointsIntoOldSkill and isOldRegistration', () => {
 		assert.equal(old(['node', '/opt/mcp/dist/index.js'], '/opt/mcp/'), true);
 		assert.equal(old(['/opt/mcp/run.sh'], '/opt/mcp'), true);
 		assert.equal(old(['node', '/opt/mcp'], '/opt/mcp'), true);
-		assert.equal(old(['node', '/opt/./mcp//dist/../dist/index.js'], '/opt/mcp'), true);
+		assert.equal(old(['node', '/opt/./mcp//dist/index.js'], '/opt/mcp'), true);
 		assert.equal(old(['node', 'C:\\srv\\mcp\\dist\\index.js'], 'C:\\srv\\mcp'), true);
 		assert.equal(old(['node', 'C:/srv/mcp/dist/index.js'], 'C:\\srv\\mcp\\'), true);
 		assert.equal(old(['node', 'C:\\srv\\mcp\\dist\\index.js'], 'C:/srv/mcp'), true);
@@ -1204,6 +1274,33 @@ describe('pointsIntoOldSkill and isOldRegistration', () => {
 		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/anything/at/all'] }, '/'), false);
 		assert.equal(logic.isOldRegistration({ command: 'node', args: ['C:\\anything'] }, 'C:\\'), false);
 		assert.equal(logic.isOldRegistration({ command: 'node', args: ['/x'] }, 5), false);
+	});
+});
+
+describe('isOldRegistration and parent segments', () => {
+	const old = (parts, folder) => logic.isOldRegistration({ command: parts[0], args: parts.slice(1) }, folder);
+
+	it('isOldRegistration: a path with a .. segment is never old, with either separator, in the command or an argument', () => {
+		assert.equal(old(['node', '/x/skills/make-custom-app/../other/y.js']), false);
+		assert.equal(old(['node', '/x/skills/make-custom-app\\..\\other\\y.js']), false);
+		assert.equal(old(['/x/skills/make-custom-app/../run.sh']), false);
+		assert.equal(old(['node', '..\\skills\\make-custom-app\\y.js']), false);
+		assert.equal(old(['node', '/x/skills/make-custom-app/..']), false);
+		assert.equal(old(['node', '/x/skills/make-custom-app/y.js']), true);
+		assert.equal(old(['node', '/x/skills/make-custom-app/a..b/y.js']), true);
+		assert.equal(old(['node', '/x/skills/make-custom-app/..hidden/y.js']), true);
+	});
+
+	it('isOldRegistration: a .. lookalike that resolves into mcp-server-path is not old, and a clean second argument still counts', () => {
+		assert.equal(old(['node', '/opt/other/../mcp/dist/index.js'], '/opt/mcp'), false);
+		assert.equal(old(['node', 'C:\\srv\\other\\..\\mcp\\index.js'], 'C:\\srv\\mcp'), false);
+		assert.equal(old(['node', '/opt/mcp/../mcp/dist/index.js'], '/opt/mcp'), false);
+		assert.equal(old(['node', '/opt/other/../x.js', '/opt/mcp/dist/index.js'], '/opt/mcp'), true);
+		assert.equal(old(['node', '/opt/mcp/dist/../index.js', '/x/skills/make-custom-app/y.js'], '/opt/mcp'), true);
+	});
+
+	it('pointsIntoOldSkill keeps the raw rule of legacy-install.js, a .. segment included', () => {
+		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['/x/skills/make-custom-app/../other/y.js'] }), true);
 	});
 });
 
@@ -1274,11 +1371,44 @@ describe('planSecrets', () => {
 			updates: { 'openai-api-key': FAKE.openai, 'pinecone-index-name': 'make-apps' },
 			copied: ['openai-api-key', 'pinecone-index-name'],
 			keptExisting: ['pinecone-api-key'],
-			conflicts: [],
+			conflicts: [{ key: 'pinecone-api-key', used: 'secrets-file', others: ['claude-registration'] }],
 			skipped: [],
 		});
 		const nothingToOffer = logic.planSecrets({ sources: [], existingText });
 		assert.deepEqual(nothingToOffer, { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] });
+	});
+
+	it('planSecrets: an existing value that differs from a usable source is a conflict by key and label, never by value', () => {
+		const existingText = `pinecone-api-key: ${FAKE.pinecone2}\nopenai-api-key: ${FAKE.openai}\n`;
+		const plan = logic.planSecrets({
+			sources: [
+				source('claude-registration', { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai }),
+				source('claude-env', { PINECONE_API_KEY: FAKE.pinecone2, OPENAI_API_KEY: FAKE.cursor }),
+				source('cursor-env', { PINECONE_API_KEY: 'your-pinecone-key', OPENAI_API_KEY: FAKE.openai }),
+				source('cursor-registration:make-app-context', { PINECONE_API_KEY: FAKE.cursor }),
+			],
+			existingText,
+		});
+		assert.deepEqual(plan.updates, {});
+		assert.deepEqual(plan.copied, []);
+		assert.deepEqual(plan.keptExisting, ['pinecone-api-key', 'openai-api-key']);
+		assert.deepEqual(plan.conflicts, [
+			{ key: 'pinecone-api-key', used: 'secrets-file', others: ['claude-registration', 'cursor-registration:make-app-context'] },
+			{ key: 'openai-api-key', used: 'secrets-file', others: ['claude-env'] },
+		]);
+		assert.deepEqual(plan.skipped, []);
+		const text = JSON.stringify(plan);
+		for (const value of [FAKE.pinecone, FAKE.pinecone2, FAKE.openai, FAKE.cursor]) assert.equal(text.includes(value), false, 'no value in the plan conflicts');
+	});
+
+	it('planSecrets: an existing value that equals every usable source gives no conflict, and a reference or placeholder source is no conflict', () => {
+		const existingText = `pinecone-api-key: ${FAKE.pinecone}\n`;
+		const same = logic.planSecrets({ sources: [source('claude-registration', { PINECONE_API_KEY: FAKE.pinecone }), source('claude-env', { PINECONE_API_KEY: ` ${FAKE.pinecone} ` })], existingText });
+		assert.deepEqual(same, { updates: {}, copied: [], keptExisting: ['pinecone-api-key'], conflicts: [], skipped: [] });
+		const unusable = logic.planSecrets({ sources: [source('claude-registration', { PINECONE_API_KEY: '${env:PINECONE_API_KEY}' }), source('claude-env', { PINECONE_API_KEY: 'your-key' })], existingText });
+		assert.deepEqual(unusable, { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] });
+		const laterDiffers = logic.planSecrets({ sources: [source('claude-registration', { PINECONE_API_KEY: FAKE.pinecone }), source('claude-env', { PINECONE_API_KEY: FAKE.pinecone2 })], existingText });
+		assert.deepEqual(laterDiffers.conflicts, [{ key: 'pinecone-api-key', used: 'secrets-file', others: ['claude-env'] }]);
 	});
 
 	it('planSecrets: a key with only placeholder or multiline values is skipped with its reason, and a key without any value is not listed', () => {
@@ -1301,6 +1431,10 @@ describe('planSecrets', () => {
 		});
 		const empty = logic.planSecrets({ sources: [source('claude-env', { PINECONE_API_KEY: '' })], existingText: '' });
 		assert.deepEqual(empty.skipped, [{ key: 'pinecone-api-key', reason: 'placeholder' }]);
+		const reference = logic.planSecrets({ sources: [source('cursor-registration:x', { OPENAI_API_KEY: '${env:OPENAI_API_KEY}' })], existingText: '' });
+		assert.deepEqual(reference.skipped, [{ key: 'openai-api-key', reason: 'reference' }]);
+		const referenceFirst = logic.planSecrets({ sources: [source('a', { OPENAI_API_KEY: '${x}' }), source('b', { OPENAI_API_KEY: 'a\nb' })], existingText: '' });
+		assert.deepEqual(referenceFirst.skipped, [{ key: 'openai-api-key', reason: 'reference' }]);
 		const covered = logic.planSecrets({ sources: [source('claude-env', { PINECONE_API_KEY: 'your-pinecone-key' })], existingText: `pinecone-api-key: ${FAKE.pinecone}\n` });
 		assert.deepEqual(covered, { updates: {}, copied: [], keptExisting: [], conflicts: [], skipped: [] });
 	});
@@ -1534,13 +1668,81 @@ describe('readSecretSources', () => {
 		put(path.join(home, '.claude', 'skills', 'make-custom-app', 'mcp-server', '.env'), 'PINECONE_API_KEY=\nOPENAI_API_KEY=  your-openai-key  \n');
 		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep }).sources, [{ label: 'claude-env', values: { PINECONE_API_KEY: '', OPENAI_API_KEY: 'your-openai-key' } }]);
 	});
+
+	it('readSecretSources: a registration whose path has a .. segment is no source, in Claude and in Cursor', () => {
+		const home = caseDir('rs-dotdot');
+		const lookalike = path.join(home, '.claude', 'skills', 'make-custom-app', '..', 'other', 'index.js');
+		put(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: [lookalike], env: { PINECONE_API_KEY: FAKE.other } } } }));
+		put(path.join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { lookalike: { command: 'node', args: [`${home}/.cursor/skills/make-custom-app/../other/y.js`], env: { OPENAI_API_KEY: FAKE.other } } } }));
+		const result = logic.readSecretSources({ home, sleep: noSleep });
+		assert.deepEqual(result, { sources: [], errors: [] });
+		const redirected = path.join(home, 'srv');
+		put(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: [`${redirected}/other/../dist/index.js`], env: { PINECONE_API_KEY: FAKE.other } } } }));
+		assert.deepEqual(logic.readSecretSources({ home, sleep: noSleep, mcpServerPath: redirected }), { sources: [], errors: [] });
+	});
+
+	it('readSecretSources and planSecrets: a ${...} reference in a Cursor or Claude env is not copied and is skipped as a reference', () => {
+		const home = caseDir('rs-reference');
+		const server = path.join(home, '.cursor', 'skills', 'make-custom-app', 'mcp-server', 'dist', 'index.js');
+		put(path.join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { 'make-app-context': { command: 'node', args: [server], env: { OPENAI_API_KEY: '${env:OPENAI_API_KEY}', PINECONE_API_KEY: ' ${PINECONE_API_KEY} ', PINECONE_INDEX_NAME: 'make-apps' } } } }));
+		const { sources, errors } = logic.readSecretSources({ home, sleep: noSleep });
+		assert.deepEqual(errors, []);
+		assert.deepEqual(sources, [{ label: 'cursor-registration:make-app-context', values: { OPENAI_API_KEY: '${env:OPENAI_API_KEY}', PINECONE_API_KEY: '${PINECONE_API_KEY}', PINECONE_INDEX_NAME: 'make-apps' } }]);
+		assert.deepEqual(logic.planSecrets({ sources, existingText: '' }), {
+			updates: { 'pinecone-index-name': 'make-apps' },
+			copied: ['pinecone-index-name'],
+			keptExisting: [],
+			conflicts: [],
+			skipped: [
+				{ key: 'pinecone-api-key', reason: 'reference' },
+				{ key: 'openai-api-key', reason: 'reference' },
+			],
+		});
+	});
 });
 
 describe('acquireMigrationLock', () => {
 	const NOW = 1700000000000;
 	const lockDir = (home) => path.join(home, '.make-custom-app');
 	const lockFile = (home) => path.join(lockDir(home), 'cleanup.lock');
+	const takeoverFile = (home) => `${lockFile(home)}.takeover`;
 	const alive = () => true;
+	const lockText = (pid, at) => `{"pid":${pid},"at":${at}}`;
+	const staleByAge = (pid = 4242) => lockText(pid, NOW - 2 * logic.LOCK_STALE_MS);
+
+	function ageFile(file, ms) {
+		const when = new Date(Date.now() - ms);
+		fs.utimesSync(file, when, when);
+	}
+
+	function wrappedFs(hooks = {}) {
+		const calls = [];
+		return {
+			calls,
+			mkdirSync: (dir, options) => fs.mkdirSync(dir, options),
+			writeFileSync(file, content, options) {
+				calls.push(['write', file]);
+				fs.writeFileSync(file, content, options);
+				if (hooks.afterWrite) hooks.afterWrite(file);
+			},
+			readFileSync(file, encoding) {
+				if (hooks.beforeRead) hooks.beforeRead(file);
+				const text = fs.readFileSync(file, encoding);
+				calls.push(['read', file]);
+				if (hooks.afterRead) hooks.afterRead(file, text);
+				return text;
+			},
+			unlinkSync(file) {
+				calls.push(['unlink', file]);
+				if (hooks.beforeUnlink) hooks.beforeUnlink(file);
+				fs.unlinkSync(file);
+				if (hooks.afterUnlink) hooks.afterUnlink(file);
+			},
+			statSync(file) {
+				return hooks.statSync ? hooks.statSync(file) : fs.statSync(file);
+			},
+		};
+	}
 
 	it('acquireMigrationLock: a free lock is created with mode 0700 for the folder, mode 0600 for the file, and the pid and time as content', () => {
 		const home = caseDir('lock-free');
@@ -1563,14 +1765,16 @@ describe('acquireMigrationLock', () => {
 		assert.deepEqual(second, { ok: false, pid: 4242 });
 		assert.deepEqual(asked, [4242]);
 		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), '{"pid":4242,"at":1700000000000}');
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
 	});
 
-	it('acquireMigrationLock: a lock whose pid is not alive is replaced', () => {
+	it('acquireMigrationLock: a lock whose pid is not alive is replaced, and no takeover file stays', () => {
 		const home = caseDir('lock-dead');
 		logic.acquireMigrationLock({ home, pid: 4242, now: NOW, isAlive: alive });
 		const second = logic.acquireMigrationLock({ home, pid: 5151, now: NOW + 5, isAlive: (pid) => pid !== 4242 });
 		assert.equal(second.ok, true);
-		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW + 5}}`);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(5151, NOW + 5));
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
 	});
 
 	it('acquireMigrationLock: a lock older than LOCK_STALE_MS is replaced, one of exactly that age is not', () => {
@@ -1579,7 +1783,26 @@ describe('acquireMigrationLock', () => {
 		assert.deepEqual(logic.acquireMigrationLock({ home, pid: 5151, now: NOW + logic.LOCK_STALE_MS, isAlive: alive }), { ok: false, pid: 4242 });
 		const later = logic.acquireMigrationLock({ home, pid: 5151, now: () => NOW + logic.LOCK_STALE_MS + 1, isAlive: alive });
 		assert.equal(later.ok, true);
-		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW + logic.LOCK_STALE_MS + 1}}`);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(5151, NOW + logic.LOCK_STALE_MS + 1));
+	});
+
+	it('acquireMigrationLock: a lock whose time lies in the future is stale, and one stamped exactly now is not', () => {
+		const home = caseDir('lock-future');
+		put(lockFile(home), lockText(4242, NOW));
+		assert.deepEqual(logic.acquireMigrationLock({ home, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: 4242 });
+		put(lockFile(home), lockText(4242, NOW + 1));
+		const taken = logic.acquireMigrationLock({ home, pid: 5151, now: NOW, isAlive: alive });
+		assert.equal(taken.ok, true);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(5151, NOW));
+	});
+
+	it('acquireMigrationLock: staleness is judged with a clock read after the lock was read, so a lock stamped a moment later is not taken', () => {
+		const home = caseDir('lock-clock');
+		put(lockFile(home), lockText(4242, 3000));
+		const readings = [1000, 5000];
+		const now = () => (readings.length > 1 ? readings.shift() : readings[0]);
+		assert.deepEqual(logic.acquireMigrationLock({ home, pid: 5151, now, isAlive: alive }), { ok: false, pid: 4242 });
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(4242, 3000));
 	});
 
 	it('acquireMigrationLock: release removes our lock once, never another process lock, and the lock can be taken again', () => {
@@ -1597,81 +1820,260 @@ describe('acquireMigrationLock', () => {
 		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), '{"pid":7,"at":1}');
 	});
 
-	it('acquireMigrationLock: content that is not a pid and a time counts as stale and never reaches isAlive', () => {
+	it('acquireMigrationLock: content that is not a pid and a time is stale only when the file is older than 5 s, and never reaches isAlive', () => {
 		const bad = ['', 'garbage', '[]', '{"pid":0,"at":1}', '{"pid":-3,"at":1}', '{"pid":1.5,"at":1}', '{"pid":"7","at":1}', '{"pid":4242}', '{"pid":4242,"at":"now"}', '\uFEFF{"pid":4242,"at":"x"}'];
 		for (const content of bad) {
 			const home = caseDir('lock-bad');
 			put(lockFile(home), content);
+			ageFile(lockFile(home), 6000);
 			const asked = [];
-			const lock = logic.acquireMigrationLock({ home, pid: 5151, now: NOW, isAlive: (pid) => (asked.push(pid), true) });
+			const lock = logic.acquireMigrationLock({ home, pid: 5151, isAlive: (pid) => (asked.push(pid), true) });
 			assert.equal(lock.ok, true, JSON.stringify(content));
 			assert.deepEqual(asked, [], JSON.stringify(content));
-			assert.equal(fs.readFileSync(lockFile(home), 'utf8'), `{"pid":5151,"at":${NOW}}`);
+			assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, 5151);
 		}
 	});
 
-	it('acquireMigrationLock: a stale lock is replaced once, and a lock that reappears at once is reported as held', () => {
-		const stale = '{"pid":4242,"at":1}';
-		const fresh = `{"pid":7,"at":${NOW}}`;
-		const calls = [];
-		const reads = [stale, fresh];
-		const racing = {
-			mkdirSync: (dir, options) => calls.push(['mkdir', dir, options]),
-			writeFileSync: (file, content, options) => {
-				calls.push(['write', file, content, options.flag, options.mode]);
-				throw errorWithCode('EEXIST');
-			},
-			readFileSync: () => reads.shift(),
-			unlinkSync: (file) => calls.push(['unlink', file]),
-		};
-		const home = '/fake/home';
-		const result = logic.acquireMigrationLock({ home, fs: racing, pid: 5151, now: NOW, isAlive: (pid) => pid !== 4242 });
-		assert.deepEqual(result, { ok: false, pid: 7 });
-		assert.deepEqual(
-			calls.map((call) => call[0]),
-			['mkdir', 'write', 'unlink', 'write'],
-		);
-		assert.deepEqual(calls[0], ['mkdir', lockDir(home), { recursive: true, mode: 0o700 }]);
-		assert.deepEqual(calls[1], ['write', lockFile(home), `{"pid":5151,"at":${NOW}}`, 'wx', 0o600]);
-		assert.deepEqual(calls[2], ['unlink', lockFile(home)]);
+	it('acquireMigrationLock: a fresh lock file with no pid yet (the moment between create and write) is not taken', () => {
+		for (const content of ['', 'garbage', '{"pid":4242}']) {
+			const home = caseDir('lock-fresh-empty');
+			put(lockFile(home), content);
+			const asked = [];
+			const result = logic.acquireMigrationLock({ home, pid: 5151, isAlive: (pid) => (asked.push(pid), false) });
+			assert.deepEqual(result, { ok: false, pid: null }, JSON.stringify(content));
+			assert.deepEqual(asked, [], JSON.stringify(content));
+			assert.equal(fs.readFileSync(lockFile(home), 'utf8'), content);
+			assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+		}
 	});
 
-	it('acquireMigrationLock: a write error other than EEXIST, and an unlink error other than ENOENT, are thrown', () => {
-		const base = { mkdirSync() {}, readFileSync: () => '{"pid":4242,"at":1}' };
-		const denied = { ...base, writeFileSync: () => { throw errorWithCode('EACCES'); }, unlinkSync() {} };
+	it('acquireMigrationLock: the 5 s limit for a file without a pid is strict, read through the injected stat and clock', () => {
+		const at = (ageMs) => wrappedFs({ statSync: () => ({ mtimeMs: NOW - ageMs }) });
+		for (const [ageMs, replaced] of [[5000, false], [5001, true], [0, false], [-1000, false]]) {
+			const home = caseDir('lock-limit');
+			put(lockFile(home), '');
+			const result = logic.acquireMigrationLock({ home, fs: at(ageMs), pid: 5151, now: NOW, isAlive: alive });
+			assert.equal(result.ok, replaced, `age ${ageMs}`);
+			assert.equal(fs.readFileSync(lockFile(home), 'utf8'), replaced ? lockText(5151, NOW) : '', `age ${ageMs}`);
+		}
+		const home = caseDir('lock-limit-stat-error');
+		put(lockFile(home), '');
+		const failing = wrappedFs({
+			statSync: () => {
+				throw errorWithCode('ENOENT');
+			},
+		});
+		assert.deepEqual(logic.acquireMigrationLock({ home, fs: failing, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: null });
+	});
+
+	it('acquireMigrationLock: a stale lock that another run replaced between our read and our unlink is not removed, and we do not hold the lock', () => {
+		const home = caseDir('lock-race-read');
+		put(lockFile(home), staleByAge());
+		let other;
+		let armed = true;
+		const raced = wrappedFs({
+			afterRead(file) {
+				if (file !== lockFile(home) || !armed) return;
+				armed = false;
+				other = logic.acquireMigrationLock({ home, pid: 6262, now: NOW, isAlive: alive });
+			},
+		});
+		const result = logic.acquireMigrationLock({ home, fs: raced, pid: 5151, now: NOW, isAlive: alive });
+		assert.equal(other.ok, true);
+		assert.deepEqual(result, { ok: false, pid: 6262 });
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(6262, NOW));
+		assert.equal(raced.calls.some(([kind, file]) => kind === 'unlink' && file === lockFile(home)), false);
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: while one run holds the takeover file, a second run that finds the same stale lock does not take it over', () => {
+		const home = caseDir('lock-race-takeover');
+		put(lockFile(home), staleByAge());
+		let other;
+		let content;
+		let mode;
+		let armed = true;
+		const raced = wrappedFs({
+			afterWrite(file) {
+				if (file !== takeoverFile(home) || !armed) return;
+				armed = false;
+				content = fs.readFileSync(takeoverFile(home), 'utf8');
+				mode = fs.statSync(takeoverFile(home)).mode & 0o777;
+				other = logic.acquireMigrationLock({ home, pid: 6262, now: NOW, isAlive: alive });
+			},
+		});
+		const result = logic.acquireMigrationLock({ home, fs: raced, pid: 5151, now: NOW, isAlive: alive });
+		assert.deepEqual(other, { ok: false, pid: null });
+		assert.equal(result.ok, true);
+		assert.equal(content, lockText(5151, NOW));
+		if (process.platform !== 'win32') assert.equal(mode, 0o600);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(5151, NOW));
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: a lock created by another run between our unlink and our create is reported as held and left alone', () => {
+		const home = caseDir('lock-race-create');
+		put(lockFile(home), staleByAge());
+		const raced = wrappedFs({
+			afterUnlink(file) {
+				if (file === lockFile(home)) put(lockFile(home), lockText(7, NOW));
+			},
+		});
+		assert.deepEqual(logic.acquireMigrationLock({ home, fs: raced, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: 7 });
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), lockText(7, NOW));
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: a takeover file older than 5 s whose pid is dead (or that holds no pid) is removed once, and any other takeover file blocks us and stays', () => {
+		const cases = [
+			['dead pid, 6 s old', lockText(4242, 1), 6000, true],
+			['no pid, 6 s old', '', 6000, true],
+			['garbage, 6 s old', 'garbage', 6000, true],
+			['dead pid, fresh', lockText(4242, 1), 0, false],
+			['live pid, 6 s old', lockText(8888, 1), 6000, false],
+			['no pid, fresh', '', 0, false],
+		];
+		for (const [label, content, ageMs, removed] of cases) {
+			const home = caseDir('lock-takeover-old');
+			put(lockFile(home), lockText(4242, Date.now() - 2 * logic.LOCK_STALE_MS));
+			put(takeoverFile(home), content);
+			ageFile(takeoverFile(home), ageMs);
+			const result = logic.acquireMigrationLock({ home, pid: 5151, isAlive: (pid) => pid === 8888 });
+			if (removed) {
+				assert.equal(result.ok, true, label);
+				assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, 5151, label);
+				assert.equal(fs.existsSync(takeoverFile(home)), false, label);
+			} else {
+				assert.deepEqual(result, { ok: false, pid: null }, label);
+				assert.equal(fs.readFileSync(takeoverFile(home), 'utf8'), content, label);
+				assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, 4242, label);
+			}
+		}
+	});
+
+	it('acquireMigrationLock: the 5 s limit of a takeover file is strict, and a takeover file that vanishes or cannot be read gives held with no pid', () => {
+		for (const [ageMs, removed] of [[5000, false], [5001, true]]) {
+			const home = caseDir('lock-takeover-limit');
+			put(lockFile(home), staleByAge());
+			put(takeoverFile(home), lockText(4242, 1));
+			const result = logic.acquireMigrationLock({ home, fs: wrappedFs({ statSync: (file) => (file === takeoverFile(home) ? { mtimeMs: NOW - ageMs } : fs.statSync(file)) }), pid: 5151, now: NOW, isAlive: (pid) => pid === 8888 });
+			assert.equal(result.ok, removed, `age ${ageMs}`);
+		}
+
+		const vanishing = caseDir('lock-takeover-vanishing');
+		put(lockFile(vanishing), staleByAge());
+		put(takeoverFile(vanishing), lockText(8888, 1));
+		const gone = wrappedFs({ beforeRead: (file) => file === takeoverFile(vanishing) && fs.rmSync(file, { force: true }) });
+		assert.equal(logic.acquireMigrationLock({ home: vanishing, fs: gone, pid: 5151, now: NOW, isAlive: alive }).ok, true);
+
+		const unreadable = caseDir('lock-takeover-unreadable');
+		put(lockFile(unreadable), staleByAge());
+		put(takeoverFile(unreadable), lockText(8888, 1));
+		const denied = wrappedFs({
+			beforeRead: (file) => {
+				if (file === takeoverFile(unreadable)) throw errorWithCode('EACCES');
+			},
+		});
+		assert.deepEqual(logic.acquireMigrationLock({ home: unreadable, fs: denied, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: null });
+		assert.equal(fs.readFileSync(takeoverFile(unreadable), 'utf8'), lockText(8888, 1));
+	});
+
+	it('acquireMigrationLock: a lock that cannot be read is reported as held with no pid, and nothing is removed', () => {
+		const home = caseDir('lock-unreadable');
+		put(lockFile(home), staleByAge());
+		const denied = wrappedFs({
+			beforeRead: (file) => {
+				if (file === lockFile(home)) throw errorWithCode('EACCES');
+			},
+		});
+		assert.deepEqual(logic.acquireMigrationLock({ home, fs: denied, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: null });
+		assert.deepEqual(denied.calls.filter(([kind]) => kind === 'unlink'), []);
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: a write error other than EEXIST is thrown, for the lock and for the takeover file', () => {
+		const home = caseDir('lock-write-error');
+		const denied = { mkdirSync() {}, writeFileSync: () => { throw errorWithCode('EACCES'); }, readFileSync: () => lockText(4242, 1), unlinkSync() {} };
 		assert.throws(() => logic.acquireMigrationLock({ home: '/h', fs: denied, now: NOW }), { code: 'EACCES' });
-		const stuck = { ...base, writeFileSync: () => { throw errorWithCode('EEXIST'); }, unlinkSync: () => { throw errorWithCode('EPERM'); } };
-		assert.throws(() => logic.acquireMigrationLock({ home: '/h', fs: stuck, now: NOW, isAlive: () => false }), { code: 'EPERM' });
-		let writes = 0;
-		const gone = {
-			...base,
-			writeFileSync: () => {
-				if (++writes === 1) throw errorWithCode('EEXIST');
-			},
-			unlinkSync: () => { throw errorWithCode('ENOENT'); },
+
+		put(lockFile(home), staleByAge());
+		const deniedTakeover = wrappedFs();
+		const write = deniedTakeover.writeFileSync;
+		deniedTakeover.writeFileSync = (file, content, options) => {
+			if (file === takeoverFile(home)) throw errorWithCode('EACCES');
+			return write(file, content, options);
 		};
-		assert.equal(logic.acquireMigrationLock({ home: '/h', fs: gone, now: NOW, isAlive: () => false }).ok, true);
-		assert.equal(writes, 2);
+		assert.throws(() => logic.acquireMigrationLock({ home, fs: deniedTakeover, pid: 5151, now: NOW, isAlive: () => false }), { code: 'EACCES' });
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
 	});
 
-	it('acquireMigrationLock: a lock that disappears between the failed create and the read is replaced without error', () => {
+	it('acquireMigrationLock: an unlink error other than ENOENT is thrown and the takeover file is still removed; ENOENT is ignored', () => {
+		const home = caseDir('lock-unlink-error');
+		put(lockFile(home), staleByAge());
+		const stuck = wrappedFs({
+			beforeUnlink: (file) => {
+				if (file === lockFile(home)) throw errorWithCode('EPERM');
+			},
+		});
+		assert.throws(() => logic.acquireMigrationLock({ home, fs: stuck, pid: 5151, now: NOW, isAlive: () => false }), { code: 'EPERM' });
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), staleByAge());
+
+		const gone = caseDir('lock-unlink-gone');
+		put(lockFile(gone), staleByAge());
+		const vanished = wrappedFs({ beforeUnlink: (file) => file === lockFile(gone) && fs.rmSync(file, { force: true }) });
+		const unlink = vanished.unlinkSync;
+		vanished.unlinkSync = (file) => {
+			try {
+				unlink(file);
+			} catch (err) {
+				if (err.code !== 'ENOENT') throw err;
+				throw errorWithCode('ENOENT');
+			}
+		};
+		assert.equal(logic.acquireMigrationLock({ home: gone, fs: vanished, pid: 5151, now: NOW, isAlive: () => false }).ok, true);
+		assert.deepEqual(fs.readdirSync(lockDir(gone)), ['cleanup.lock']);
+	});
+
+	it('acquireMigrationLock: a lock that disappears between the failed create and the read is created without a takeover', () => {
 		let writes = 0;
+		const written = [];
 		const vanishing = {
 			mkdirSync() {},
-			writeFileSync: () => {
+			writeFileSync: (file) => {
+				written.push(file);
 				if (++writes === 1) throw errorWithCode('EEXIST');
 			},
 			readFileSync: () => {
 				throw errorWithCode('ENOENT');
 			},
-			unlinkSync: () => {
-				throw errorWithCode('ENOENT');
-			},
+			unlinkSync: () => assert.fail('nothing may be removed'),
 		};
 		const lock = logic.acquireMigrationLock({ home: '/h', fs: vanishing, now: NOW, isAlive: () => assert.fail('isAlive must not be asked') });
 		assert.equal(lock.ok, true);
 		assert.equal(writes, 2);
+		assert.equal(new Set(written).size, 1);
 		assert.doesNotThrow(() => lock.release());
+	});
+
+	it('acquireMigrationLock: a lock that vanishes and is replaced by another run before our second create is reported as held', () => {
+		const home = caseDir('lock-vanish-race');
+		put(lockFile(home), lockText(4242, NOW));
+		let reads = 0;
+		const racing = wrappedFs({
+			beforeRead(file) {
+				if (file !== lockFile(home)) return;
+				if (++reads === 1) fs.rmSync(file);
+				if (reads === 2) put(file, lockText(7, NOW));
+			},
+		});
+		const original = racing.writeFileSync;
+		racing.writeFileSync = (file, content, options) => {
+			if (file === lockFile(home) && reads === 1) put(file, lockText(7, NOW));
+			return original(file, content, options);
+		};
+		const result = logic.acquireMigrationLock({ home, fs: racing, pid: 5151, now: NOW, isAlive: alive });
+		assert.deepEqual(result, { ok: false, pid: 7 });
 	});
 
 	it('acquireMigrationLock: the defaults are this process, the clock, and a kill-based liveness check', () => {
@@ -1709,9 +2111,13 @@ describe('acquireMigrationLock', () => {
 		}
 	});
 
-	it('acquireMigrationLock: a TypeError without home', () => {
+	it('acquireMigrationLock: a TypeError without home, and with a home that is empty or not a string', () => inTempCwd('lock-no-home', () => {
 		assert.throws(() => logic.acquireMigrationLock(), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
 		assert.throws(() => logic.acquireMigrationLock({ pid: 1 }), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
+		assert.throws(() => logic.acquireMigrationLock({ home: '' }), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
+		assert.throws(() => logic.acquireMigrationLock({ home: null }), { name: 'TypeError', message: 'acquireMigrationLock needs home' });
 		assert.throws(() => logic.readSecretSources(), { name: 'TypeError', message: 'readSecretSources needs home' });
-	});
+		assert.throws(() => logic.readSecretSources({ home: '' }), { name: 'TypeError', message: 'readSecretSources needs home' });
+		assert.deepEqual(fs.readdirSync(process.cwd()), []);
+	}));
 });
