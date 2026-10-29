@@ -13,6 +13,7 @@
  *
  * Exit codes: 0 = every required item OK, 1 = a required item is missing or the
  * auto-update failed, 3 = the skill was just auto-updated (re-read SKILL.md, re-run).
+ *   A PLUGIN_MIGRATION line (see ## Plugin migration in SKILL.md) never changes the exit code.
  */
 const fs = require('fs');
 const os = require('os');
@@ -211,8 +212,30 @@ if (isClaude) {
 
 const ok = items.every((i) => i.status !== 'missing');
 
+let pluginMigration = null;
+try {
+	pluginMigration = require('./lib/migrate-logic').migrationNotice({
+		env: process.env,
+		home: os.homedir(),
+		tmpdir: os.tmpdir(),
+		platform: process.platform,
+		skillRoot,
+		editorDir,
+		json: args.has('--json'),
+	});
+} catch {
+	pluginMigration = null;
+}
+
 if (args.has('--json')) {
-	process.stdout.write(JSON.stringify({ ok, editor: editorDir, skillRoot, setupCommand: SETUP_CMD, items }, null, 2) + '\n');
+	const report = pluginMigration && {
+		state: pluginMigration.state,
+		reason: pluginMigration.reason,
+		claudeBin: pluginMigration.claudeBin,
+		command: pluginMigration.command,
+		due: pluginMigration.due,
+	};
+	process.stdout.write(JSON.stringify({ ok, editor: editorDir, skillRoot, setupCommand: SETUP_CMD, items, pluginMigration: report }, null, 2) + '\n');
 } else {
 	const mark = { ok: 'OK      ', missing: 'MISSING ', 'optional-missing': 'OPTIONAL' };
 	console.log(`make-custom-app setup — ${editorDir} — ${skillRoot}\n`);
@@ -223,6 +246,7 @@ if (args.has('--json')) {
 		console.log(`\nInteractive wizard (your terminal, not the agent):\n  ${SETUP_CMD}`);
 		for (const i of fixes) console.log(`\n[${i.status === 'missing' ? 'REQUIRED' : 'optional'}] ${i.key}\n${i.fix}`);
 	}
+	if (pluginMigration && pluginMigration.due) console.log(`\n${pluginMigration.line}`);
 	console.log(ok ? '\nSetup OK.' : '\nSetup INCOMPLETE — required items missing. Stop and apply the REQUIRED fixes above.');
 }
 process.exit(ok ? 0 : 1);

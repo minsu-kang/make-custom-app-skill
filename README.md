@@ -53,7 +53,7 @@ The same two commands apply when Cursor loads the Claude install.
 
 ## Coming from a 2.x install
 
-The old skill (`~/.claude/skills/make-custom-app`, or the Cursor copy) keeps working until you move. Release 2.4.0 of the old skill asks once a day whether to install the plugin; answer yes and it installs the plugin and copies your secrets and app contexts. After the plugin has loaded, the `make-app-setup` skill lists the old install (the skill folder, its MCP registration, the block in `~/.claude/CLAUDE.md`) and removes it only after you confirm; everything it removes is moved to a backup folder first. Your own paragraph in `~/.claude/CLAUDE.md` that says to invoke the `make-custom-app` skill is never edited: replace it by hand, because that skill no longer exists after the move.
+The old skill (`~/.claude/skills/make-custom-app`, or the Cursor copy) keeps working until you move. Release 2.4.0 of the old skill asks once a day whether to install the plugin; answer yes and it installs the plugin and copies your secrets and app contexts. After the plugin has loaded, the `make-app-setup` skill lists the old install (the skill folder, its MCP registration, the block in `~/.claude/CLAUDE.md`) and removes it only after you confirm; everything it removes is moved to a backup folder first. Your own paragraph in `~/.claude/CLAUDE.md` that says to invoke the `make-custom-app` skill is never edited: replace it by hand, because that skill no longer exists after the move. Phase A is `skill/scripts/migrate-to-plugin.js`; it deletes nothing.
 
 ## Skills
 
