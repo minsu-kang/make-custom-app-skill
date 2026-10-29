@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 const { once } = require('node:events');
 const crypto = require('crypto');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
-const { CLAUDE_VERSION_PATTERN, readPluginStatus, verifyInstall, parseMarketplaceList, listContextFiles } = require('../migrate-logic');
+const { CLAUDE_VERSION_PATTERN, readPluginStatus, verifyInstall, parseMarketplaceList, listContextFiles, findClaudeBinary } = require('../migrate-logic');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const SKILL_SOURCE = path.join(REPO_ROOT, 'skill');
@@ -155,7 +155,7 @@ const PLUGIN_ID = ID;
 const FAKE_CLAUDE_VERSION = '2.1.312';
 const FAKE_PLUGIN_VERSION = '3.0.0';
 const FAKE_WRONG_VERSION = '2.9.0';
-const FAKE_MODES = ['normal', 'add-fails', 'install-fails', 'install-no-record', 'wrong-version', 'hang', 'disabled', 'object-entry', 'already-added', 'not-claude'];
+const FAKE_MODES = ['normal', 'add-fails', 'install-fails', 'install-no-record', 'wrong-version', 'hang', 'hang-trap', 'disabled', 'object-entry', 'already-added', 'not-claude'];
 const FAKE_HANG_DEFAULT_MS = 30000;
 const FAKE_HANG_MAX_MS = 600000;
 const SHEBANG_MAX_LENGTH = 100;
@@ -369,7 +369,7 @@ function runCommand({ argv, env, config, userFile, mode, io }) {
 	const done = (code, out = null, err = null) => ({ code, out, err, hang: false });
 	if (argv.length === 1 && argv[0] === '--version') return done(0, mode === 'not-claude' ? '1.0.0 (Other Tool)' : `${FAKE_CLAUDE_VERSION} (Claude Code)`);
 	if (mode === 'not-claude' || argv[0] !== 'plugin') return done(2, null, 'unexpected command');
-	if (mode === 'hang') return { code: 0, out: null, err: null, hang: true };
+	if (mode === 'hang' || mode === 'hang-trap') return { code: 0, out: null, err: null, hang: true };
 	const marketplacesFile = path.join(config, 'fake-marketplaces.json');
 	const entry = { name: MARKETPLACE_NAME, source: 'git', url: MARKETPLACE_URL, installLocation: path.join(config, 'plugins', 'marketplaces', MARKETPLACE_NAME) };
 	const marketplaces = () => {
@@ -465,6 +465,7 @@ function fakeClaudeMain(argv, env) {
 	if (result.err !== null) process.stderr.write(`${result.err}\n`);
 	if (!result.hang) return result.code;
 	const asked = Number(env.FAKE_CLAUDE_HANG_MS);
+	if (mode === 'hang-trap') process.on('SIGTERM', () => {});
 	setTimeout(() => {}, Number.isInteger(asked) && asked > 0 ? Math.min(asked, FAKE_HANG_MAX_MS) : FAKE_HANG_DEFAULT_MS);
 	return null;
 }
@@ -1923,10 +1924,11 @@ describe('migrate-to-plugin.js', POSIX_ONLY, () => {
 	}
 
 	function execute(h, args = [], overrides = {}, options = {}) {
-		const { editor = 'claude', skipRels = [], allowBackup = false, holders = [], timeoutMs } = options;
+		const { editor = 'claude', skipRels = [], allowBackup = false, holders = [], timeoutMs, beforeWarning = false } = options;
 		const before = snapshotOld(h.home).filter((entry) => !skipRels.includes(entry.rel));
 		const env = withEnv({ ...h.env, NODE_OPTIONS: `--require ${BLOCK_NETWORK}` }, overrides);
-		const result = withoutNodeWarning(runScript({ home: h.home, script: SCRIPT_NAME, args: ['--skip-version', ...args], env, editor, timeoutMs }));
+		const ran = runScript({ home: h.home, script: SCRIPT_NAME, args: ['--skip-version', ...args], env, editor, timeoutMs });
+		const result = beforeWarning ? ran : withoutNodeWarning(ran);
 		assert.deepEqual(
 			snapshotOld(h.home).filter((entry) => !skipRels.includes(entry.rel)),
 			before,
@@ -2101,6 +2103,32 @@ describe('migrate-to-plugin.js', POSIX_ONLY, () => {
 		assert.equal(result.stderr, installFailure('claude did not finish within 5 seconds (marketplace list)', h));
 		assert.deepEqual(callsOf(h), [COMMANDS.version, COMMANDS.list]);
 		assertNothingCopied(h);
+	});
+
+	it('a claude that ignores SIGTERM is killed for good: --timeout 5 ends the run in under 15 seconds with the timeout message and exit 1', () => {
+		const h = fresh();
+		const started = Date.now();
+		const result = execute(h, ['--timeout', '5'], { FAKE_CLAUDE_MODE: 'hang-trap', FAKE_CLAUDE_HANG_MS: '20000' });
+		const elapsed = Date.now() - started;
+		assert.ok(elapsed < 15000, `the run took ${elapsed} ms`);
+		assert.equal(result.status, 1);
+		assert.equal(result.stdout, '');
+		assert.equal(result.stderr, installFailure('claude did not finish within 5 seconds (marketplace list)', h));
+		assert.deepEqual(callsOf(h), [COMMANDS.version, COMMANDS.list]);
+		assertNothingCopied(h);
+	});
+
+	it('an empty HOME ends with the unexpected error line and exit 1, no stack trace, and nothing written', () => {
+		const h = fresh();
+		const homeBefore = snapshotPaths(h.home, ['']);
+		const tmpBefore = snapshotPaths(h.paths.tmp, ['']);
+		const result = execute(h, [], { HOME: '', USERPROFILE: '' }, { beforeWarning: true });
+		assert.equal(result.status, 1);
+		assert.equal(result.stdout, '');
+		assert.equal(result.stderr, 'migrate-to-plugin: unexpected error: an unexpected error occurred\n');
+		assert.deepEqual(snapshotPaths(h.home, ['']), homeBefore);
+		assert.deepEqual(snapshotPaths(h.paths.tmp, ['']), tmpBefore);
+		assert.equal(fs.existsSync(h.log), false);
 	});
 
 	it('disabled: exit 0, the enable command printed, copies done, no enable call', () => {
@@ -2298,6 +2326,56 @@ describe('migrate-to-plugin.js', POSIX_ONLY, () => {
 		const json = execute(malformed, ['--json']);
 		assert.equal(json.status, 4);
 		assert.equal(JSON.parse(json.stdout).secrets.error, `${malformed.paths.claudeJson} is not valid JSON`);
+	});
+
+	it('a malformed ~/.cursor/mcp.json gives "is not valid JSON" and no seed value in any output or new file', () => {
+		const h = fresh({ editors: ['claude', 'cursor'] });
+		const token = 'fake-cursor-token-2222';
+		const text = fs.readFileSync(h.paths.cursorMcp, 'utf8');
+		fs.writeFileSync(h.paths.cursorMcp, text.slice(0, text.indexOf(token) + token.length), { mode: 0o600 });
+		const first = execute(h);
+		assert.equal(first.status, 4);
+		assert.equal(first.stderr, '');
+		assert.ok(first.stdout.includes(`MCP keys: not copied completely (${h.paths.cursorMcp} is not valid JSON)\n`));
+		assert.ok(first.stdout.endsWith(`${RETRY_LINE}\n`));
+		assert.equal(secretsText(h), 'pinecone-api-key: fake-pinecone-0001\nopenai-api-key: fake-openai-0001\npinecone-index-name: make-app-contexts\n');
+		const json = execute(h, ['--json']);
+		assert.equal(json.status, 4);
+		assert.equal(JSON.parse(json.stdout).secrets.error, `${h.paths.cursorMcp} is not valid JSON`);
+		assert.equal(fs.readFileSync(h.paths.cursorMcp, 'utf8').endsWith(token), true);
+	});
+
+	it('the host folders that the "no claude anywhere" tests guard against are the absolute fallbacks of findClaudeBinary', () => {
+		const home = path.join(TEST_ROOT, 'no-such-home');
+		const seen = [];
+		const found = findClaudeBinary({
+			env: { PATH: '' },
+			home,
+			platform: 'linux',
+			isExecutable: (file) => {
+				seen.push(file);
+				return false;
+			},
+		});
+		assert.deepEqual(found, { bin: null, explicit: false });
+		assert.deepEqual(
+			seen.filter((file) => !file.startsWith(`${home}${path.sep}`)),
+			HOST_CLAUDE_FALLBACKS,
+		);
+	});
+
+	it('the hang-trap mode of the fake ignores SIGTERM and ends by itself, and SIGKILL stops it at once', () => {
+		const h = fresh();
+		const env = withEnv(h.env, { FAKE_CLAUDE_MODE: 'hang-trap', FAKE_CLAUDE_HANG_MS: '2500' });
+		const started = Date.now();
+		const termed = spawnSync(path.join(h.binDir, 'claude'), COMMANDS.list, { cwd: h.home, env, encoding: 'utf8', timeout: 600 });
+		assert.equal(termed.error && termed.error.code, 'ETIMEDOUT');
+		assert.ok(Date.now() - started >= 2000, 'the fake ended on SIGTERM');
+		const killedAt = Date.now();
+		const killed = spawnSync(path.join(h.binDir, 'claude'), COMMANDS.list, { cwd: h.home, env, encoding: 'utf8', timeout: 600, killSignal: 'SIGKILL' });
+		assert.equal(killed.error && killed.error.code, 'ETIMEDOUT');
+		assert.equal(killed.signal, 'SIGKILL');
+		assert.ok(Date.now() - killedAt < 2000);
 	});
 
 	it('existing secrets-file values win and are reported by key name, and a source value that differs from an existing value is a conflict with used secrets-file, by key name and source label only', () => {
@@ -2962,7 +3040,10 @@ describe('migrate-to-plugin.js main, in this process', POSIX_ONLY, () => {
 		assert.equal(runMain(h, [], {}, { spawn }).status, 0);
 		assert.deepEqual(record.map((call) => call.options.timeout), [10000, 30000, 75000, 75000]);
 		assert.deepEqual(record.map((call) => call.args), [COMMANDS.version, COMMANDS.list, COMMANDS.add, COMMANDS.install]);
-		for (const call of record) assert.equal(call.command, path.join(h.binDir, 'claude'));
+		for (const call of record) {
+			assert.equal(call.command, path.join(h.binDir, 'claude'));
+			assert.equal(call.options.killSignal, 'SIGKILL');
+		}
 
 		const short = fresh();
 		const shortRecord = [];
@@ -2989,6 +3070,23 @@ describe('migrate-to-plugin.js main, in this process', POSIX_ONLY, () => {
 		assert.equal(late.status, 1);
 		assert.deepEqual(slowRecord.map((call) => call.options.timeout), [10000, 10000]);
 		assert.equal(late.stderr, failureOf('claude did not finish within 110 seconds (marketplace add)'));
+	});
+
+	it('starts the 110 s clock before the version guard, so the guard is inside the budget', () => {
+		const h = fresh();
+		let clock = 1000;
+		const record = [];
+		const spawn = stubSpawn([ok(CLAUDE_VERSION_LINE), ok('[]'), ok(), installLikeClaude(h)], record);
+		const result = runMain(h, [], {}, {
+			argv: [],
+			now: () => clock,
+			versionGuard: () => {
+				clock += 105000;
+			},
+			spawn,
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.deepEqual(record.map((call) => call.options.timeout), [5000, 5000, 5000, 5000]);
 	});
 
 	it('a failed or timed-out call exits 1 with the first stderr line or the timeout text, per step', () => {
@@ -3071,6 +3169,7 @@ describe('migrate-to-plugin.js main, in this process', POSIX_ONLY, () => {
 			],
 		);
 		for (const call of record) {
+			assert.equal(call.options.killSignal, 'SIGKILL');
 			assert.equal(call.options.windowsVerbatimArguments, true);
 			assert.equal(call.options.cwd, h.home);
 			assert.equal(call.options.env.HOME, h.home);
@@ -3159,9 +3258,12 @@ describe('migrate-to-plugin.js main, in this process', POSIX_ONLY, () => {
 		const result = runMain(h, [], {}, { fs: wrapped });
 		assert.equal(result.status, 4);
 		assert.equal(result.stderr, linesOf(`Could not read the app contexts: EACCES on ${bad}`));
-		assert.ok(result.stdout.includes('App contexts copied to ~/.make-custom-app/contexts: 4 files\n'));
+		assert.ok(result.stdout.includes(`${CONTEXTS_LINE(4, 1)}\n  failed ${bad} (EACCES)\n`));
 		assert.ok(result.stdout.endsWith(`${RETRY_LINE}\n`));
 		assert.deepEqual(relativeFiles(h.paths.newContexts), ['alpha-v1.md', 'beta-v1.md', 'gamma-v1.md', 'gamma-v1/reviews/gamma-review.md']);
+		const json = runMain(h, ['--json'], {}, { fs: wrapped });
+		assert.equal(json.status, 4);
+		assert.deepEqual(JSON.parse(json.stdout).contexts.errors, [{ rel: bad, code: 'EACCES' }]);
 	});
 
 	it('a link, a file, or a missing folder in the way of a copy is reported, never followed, and the run exits 4', () => {
@@ -3224,10 +3326,14 @@ describe('migrate-to-plugin.js main, in this process', POSIX_ONLY, () => {
 		assert.equal(second.status, 4);
 		assert.equal(second.stderr, linesOf(`Could not check the app contexts: EACCES on ${broken.paths.newContexts}`));
 		assert.ok(second.stdout.endsWith(`${RETRY_LINE}\n`));
+		const json = runMain(broken, ['--json'], {}, { fs: wrapped });
+		assert.equal(json.status, 4);
+		assert.deepEqual(JSON.parse(json.stdout).contexts.errors, [{ rel: broken.paths.newContexts, code: 'EACCES' }]);
 	});
 
 	it('runs the real version guard, which fails open without an installed SKILL.md and needs no network', () => {
 		for (const editor of ['.claude', '.cursor']) assert.equal(fs.existsSync(path.join(os.homedir(), editor, 'skills', 'make-custom-app', 'SKILL.md')), false);
+		assert.doesNotMatch(process.argv[1], /[\\/]\.(claude|cursor)[\\/]skills[\\/]make-custom-app/);
 		const h = fresh({ plugin: 'usable' });
 		const result = runMain(h, [], {}, { argv: [] });
 		assert.equal(result.status, 0, result.stderr);

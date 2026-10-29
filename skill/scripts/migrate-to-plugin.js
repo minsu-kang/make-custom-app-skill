@@ -4,13 +4,18 @@
  *
  * Installs the plugin through the claude CLI when it is not installed, then copies the MCP keys into
  * ~/.make-custom-app-skill-secrets and the app contexts into ~/.make-custom-app/contexts. It asks nothing, reads no
- * standard input, and deletes nothing: the old skill keeps working until the cleanup of the plugin.
+ * standard input, and deletes none of your files (it removes only its own throttle file, a stale lock, and its own temp
+ * files): the old skill keeps working until the cleanup of the plugin.
  *
  *   node migrate-to-plugin.js                  run
  *   node migrate-to-plugin.js --dry-run        print the plan; writes nothing
  *   node migrate-to-plugin.js --json           print one JSON report instead of the summary
  *   node migrate-to-plugin.js --timeout <s>    seconds for one claude call (5 to 600, default 75)
  *   node migrate-to-plugin.js --skip-version   skip the version check of this skill
+ *
+ * --timeout accepts up to 600, but the 110 second deadline of the whole run (it starts before the version check)
+ * caps every call. A claude that does not finish is killed with SIGKILL; its own children (for example the git clone
+ * of the marketplace add) can survive, because spawnSync has no process group kill.
  *
  * Exit codes: 0 done (also when the plugin was already installed, or is disabled and reported), 1 the install or its
  * check failed or an unexpected error, 2 usage, 3 this skill was just updated (run again), 4 the plugin is installed but
@@ -129,7 +134,7 @@ function claudeCall(r, bin, args, step, limitMs) {
 	if (remaining <= 0) return { ok: false, stdout: '', reason: `claude did not finish within ${DEADLINE_MS / 1000} seconds (${step})` };
 	const timeoutMs = Math.min(limitMs, r.args.timeoutSec * 1000, remaining);
 	const spec = spawnSpec({ bin, args, platform: c.platform, env: c.env, home: c.home, timeoutMs });
-	const result = c.spawn(spec.command, spec.args, spec.options);
+	const result = c.spawn(spec.command, spec.args, { ...spec.options, killSignal: 'SIGKILL' });
 	const stdout = typeof result.stdout === 'string' ? result.stdout : '';
 	if (result.error) {
 		const timedOut = result.error.code === 'ETIMEDOUT';
@@ -243,7 +248,6 @@ function readExisting(fs, file) {
 function copySecrets(r) {
 	const { c, report } = r;
 	const file = path.join(c.home, SECRETS_NAME);
-	r.state.where = file;
 	const problems = [];
 	try {
 		const existing = readExisting(c.fs, file);
@@ -295,27 +299,29 @@ function contextTarget(fs, targetRoot) {
 	};
 }
 
+function errorEntry(rel, err) {
+	return { rel, code: typeof err.code === 'string' ? err.code : 'UNKNOWN' };
+}
+
 // Returns true when a listing, a check, or a copy failed.
 function copyContexts(r) {
 	const { c, report } = r;
 	const roots = { claude: path.join(c.home, '.claude', 'make-app-contexts'), cursor: path.join(c.home, '.cursor', 'make-app-contexts') };
 	const targetRoot = path.join(c.home, '.make-custom-app', 'contexts');
 	const listings = {};
-	let failed = false;
+	const errors = [];
 	for (const [editor, root] of Object.entries(roots)) {
-		r.state.where = root;
 		try {
 			listings[editor] = listContextFiles({ root, fs: c.fs });
 		} catch (err) {
 			if (!isFileError(err)) throw err;
 			c.stderr(`Could not read the app contexts: ${describeError(err, root)}\n`);
 			listings[editor] = NO_CONTEXTS;
-			failed = true;
+			errors.push(errorEntry(root, err));
 		}
 	}
 	report.contexts.orgSkipped = union(listings.claude.orgSkipped, listings.cursor.orgSkipped);
 	report.contexts.symlinks = union(listings.claude.symlinks, listings.cursor.symlinks);
-	r.state.where = targetRoot;
 	try {
 		const plan = planContexts({ claude: listings.claude, cursor: listings.cursor, target: contextTarget(c.fs, targetRoot), fs: c.fs });
 		const applied = applyContextCopies({ plan, targetRoot, fs: c.fs });
@@ -323,21 +329,20 @@ function copyContexts(r) {
 		report.contexts.alreadyPresent = plan.alreadyPresent;
 		report.contexts.keptExisting = plan.keptExisting;
 		report.contexts.duplicates = plan.duplicates;
-		report.contexts.errors = [...applied.errors, ...plan.blocked.map((rel) => ({ rel, code: 'ENOTDIR' }))];
-		failed = failed || report.contexts.errors.length > 0;
+		errors.push(...applied.errors, ...plan.blocked.map((rel) => ({ rel, code: 'ENOTDIR' })));
 	} catch (err) {
 		if (!isFileError(err)) throw err;
 		c.stderr(`Could not check the app contexts: ${describeError(err, targetRoot)}\n`);
-		failed = true;
+		errors.push(errorEntry(targetRoot, err));
 	}
-	return failed;
+	report.contexts.errors = errors;
+	return errors.length > 0;
 }
 
 // Takes the lock, copies the keys and the contexts, and releases the lock. Returns { failed, held }.
 function copyPhase(r) {
 	const { c, report } = r;
 	const lockPath = path.join(c.home, '.make-custom-app', 'cleanup.lock');
-	r.state.where = lockPath;
 	let lock;
 	try {
 		lock = acquireMigrationLock({ home: c.home, fs: c.fs });
@@ -359,7 +364,7 @@ function copyPhase(r) {
 	}
 }
 
-function run(c, state) {
+function run(c, start) {
 	const args = parseArgs(c.argv);
 	if (args.error !== null) {
 		c.stderr(`${args.error}\n${USAGE}\n`);
@@ -369,7 +374,7 @@ function run(c, state) {
 	if (Number(String(c.nodeVersion).split('.')[0]) < NODE_FLOOR) {
 		c.stderr(`Warning: Node ${c.nodeVersion} is older than ${NODE_FLOOR}; the plugin's MCP server is built for Node ${NODE_FLOOR} or newer.\n`);
 	}
-	const r = { c, args, state, start: c.now(), report: newReport(c.editorDir === '.claude' ? 'claude' : 'cursor', args.dryRun) };
+	const r = { c, args, start, report: newReport(c.editorDir === '.claude' ? 'claude' : 'cursor', args.dryRun) };
 
 	const found = readPluginStatus({ env: c.env, home: c.home, fs: c.fs });
 	const needsInstall = found.status === 'absent';
@@ -410,24 +415,29 @@ function main(options) {
 		now: options.now || Date.now,
 		upsertSecrets: options.upsertSecrets || upsertSecretsFile,
 	};
-	const state = { where: 'the migration' };
+	const start = c.now();
 	try {
-		return run(c, state);
+		return run(c, start);
 	} catch (err) {
-		c.stderr(`migrate-to-plugin: unexpected error: ${describeError(err, state.where)}\n`);
+		c.stderr(`migrate-to-plugin: unexpected error: ${describeError(err, 'the migration')}\n`);
 		return 1;
 	}
 }
 
 if (require.main === module) {
-	process.exitCode = main({
-		argv: process.argv.slice(2),
-		env: process.env,
-		home: nodeOs.homedir(),
-		tmpdir: nodeOs.tmpdir(),
-		platform: process.platform,
-		editorDir: getEditorDir(),
-	});
+	try {
+		process.exitCode = main({
+			argv: process.argv.slice(2),
+			env: process.env,
+			home: nodeOs.homedir(),
+			tmpdir: nodeOs.tmpdir(),
+			platform: process.platform,
+			editorDir: getEditorDir(),
+		});
+	} catch (err) {
+		process.stderr.write(`migrate-to-plugin: unexpected error: ${describeError(err, 'the migration')}\n`);
+		process.exitCode = 1;
+	}
 }
 
 module.exports = { main };
