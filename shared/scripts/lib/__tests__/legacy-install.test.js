@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const settings = require('../settings');
 const {
 	SENTINEL_OPEN,
 	SENTINEL_CLOSE,
@@ -20,10 +21,12 @@ const {
 	readMcpConfig,
 	oldInstallPaths,
 	isLookalikeSkillDir,
+	ownRootsOf,
+	dropOwnParts,
 	detectLegacyInstall,
 	legacyInstallLines,
 } = require('../legacy-install');
-const { FAKE, INSTALLER_BLOCK, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots } = require('./fake-legacy-home');
+const { FAKE, INSTALLER_BLOCK, INSTALLER_ENV_TEXT, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots } = require('./fake-legacy-home');
 
 let work;
 let n = 0;
@@ -337,6 +340,52 @@ describe('the test home', () => {
 	});
 });
 
+function withEnv(changes, run) {
+	const saved = {};
+	for (const name of Object.keys(changes)) saved[name] = process.env[name];
+	try {
+		Object.assign(process.env, changes);
+		run();
+	} finally {
+		for (const [name, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
+}
+
+describe('assertIsolated checks every folder it names, with the boundary of the test root', () => {
+	const evil = `${TEST_ROOT}-evil`;
+	const other = path.join(TEST_ROOT, 'other');
+
+	it('fails for a sibling folder that only shares the prefix of the test root', () => {
+		withEnv({ HOME: `${evil}/home`, USERPROFILE: `${evil}/home` }, () => assert.throws(() => assertIsolated(), /os\.homedir\(\) is outside/));
+		withEnv({ TMPDIR: `${evil}/tmp`, TEMP: `${evil}/tmp`, TMP: `${evil}/tmp` }, () => assert.throws(() => assertIsolated(), /os\.tmpdir\(\) is outside/));
+		withEnv({ CLAUDE_CONFIG_DIR: `${evil}/claude-config` }, () => assert.throws(() => assertIsolated(), /CLAUDE_CONFIG_DIR is outside/));
+		assertIsolated();
+	});
+
+	it('fails when SECRETS_PATH is outside the test root, also for the sibling prefix', () => {
+		const saved = settings.SECRETS_PATH;
+		try {
+			for (const value of [path.join(REAL_HOME, '.make-custom-app-skill-secrets'), `${evil}/secrets`]) {
+				settings.SECRETS_PATH = value;
+				assert.throws(() => assertIsolated(), /SECRETS_PATH is outside/);
+			}
+		} finally {
+			settings.SECRETS_PATH = saved;
+		}
+		assertIsolated();
+	});
+
+	it('fails when HOME, USERPROFILE, TMPDIR, TEMP, or TMP names another folder, even one inside the test root', () => {
+		for (const name of ['HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP']) {
+			withEnv({ [name]: other }, () => assert.throws(() => assertIsolated(), { message: new RegExp(`^${name} is not`) }));
+		}
+		assertIsolated();
+	});
+});
+
 describe('oldInstallPaths and the exports of the old markers', () => {
 	it('oldInstallPaths names the eight old places and the two contexts folders', () => {
 		const home = path.join(path.sep, 'h');
@@ -454,6 +503,59 @@ describe('isOldRegistration', () => {
 		for (const bad of [undefined, null, '', '/', 'C:/', 'C:', 'relative/mcp-server', 5]) assert.equal(isOldRegistration(entryAt(file), bad), false, String(bad));
 		for (const bad of [null, undefined, 'text', 5, [], { command: 5, args: 'x' }, { args: [5, null, {}] }]) assert.equal(isOldRegistration(bad, MCP_PATH), false, JSON.stringify(bad));
 		assert.equal(isOldRegistration(entryAt('relative/mcp-server/x.js'), MCP_PATH), false);
+	});
+
+	it('the root folder and a drive root never make every absolute path old', () => {
+		assert.equal(isOldRegistration(entryAt('/'), '/'), false);
+		assert.equal(isOldRegistration(entryAt('/x/server.js'), '/'), false);
+		for (const folder of ['C:/', 'C:\\', 'C:']) {
+			assert.equal(isOldRegistration(entryAt('C:\\Users\\dev\\server.js'), folder), false, folder);
+			assert.equal(isOldRegistration(entryAt('C:/Users/dev/server.js'), folder), false, folder);
+		}
+	});
+
+	it('a relative entry path never counts, not even under a relative mcp-server-path', () => {
+		assert.equal(isOldRegistration(entryAt('relative/mcp-server/x.js'), 'relative/mcp-server'), false);
+		assert.equal(isOldRegistration(entryAt('./mcp-server/x.js'), './mcp-server'), false);
+	});
+
+	it('the old folder pattern needs a separator before skills and the exact folder name', () => {
+		for (const text of ['myskills/make-custom-app/x', 'skills/make-custom-app/x', '/h/.claude/skills/make-custom-appx/x', '/h/.claude/skills/other/make-custom-app/x', 'make-custom-app/skills', '/h/myskills/make-custom-app/x']) {
+			assert.equal(OLD_SKILL_FOLDER.test(text), false, text);
+			assert.equal(pointsIntoOldSkill(entryAt(text)), false, text);
+		}
+		for (const text of ['/skills/make-custom-app', '/h/skills/make-custom-app/', '\\skills\\make-custom-app\\x', '/a/skills/make-custom-app/x']) assert.equal(OLD_SKILL_FOLDER.test(text), true, text);
+	});
+
+	it('an mcp-server-path with a .. segment is not usable, so it cannot name a folder above the one it spells', () => {
+		for (const folder of ['/clone/mcp-server/..', '/clone/mcp-server/../', '/clone/mcp-server/../other', '/clone/mcp-server/../../clone', 'C:\\clone\\mcp-server\\..']) {
+			assert.equal(isOldRegistration(entryAt('/clone/other/x.js'), folder), false, folder);
+			assert.equal(isOldRegistration(entryAt('C:\\clone\\x.js'), folder), false, folder);
+		}
+		assert.equal(isOldRegistration(entryAt('/clone/mcp-server/x.js'), '/clone/mcp-server'), true);
+	});
+
+	it('dropOwnParts removes the command and arguments that lie inside an own root and keeps the rest, without env', () => {
+		const own = '/h/.claude/plugins/cache/p/p/3.0.0';
+		const entry = { command: 'node', args: [`${own}/mcp/index.mjs`, '--flag', '/x/skills/make-custom-app/y.js'], env: { PINECONE_API_KEY: FAKE.pinecone } };
+		assert.deepEqual(dropOwnParts(entry, [own]), { command: 'node', args: ['--flag', '/x/skills/make-custom-app/y.js'] });
+		assert.deepEqual(dropOwnParts({ command: `${own}/run.sh`, args: [] }, [own]), { command: undefined, args: [] });
+		assert.deepEqual(dropOwnParts({ command: 'node' }, [own]), { command: 'node', args: undefined });
+		assert.deepEqual(dropOwnParts(entry, []), { command: 'node', args: entry.args });
+		assert.deepEqual(dropOwnParts({ command: 'C:\\p\\plugin\\run.exe' }, ['C:/p/plugin']), { command: undefined, args: undefined });
+		assert.deepEqual(dropOwnParts({ command: `${own}-2/run.sh` }, [own]), { command: `${own}-2/run.sh`, args: undefined });
+		for (const bad of [null, undefined, 'text', 5, []]) assert.equal(dropOwnParts(bad, [own]), bad);
+		assert.ok(!JSON.stringify(dropOwnParts(entry, [own])).includes(FAKE.pinecone));
+	});
+
+	it('ownRootsOf lists each folder and its real path, once, and skips what is not a folder name', () => {
+		const home = newHome();
+		const real = mkdir(home, 'real');
+		const link = path.join(home, 'link');
+		fs.symlinkSync(real, link);
+		assert.deepEqual(ownRootsOf(link, [real, '', null, 5, 'relative']), [link, real, 'relative']);
+		assert.deepEqual(ownRootsOf(path.join(link, 'missing')), [path.join(link, 'missing'), path.join(real, 'missing')]);
+		assert.deepEqual(ownRootsOf(undefined), []);
 	});
 
 	it('pointsIntoOldSkill skips a part with a .. segment', () => {
@@ -586,6 +688,117 @@ describe('detectLegacyInstall: lookalike folders and registrations', () => {
 	});
 });
 
+describe('detectLegacyInstall: the plugin own registration is never old', () => {
+	const oldFile = (home, editor = 'claude') => path.join(home, `.${editor}`, 'skills', 'make-custom-app', 'mcp-server', 'dist', 'index.js');
+	const cachePlugin = (home) => mkdir(home, '.claude', 'plugins', 'cache', 'make-custom-app', 'make-custom-app', '3.0.0');
+	const registerClaude = (home, ...args) => write(home, ['.claude.json'], JSON.stringify({ mcpServers: { 'make-custom-app': { command: process.execPath, args } } }));
+
+	it('is not old, whatever folder mcp-server-path names at or above the plugin', () => {
+		const home = newHome();
+		const pluginRoot = cachePlugin(home);
+		registerClaude(home, path.join(pluginRoot, 'mcp', 'index.mjs'));
+		const folders = [
+			home,
+			path.join(home, '.claude'),
+			path.join(home, '.claude', 'plugins'),
+			path.join(home, '.claude', 'plugins', 'cache'),
+			path.dirname(pluginRoot),
+			pluginRoot,
+			path.join(pluginRoot, 'mcp'),
+			`${pluginRoot}/mcp/..`,
+			`${path.dirname(pluginRoot)}/..`,
+			`${home}/.claude/..`,
+		];
+		for (const folder of folders) {
+			assert.deepEqual(detectLegacyInstall({ home, pluginRoot, mcpServerPath: folder }), [], folder);
+			write(home, ['.make-custom-app-skill-secrets'], `mcp-server-path: ${folder}\n`);
+			assert.deepEqual(detectLegacyInstall({ home, pluginRoot }), [], folder);
+		}
+	});
+
+	it('an mcp-server-path with a .. segment makes no registration old, from the secrets file or as a parameter', () => {
+		const home = newHome();
+		const folder = `${home}/clone/mcp-server/..`;
+		registerClaude(home, path.join(home, 'clone', 'other', 'x.js'));
+		assert.deepEqual(detectLegacyInstall({ home, mcpServerPath: folder }), []);
+		write(home, ['.make-custom-app-skill-secrets'], `mcp-server-path: ${folder}\n`);
+		assert.deepEqual(detectLegacyInstall({ home }), []);
+	});
+
+	it('a real old registration still counts when mcp-server-path is an ancestor and the plugin lives elsewhere', () => {
+		const home = newHome();
+		const pluginRoot = cachePlugin(home);
+		const clone = path.join(home, 'clone', 'mcp-server');
+		registerClaude(home, path.join(clone, 'dist', 'index.js'));
+		for (const folder of [clone, path.join(home, 'clone'), home]) assert.equal(detectLegacyInstall({ home, pluginRoot, mcpServerPath: folder }).length, 1, folder);
+		registerClaude(home, oldFile(home));
+		for (const folder of [undefined, null, home, pluginRoot]) assert.equal(detectLegacyInstall({ home, pluginRoot, mcpServerPath: folder }).length, 1, String(folder));
+	});
+
+	it('a registration with the plugin bundle next to an old path is still old because of the old path', () => {
+		const home = newHome();
+		const pluginRoot = cachePlugin(home);
+		registerClaude(home, path.join(pluginRoot, 'mcp', 'index.mjs'), oldFile(home));
+		assert.equal(detectLegacyInstall({ home, pluginRoot, mcpServerPath: home }).length, 1);
+	});
+
+	it('is not old when the plugin folder is spelled through a symbolic link, in either direction', () => {
+		const home = newHome();
+		const real = mkdir(home, 'real-claude', 'plugins', 'cache', 'p', 'p', '3.0.0');
+		const link = path.join(home, 'linked-claude');
+		fs.symlinkSync(path.join(home, 'real-claude'), link);
+		const viaLink = path.join(link, 'plugins', 'cache', 'p', 'p', '3.0.0');
+		registerClaude(home, path.join(viaLink, 'mcp', 'index.mjs'));
+		for (const folder of [home, link]) assert.deepEqual(detectLegacyInstall({ home, pluginRoot: real, mcpServerPath: folder }), [], folder);
+		registerClaude(home, path.join(real, 'mcp', 'index.mjs'));
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot: viaLink, mcpServerPath: home }), []);
+	});
+
+	it('is not old when the plugin root sits in a folder that looks like the old skill, for Claude and for Cursor', () => {
+		const home = newHome();
+		const pluginRoot = mkdir(home, 'dev', 'skills', 'make-custom-app');
+		registerClaude(home, path.join(pluginRoot, 'mcp-server', 'dist', 'index.js'));
+		write(home, ['.cursor', 'mcp.json'], JSON.stringify({ mcpServers: { x: { command: 'node', args: [path.join(pluginRoot, 'mcp-server', 'dist', 'index.js')] } } }));
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot }), []);
+		assert.equal(detectLegacyInstall({ home, pluginRoot: path.join(home, 'elsewhere') }).length, 2);
+	});
+
+	it('an entry that points into a skills-dir plugin named make-custom-app is not old, for Claude and for Cursor', () => {
+		const home = newHome();
+		const claude = mkdir(home, '.claude', 'skills', 'make-custom-app');
+		mkdir(claude, '.claude-plugin');
+		registerClaude(home, path.join(claude, 'mcp', 'index.mjs'));
+		const cursor = mkdir(home, '.cursor', 'skills', 'make-custom-app');
+		mkdir(cursor, '.cursor-plugin');
+		write(home, ['.cursor', 'mcp.json'], JSON.stringify({ mcpServers: { x: { command: 'node', args: [path.join(cursor, 'mcp', 'index.mjs')] } } }));
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot: path.join(home, 'elsewhere') }), []);
+	});
+
+	it('an old Cursor entry is still found next to the plugin entry', () => {
+		const home = newHome();
+		const pluginRoot = cachePlugin(home);
+		const file = write(home, ['.cursor', 'mcp.json'], JSON.stringify({ mcpServers: { plugin: { command: 'node', args: [path.join(pluginRoot, 'mcp', 'index.mjs')] }, old: { command: 'node', args: [oldFile(home, 'cursor')] } } }));
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot }), [{ kind: 'mcp-entry', path: file, editor: 'cursor', name: 'old', format: 'json' }]);
+	});
+
+	it('needs a pluginRoot string when it is given at all, and falls back to the running plugin without one', () => {
+		const home = newHome();
+		for (const bad of [null, '', 5, {}]) assert.throws(() => detectLegacyInstall({ home, pluginRoot: bad }), { name: 'TypeError', message: 'detectLegacyInstall needs pluginRoot' }, String(bad));
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot: undefined }), []);
+		assert.deepEqual(detectLegacyInstall({ home }), []);
+	});
+
+	it('a plugin folder whose name starts with two dots is inside the skill folder, and a skill folder is not inside its parent', () => {
+		const home = newHome();
+		const claude = mkdir(home, '.claude', 'skills', 'make-custom-app');
+		const inner = mkdir(claude, '..plugin');
+		assert.equal(isLookalikeSkillDir(claude, inner), true);
+		assert.deepEqual(detectLegacyInstall({ home, pluginRoot: inner }), []);
+		assert.equal(isLookalikeSkillDir(inner, claude), false);
+		assert.equal(isLookalikeSkillDir(claude, path.dirname(claude)), false);
+	});
+});
+
 describe('buildFakeLegacyHome', () => {
 	const WINDOWS = { skip: process.platform === 'win32' };
 	let cases = 0;
@@ -605,12 +818,13 @@ describe('buildFakeLegacyHome', () => {
 		assert.deepEqual(keysOf(detectLegacyInstall({ home: cursorOnly.home, pluginRoot })), ['cursor:skill-dir', 'cursor:rules-dir', 'cursor:mcp-entry']);
 
 		const outside = path.join(path.dirname(TEST_ROOT), `p5-outside-${process.pid}`);
-		for (const root of [outside, TEST_ROOT, `${TEST_ROOT}/../p5-outside-dots`, 'relative-root', '']) {
+		for (const root of [outside, TEST_ROOT, `${TEST_ROOT}/../p5-outside-dots`, `${TEST_ROOT}-evil/x`, 'relative-root', '']) {
 			assert.throws(() => buildFakeLegacyHome({ root, pluginRoot }), TypeError, root);
 		}
 		assert.throws(() => buildFakeLegacyHome({ pluginRoot }), { message: 'buildFakeLegacyHome needs root' });
 		assert.equal(fs.existsSync(outside), false);
 		assert.equal(fs.existsSync(path.join(path.dirname(TEST_ROOT), 'p5-outside-dots')), false);
+		assert.equal(fs.existsSync(`${TEST_ROOT}-evil`), false);
 	});
 
 	it('writes the files of a real install with the modes of a real install, and the fixed fake values', () => {
@@ -668,6 +882,13 @@ describe('buildFakeLegacyHome', () => {
 		const h = build();
 		const expected = oldInstallPaths(h.home);
 		for (const [name, value] of Object.entries(expected)) assert.equal(h.paths[name], value, name);
+	});
+
+	it('writes the installer shape of the .env when it is given, comments and a blank line included', () => {
+		assert.equal(INSTALLER_ENV_TEXT, `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=${FAKE.index}\n\n# OpenAI (for text-embedding-3-small)\nOPENAI_API_KEY=${FAKE.openai}\n`);
+		const h = build({ envText: INSTALLER_ENV_TEXT });
+		assert.equal(fs.readFileSync(h.paths.claudeEnv, 'utf8'), INSTALLER_ENV_TEXT);
+		assert.equal(fs.readFileSync(h.paths.cursorEnv, 'utf8'), INSTALLER_ENV_TEXT);
 	});
 
 	it('writes the options: a CRLF-free CLAUDE.md without the own paragraph, an env text, a 0644 user file, and a link for the Claude skill', () => {
@@ -771,7 +992,11 @@ describe('buildFakeLegacyHome', () => {
 			fs.mkdirSync(path.join(outside, 'config'), { recursive: true });
 			fs.writeFileSync(path.join(outside, '.claude.json'), JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node' } } }));
 			fs.writeFileSync(path.join(outside, 'config', '.claude.json'), JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node' } } }));
+			const evilRoot = `${h.paths.root}-evil`;
+			fs.mkdirSync(path.join(evilRoot, 'config'), { recursive: true });
+			for (const file of [path.join(evilRoot, '.claude.json'), path.join(evilRoot, 'config', '.claude.json')]) fs.writeFileSync(file, JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node' } } }));
 			const before = snapshot(outside);
+			const evilBefore = snapshot(evilRoot);
 			const homeBefore = snapshot(h.home);
 			const refuse = (overrides, message) => {
 				const r = run(h, REMOVE, overrides);
@@ -789,6 +1014,18 @@ describe('buildFakeLegacyHome', () => {
 			const link = path.join(h.paths.root, 'link-out');
 			fs.symlinkSync(outside, link);
 			refuse({ HOME: link, USERPROFILE: link }, 'HOME is outside FAKE_CLAUDE_ROOT');
+			refuse({ HOME: evilRoot, USERPROFILE: evilRoot }, 'HOME is outside FAKE_CLAUDE_ROOT');
+			refuse({ HOME: `${evilRoot}/home`, USERPROFILE: `${evilRoot}/home` }, 'HOME is outside FAKE_CLAUDE_ROOT');
+			refuse({ CLAUDE_CONFIG_DIR: `${evilRoot}/config` }, 'CLAUDE_CONFIG_DIR is outside FAKE_CLAUDE_ROOT');
+			const evilTestRoot = `${TEST_ROOT}-evil/root`;
+			refuse({ FAKE_CLAUDE_ROOT: evilTestRoot, HOME: `${evilTestRoot}/home`, FAKE_CLAUDE_LOG: `${evilTestRoot}/log.jsonl` }, 'FAKE_CLAUDE_ROOT is outside the test root');
+			const planted = path.join(outside, 'planted.jsonl');
+			const dangling = path.join(h.paths.root, 'log-link');
+			fs.symlinkSync(planted, dangling);
+			refuse({ FAKE_CLAUDE_LOG: dangling }, 'FAKE_CLAUDE_LOG is outside FAKE_CLAUDE_ROOT');
+			assert.equal(fs.existsSync(planted), false);
+			assert.equal(fs.existsSync(`${TEST_ROOT}-evil`), false);
+			assert.deepEqual(diffSnapshots(evilBefore, snapshot(evilRoot)), []);
 			assert.deepEqual(diffSnapshots(before, snapshot(outside)), []);
 			assert.deepEqual(diffSnapshots(homeBefore, snapshot(h.home)), []);
 			assert.equal(fs.existsSync(h.log), false);
@@ -1017,6 +1254,8 @@ describe('buildFakeLegacyHome', () => {
 			assert.throws(() => startWriter(), /file must lie inside TEST_ROOT/);
 			assert.throws(() => startWriter({ file: path.join(path.dirname(TEST_ROOT), 'outside.json') }), /file must lie inside TEST_ROOT/);
 			assert.throws(() => startWriter({ file: 'relative.json' }), /file must lie inside TEST_ROOT/);
+			assert.throws(() => startWriter({ file: `${TEST_ROOT}-evil/x.json` }), /file must lie inside TEST_ROOT/);
+			assert.throws(() => startWriter({ file: `${TEST_ROOT}/../outside.json` }), /file must lie inside TEST_ROOT/);
 			assert.throws(() => startWriter({ file: inside, mode: 'sometimes' }), /mode must be one of/);
 			assert.throws(() => startWriter({ file: inside, mode: 'resurrect-once' }), { message: 'startWriter needs entry' });
 			assert.throws(() => startWriter({ file: inside, intervalMs: 0 }), /intervalMs/);

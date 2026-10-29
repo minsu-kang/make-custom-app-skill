@@ -22,11 +22,22 @@ process.on('exit', () => {
 	fs.rmSync(TEST_ROOT, { recursive: true, force: true });
 });
 
+const EXPECTED_ENV = {
+	HOME: path.join(TEST_ROOT, 'home'),
+	USERPROFILE: path.join(TEST_ROOT, 'home'),
+	TMPDIR: path.join(TEST_ROOT, 'tmp'),
+	TEMP: path.join(TEST_ROOT, 'tmp'),
+	TMP: path.join(TEST_ROOT, 'tmp'),
+};
+
 function isInsideTestRoot(value) {
 	return typeof value === 'string' && (value === TEST_ROOT || value.startsWith(TEST_ROOT + path.sep));
 }
 
-/** Fails when the process still sees the real home, the real temp folder, the real secrets file, or another config folder. */
+/**
+ * Fails when the process still sees the real home, the real temp folder, the real secrets file, or another config
+ * folder, and when one of the five variables that name them (the ones a platform reads) is not the value set here.
+ */
 function assertIsolated() {
 	const home = os.homedir();
 	assert.ok(isInsideTestRoot(home), 'os.homedir() is outside the test root');
@@ -34,6 +45,7 @@ function assertIsolated() {
 	assert.ok(isInsideTestRoot(os.tmpdir()), 'os.tmpdir() is outside the test root');
 	assert.ok(isInsideTestRoot(require('../settings').SECRETS_PATH), 'SECRETS_PATH is outside the test root');
 	assert.ok(isInsideTestRoot(process.env.CLAUDE_CONFIG_DIR), 'CLAUDE_CONFIG_DIR is outside the test root');
+	for (const [name, value] of Object.entries(EXPECTED_ENV)) assert.ok(process.env[name] === value, `${name} is not the folder of the test root`);
 }
 
 module.exports = { TEST_ROOT, REAL_HOME, assertIsolated };

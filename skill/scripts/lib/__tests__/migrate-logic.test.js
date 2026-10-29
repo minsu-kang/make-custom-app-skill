@@ -1384,7 +1384,7 @@ describe('isOldRegistration and parent segments', () => {
 		assert.equal(old(['node', '/opt/mcp/dist/../index.js', '/x/skills/make-custom-app/y.js'], '/opt/mcp'), true);
 	});
 
-	it('pointsIntoOldSkill keeps the raw rule of legacy-install.js, a .. segment included', () => {
+	it('pointsIntoOldSkill matches the raw text of an entry, a .. segment included; isOldRegistration is the function that filters it', () => {
 		assert.equal(logic.pointsIntoOldSkill({ command: 'node', args: ['/x/skills/make-custom-app/../other/y.js'] }), true);
 	});
 });

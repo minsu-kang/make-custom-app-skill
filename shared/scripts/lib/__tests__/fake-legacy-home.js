@@ -24,6 +24,9 @@ const FAKE = {
 const INSTALLER_BLOCK =
 	'<!-- make-custom-app-skill -->\n# Make Custom App Skill\n\nWhen the conversation involves a Make.com custom app, IMLJSON, the Make Apps SDK, `make-app-contexts`, or an IEN Jira ticket about an app: invoke the `make-custom-app` skill before any other action and follow it. Do not answer from memory. Do not delegate this work to a sub-agent.\n<!-- /make-custom-app-skill -->';
 
+/** The `.env` the 2.x installer flow leaves: comment lines, the Pinecone pair, a blank line, then the OpenAI key. Pass it as `envText` to get its shape. */
+const INSTALLER_ENV_TEXT = `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=${FAKE.index}\n\n# OpenAI (for text-embedding-3-small)\nOPENAI_API_KEY=${FAKE.openai}\n`;
+
 const PLUGIN_ID = 'make-custom-app@make-custom-app';
 const FAKE_CLAUDE_VERSION = '2.1.312';
 const EDITORS = ['claude', 'cursor'];
@@ -417,6 +420,11 @@ function writerChild({ file, mode, key, entry, intervalMs }) {
  * the way a running Claude Code keeps ~/.claude.json. Modes: counter (sets writerCounter only), resurrect-once and
  * resurrect-always (also put mcpServers[key] = entry back when it is missing, the first time or every time).
  * stop() ends the child and resolves { writes }.
+ * Hazard: every rewrite is an unsynchronized read-modify-write, so a `claude mcp remove` that lands between the read and
+ * the rename of one rewrite is undone, even in counter mode (a reviewer measured 4.5 to 9.5 percent of removals with
+ * four parallel processes). That models the class of hazard, not the rate of the real CLI, which is unmeasured. A case
+ * that removes the registration while a writer runs must not assert a single removal: it asserts after at least six
+ * attempts, or it runs only as the one dedicated writer test.
  */
 function startWriter({ file, mode = 'counter', key = 'make-custom-app', entry, intervalMs = 5 } = {}) {
 	if (typeof file !== 'string' || !path.isAbsolute(file) || !isInside(realish(file), TEST_ROOT)) throw new TypeError('startWriter: file must lie inside TEST_ROOT');
@@ -505,4 +513,4 @@ function diffSnapshots(a, b) {
 	return lines.sort((x, y) => Number(x[0] > y[0]) - Number(x[0] < y[0])).map((line) => line[1]);
 }
 
-module.exports = { FAKE, INSTALLER_BLOCK, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots };
+module.exports = { FAKE, INSTALLER_BLOCK, INSTALLER_ENV_TEXT, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots };

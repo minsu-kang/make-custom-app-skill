@@ -108,11 +108,55 @@ function liesInside(file, folder) {
  * True when a registration is the old skill's: it points into an old skill folder, or `mcpServerPath` (the
  * `mcp-server-path:` line of the secrets file) is set and the command or an argument lies inside it. Any other
  * registration, such as one that points at the plugin bundle or at an unrelated path, is not an old install.
+ * An `mcpServerPath` with a `..` segment is not usable: it could name a folder above the one it spells.
+ * The plugin's own registration must be taken out first (dropOwnParts), because an `mcpServerPath` above the plugin
+ * folder would otherwise cover it.
  */
 function isOldRegistration(entry, mcpServerPath) {
 	if (pointsIntoOldSkill(entry)) return true;
-	if (typeof mcpServerPath !== 'string' || mcpServerPath === '') return false;
+	if (typeof mcpServerPath !== 'string' || mcpServerPath === '' || PARENT_SEGMENT.test(mcpServerPath)) return false;
 	return entryParts(entry).some((part) => liesInside(part, mcpServerPath));
+}
+
+/** The real path of the deepest folder that exists, joined with the rest, so a path that does not exist yet can be compared. */
+function realishPath(value) {
+	const rest = [];
+	let current = path.resolve(value);
+	for (;;) {
+		try {
+			return path.join(fs.realpathSync(current), ...rest);
+		} catch {
+			const parent = path.dirname(current);
+			if (parent === current) return path.resolve(value);
+			rest.unshift(path.basename(current));
+			current = parent;
+		}
+	}
+}
+
+/**
+ * The folders whose files are never the old skill's: the running plugin and any folder that is a plugin, each as given
+ * and as its real path. A folder name that is not a non-empty string is skipped.
+ */
+function ownRootsOf(pluginRoot, folders = []) {
+	const roots = new Set();
+	for (const folder of [pluginRoot, ...folders]) {
+		if (typeof folder !== 'string' || folder === '') continue;
+		roots.add(folder);
+		if (path.isAbsolute(folder)) roots.add(realishPath(folder));
+	}
+	return [...roots];
+}
+
+/**
+ * `{ command, args }` of a server entry without the parts that lie inside an own root (ownRootsOf), compared as written
+ * and by real path, so a registration that names the plugin folder through a symbolic link is still the plugin's. The
+ * result has no `env`. Returns a value that is not an entry as it is.
+ */
+function dropOwnParts(entry, ownRoots) {
+	if (!isPlainObject(entry)) return entry;
+	const own = (part) => typeof part === 'string' && ownRoots.some((root) => liesInside(part, root) || (path.isAbsolute(part) && liesInside(realishPath(part), root)));
+	return { command: own(entry.command) ? undefined : entry.command, args: Array.isArray(entry.args) ? entry.args.filter((part) => !own(part)) : entry.args };
 }
 
 /** Every place the 2.x installers write to, under `home` (required). */
@@ -171,23 +215,29 @@ function readMcpServerPath(home) {
  * an 'mcp-entry' item also has `name` (the key in mcpServers), and a Cursor 'mcp-entry' item also has `format`
  * ('json' or 'jsonc', how mcp.json was read).
  * Kinds: 'skill-dir', 'rules-dir', 'sentinel', 'mcp-entry'.
- * A skill folder that is a plugin or holds the running plugin (`pluginRoot`) is skipped. The Claude `make-custom-app`
- * entry counts only when isOldRegistration says so (`mcpServerPath` defaults to the `mcp-server-path:` line of the
- * secrets file under `home`); another entry of that name would never be removed, so it must not raise the warning.
+ * A skill folder that is a plugin or holds the running plugin (`pluginRoot`) is skipped, and so is every registration
+ * part that lies inside such a folder or inside `pluginRoot` (the plugin's own server is never old, whatever
+ * `mcpServerPath` names above it). The Claude `make-custom-app` entry counts only when isOldRegistration says so
+ * (`mcpServerPath` defaults to the `mcp-server-path:` line of the secrets file under `home`; null or '' turns it
+ * off); another entry of that name would never be removed, so it must not raise the warning. `pluginRoot` must be a
+ * non-empty string when it is given (a TypeError otherwise); without it the running plugin is used.
  */
 function detectLegacyInstall({ home = os.homedir(), pluginRoot = PLUGIN_ROOT, mcpServerPath } = {}) {
+	if (typeof pluginRoot !== 'string' || pluginRoot === '') throw new TypeError('detectLegacyInstall needs pluginRoot');
 	const paths = oldInstallPaths(home);
 	const serverPath = mcpServerPath === undefined ? readMcpServerPath(home) : mcpServerPath;
 	const items = [];
+	const lookalikes = [paths.claudeSkill, paths.cursorSkill].filter((dir) => isDirectory(dir) && isLookalikeSkillDir(dir, pluginRoot));
+	const ownRoots = ownRootsOf(pluginRoot, lookalikes);
 	const skillDir = (editor, dir) => {
-		if (isDirectory(dir) && !isLookalikeSkillDir(dir, pluginRoot)) items.push({ kind: 'skill-dir', path: dir, editor });
+		if (isDirectory(dir) && !lookalikes.includes(dir)) items.push({ kind: 'skill-dir', path: dir, editor });
 	};
 
 	skillDir('claude', paths.claudeSkill);
 	const sentinel = findSentinel(paths.claudeMd);
 	if (sentinel) items.push(sentinel);
 	const claudeServers = readMcpServers(paths.claudeJson);
-	if (Object.hasOwn(claudeServers, 'make-custom-app') && isOldRegistration(claudeServers['make-custom-app'], serverPath)) {
+	if (Object.hasOwn(claudeServers, 'make-custom-app') && isOldRegistration(dropOwnParts(claudeServers['make-custom-app'], ownRoots), serverPath)) {
 		items.push({ kind: 'mcp-entry', path: paths.claudeJson, editor: 'claude', name: 'make-custom-app' });
 	}
 
@@ -195,7 +245,7 @@ function detectLegacyInstall({ home = os.homedir(), pluginRoot = PLUGIN_ROOT, mc
 	if (isDirectory(paths.cursorRules)) items.push({ kind: 'rules-dir', path: paths.cursorRules, editor: 'cursor' });
 	const cursor = readMcpConfig(paths.cursorMcp);
 	for (const [name, entry] of Object.entries(cursor.servers)) {
-		if (pointsIntoOldSkill(entry)) items.push({ kind: 'mcp-entry', path: paths.cursorMcp, editor: 'cursor', name, format: cursor.format });
+		if (pointsIntoOldSkill(dropOwnParts(entry, ownRoots))) items.push({ kind: 'mcp-entry', path: paths.cursorMcp, editor: 'cursor', name, format: cursor.format });
 	}
 	return items;
 }
@@ -226,6 +276,8 @@ module.exports = {
 	readMcpConfig,
 	oldInstallPaths,
 	isLookalikeSkillDir,
+	ownRootsOf,
+	dropOwnParts,
 	detectLegacyInstall,
 	legacyInstallLines,
 };
