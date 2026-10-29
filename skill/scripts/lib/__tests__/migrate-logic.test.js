@@ -106,6 +106,8 @@ describe('required parameters', () => {
 		readSecretSources: ['home', { home: '/h' }],
 		acquireMigrationLock: ['home', { home: '/h' }],
 		migrationNotice: ['env, home, tmpdir, platform, skillRoot, and editorDir', { env: {}, home: '/h', tmpdir: '/t', platform: 'linux', skillRoot: '/s', editorDir: '.claude' }],
+		listContextFiles: ['root', { root: '/r' }],
+		applyContextCopies: ['targetRoot', { targetRoot: '/t' }],
 	};
 
 	it('every function that touches a folder throws a TypeError without env, home, or tmpdir', () => {
@@ -126,7 +128,7 @@ describe('required parameters', () => {
 		const badEnvs = [null, 'PATH=/bin', 5, true, [], ['PATH']];
 		for (const [name, [names, params]] of Object.entries(FULL_PARAMS)) {
 			const expected = { name: 'TypeError', message: `${name} needs ${names}` };
-			for (const key of ['home', 'tmpdir']) {
+			for (const key of ['home', 'tmpdir', 'root', 'targetRoot']) {
 				if (!(key in params)) continue;
 				for (const value of badFolders) assert.throws(() => logic[name]({ ...params, [key]: value }), expected, `${name} with ${key} ${String(value)}`);
 			}
@@ -137,8 +139,10 @@ describe('required parameters', () => {
 		assert.deepEqual(fs.readdirSync(process.cwd()), []);
 	}));
 
-	it('requireParams checks the names home, tmpdir, and env by value and every other name by undefined only', () => {
-		assert.equal(logic.requireParams('f', { home: '/h', tmpdir: '/t', env: {}, platform: '' }, ['home', 'tmpdir', 'env', 'platform']), undefined);
+	it('requireParams checks the names home, tmpdir, root, targetRoot, and env by value and every other name by undefined only', () => {
+		assert.equal(logic.requireParams('f', { home: '/h', tmpdir: '/t', root: '/r', targetRoot: '/x', env: {}, platform: '' }, ['home', 'tmpdir', 'root', 'targetRoot', 'env', 'platform']), undefined);
+		assert.throws(() => logic.requireParams('f', { root: '' }, ['root']), { name: 'TypeError', message: 'f needs root' });
+		assert.throws(() => logic.requireParams('f', { targetRoot: 5 }, ['targetRoot']), { name: 'TypeError', message: 'f needs targetRoot' });
 		assert.equal(logic.requireParams('f', { env: Object.create(null) }, ['env']), undefined);
 		assert.equal(logic.requireParams('f', { env: process.env }, ['env']), undefined);
 		assert.throws(() => logic.requireParams('f', { home: '' }, ['home']), { name: 'TypeError', message: 'f needs home' });
@@ -2123,4 +2127,1254 @@ describe('acquireMigrationLock', () => {
 		assert.throws(() => logic.readSecretSources({ home: '' }), { name: 'TypeError', message: 'readSecretSources needs home' });
 		assert.deepEqual(fs.readdirSync(process.cwd()), []);
 	}));
+});
+
+describe('classifyContextName and isOrgDownload', () => {
+	it('classifyContextName and isOrgDownload: the table, including a snapshot that is null, an array, or a string', () => {
+		const other = { kind: 'other', slug: null, version: null };
+		const names = [
+			['hubspot-v2.md', { kind: 'context-file', slug: 'hubspot', version: 2 }],
+			['hubspot-v2', { kind: 'context-dir', slug: 'hubspot', version: 2 }],
+			['my-app-v10.md', { kind: 'context-file', slug: 'my-app', version: 10 }],
+			['my-app-v10', { kind: 'context-dir', slug: 'my-app', version: 10 }],
+			['x-v2-v3.md', { kind: 'context-file', slug: 'x-v2', version: 3 }],
+			['x-v007', { kind: 'context-dir', slug: 'x', version: 7 }],
+			['hubspot.md', other],
+			['hubspot-v.md', other],
+			['hubspot-vx', other],
+			['-v1.md', other],
+			['-v1', other],
+			['hubspot-v1.MD', other],
+			['hubspot-v1.md.bak', other],
+			['hubspot-v1.json', other],
+			['hubspot-v1 ', other],
+			['metadata.json', other],
+			['', other],
+			[undefined, other],
+			[null, other],
+			[5, other],
+			[{}, other],
+		];
+		for (const [name, expected] of names) assert.deepEqual(logic.classifyContextName(name), expected, String(name));
+
+		const texts = [
+			['{"snapshot":{"modules":[]}}', true],
+			['{"snapshot":{}}', true],
+			['\uFEFF{"snapshot":{"a":1}}', true],
+			['{"app":"x","snapshot":{"a":1},"functions":[]}', true],
+			['{"snapshot":null}', false],
+			['{"snapshot":[]}', false],
+			['{"snapshot":[{"a":1}]}', false],
+			['{"snapshot":"x"}', false],
+			['{"snapshot":0}', false],
+			['{"snapshot":true}', false],
+			['{"Snapshot":{}}', false],
+			['{"app":{"snapshot":{}}}', false],
+			['{"__proto__":{"snapshot":{}}}', false],
+			['{}', false],
+			['[]', false],
+			['null', false],
+			['"snapshot"', false],
+			['', false],
+			['not json', false],
+			['{"snapshot":{}', false],
+		];
+		for (const [text, expected] of texts) assert.equal(logic.isOrgDownload(text), expected, text);
+		for (const value of [undefined, null, 5, {}, []]) assert.equal(logic.isOrgDownload(value), false, String(value));
+		assert.equal(logic.isOrgDownload(Buffer.from('{"snapshot":{}}')), true);
+	});
+
+	it('download-app.js of the old tree never writes a snapshot key', () => {
+		const text = fs.readFileSync(path.join(__dirname, '..', '..', 'download-app.js'), 'utf8');
+		assert.equal(text.includes('snapshot'), false);
+	});
+});
+
+describe('listContextFiles', () => {
+	function buildContextRoot(label) {
+		const root = path.join(caseDir(label), 'make-app-contexts');
+		put(path.join(root, 'alpha-v1.md'), 'alpha note');
+		put(path.join(root, 'alpha-v1', 'metadata.json'), '{"app":"alpha"}');
+		put(path.join(root, 'alpha-v1', 'reviews', 'latest.json'), '{"ok":true}');
+		put(path.join(root, 'alpha-v1', 'reviews', 'history', '2026-10-01.json'), '{}');
+		put(path.join(root, 'alpha-v1', 'reviews', '.DS_Store'), 'x');
+		put(path.join(root, 'alpha-v1', 'reviews', '.hidden', 'a.json'), 'x');
+		put(path.join(root, 'alpha-v1', 'functions', 'f', 'a.js'), '//');
+		put(path.join(root, 'alpha-v1', 'attachments', 'a.png'), 'x');
+		put(path.join(root, 'alpha-v1', 'modules', 'm.json'), '{}');
+		put(path.join(root, 'alpha-v1', 'notes.md'), 'x');
+		put(path.join(root, 'noreviews-v9', 'metadata.json'), '{"app":"x"}');
+		put(path.join(root, 'beta-v2.md'), 'beta note');
+		put(path.join(root, 'beta-v2', 'metadata.json'), JSON.stringify({ snapshot: { modules: [] } }));
+		put(path.join(root, 'beta-v2', 'reviews', 'latest.json'), '{}');
+		put(path.join(root, '.hidden-v1.md'), 'x');
+		put(path.join(root, '.hidden-v1', 'reviews', 'latest.json'), 'x');
+		put(path.join(root, 'notes.txt'), 'x');
+		put(path.join(root, 'plain', 'reviews', 'latest.json'), 'x');
+		put(path.join(root, 'gamma-v3'), 'a file with a directory name');
+		put(path.join(root, 'alpha-v1.md.bak'), 'x');
+		fs.mkdirSync(path.join(root, 'delta-v4.md'));
+		return root;
+	}
+
+	const rels = (listing) => listing.files.map((file) => file.rel);
+
+	it('listContextFiles: top-level context files and reviews only; dotfiles, metadata.json, functions/, and attachments/ skipped; deep symlinks reported; an org folder skips its reviews but not its .md; a missing root', () => {
+		const root = buildContextRoot('list-basic');
+		const listing = logic.listContextFiles({ root });
+		assert.deepEqual(rels(listing), ['alpha-v1.md', 'alpha-v1/reviews/history/2026-10-01.json', 'alpha-v1/reviews/latest.json', 'beta-v2.md']);
+		assert.deepEqual(listing.orgSkipped, ['beta-v2/']);
+		assert.deepEqual(listing.symlinks, []);
+		for (const file of listing.files) {
+			const stat = fs.statSync(file.abs);
+			assert.equal(file.abs, path.join(root, ...file.rel.split('/')));
+			assert.equal(file.size, stat.size);
+			assert.equal(file.mtimeMs, stat.mtimeMs);
+			assert.deepEqual(Object.keys(file), ['rel', 'abs', 'size', 'mtimeMs']);
+		}
+		assert.deepEqual(Object.keys(listing), ['files', 'orgSkipped', 'symlinks']);
+
+		const missing = path.join(caseDir('list-missing'), 'nowhere');
+		assert.deepEqual(logic.listContextFiles({ root: missing }), { files: [], orgSkipped: [], symlinks: [] });
+		const asFile = path.join(caseDir('list-file-root'), 'file');
+		put(asFile, 'x');
+		assert.deepEqual(logic.listContextFiles({ root: asFile }), { files: [], orgSkipped: [], symlinks: [] });
+		assert.deepEqual(logic.listContextFiles({ root: caseDir('list-empty') }), { files: [], orgSkipped: [], symlinks: [] });
+	});
+
+	it('listContextFiles: files up to four levels below reviews/ are listed, deeper ones are not', () => {
+		const root = path.join(caseDir('list-depth'), 'contexts');
+		put(path.join(root, 'app-v1', 'reviews', 'l0.json'), '{}');
+		put(path.join(root, 'app-v1', 'reviews', 'a', 'l1.json'), '{}');
+		put(path.join(root, 'app-v1', 'reviews', 'a', 'b', 'c', 'd', 'l4.json'), '{}');
+		put(path.join(root, 'app-v1', 'reviews', 'a', 'b', 'c', 'd', 'e', 'l5.json'), '{}');
+		assert.deepEqual(rels(logic.listContextFiles({ root })), [
+			'app-v1/reviews/a/b/c/d/l4.json',
+			'app-v1/reviews/a/l1.json',
+			'app-v1/reviews/l0.json',
+		]);
+	});
+
+	it('listContextFiles: a metadata.json that is not an org download keeps the reviews, and so does one that is a symbolic link', POSIX_ONLY, () => {
+		const root = path.join(caseDir('list-meta'), 'contexts');
+		put(path.join(root, 'plain-v1', 'metadata.json'), 'not json');
+		put(path.join(root, 'plain-v1', 'reviews', 'latest.json'), '{}');
+		put(path.join(root, 'null-v1', 'metadata.json'), '{"snapshot":null}');
+		put(path.join(root, 'null-v1', 'reviews', 'latest.json'), '{}');
+		put(path.join(root, 'none-v1', 'reviews', 'latest.json'), '{}');
+		const outside = path.join(caseDir('list-meta-target'), 'metadata.json');
+		put(outside, '{"snapshot":{"a":1}}');
+		fs.mkdirSync(path.join(root, 'link-v1', 'reviews'), { recursive: true });
+		fs.symlinkSync(outside, path.join(root, 'link-v1', 'metadata.json'));
+		put(path.join(root, 'link-v1', 'reviews', 'latest.json'), '{}');
+		const listing = logic.listContextFiles({ root });
+		assert.deepEqual(rels(listing), ['link-v1/reviews/latest.json', 'none-v1/reviews/latest.json', 'null-v1/reviews/latest.json', 'plain-v1/reviews/latest.json']);
+		assert.deepEqual(listing.orgSkipped, []);
+	});
+
+	it('listContextFiles: symbolic links below the root are reported and never followed, and a symbolic link as the root is followed', POSIX_ONLY, () => {
+		const root = buildContextRoot('list-links');
+		const outside = caseDir('list-links-outside');
+		put(path.join(outside, 'file.md'), 'outside file');
+		put(path.join(outside, 'dir', 'reviews', 'latest.json'), '{}');
+		put(path.join(outside, 'reviews-target', 'x.json'), '{}');
+		fs.symlinkSync(path.join(outside, 'file.md'), path.join(root, 'eps-v5.md'));
+		fs.symlinkSync(path.join(outside, 'dir'), path.join(root, 'zeta-v6'));
+		fs.symlinkSync(path.join(outside, 'file.md'), path.join(root, 'not-a-context-name'));
+		fs.mkdirSync(path.join(root, 'theta-v7'));
+		fs.symlinkSync(path.join(outside, 'reviews-target'), path.join(root, 'theta-v7', 'reviews'));
+		fs.symlinkSync(path.join(outside, 'file.md'), path.join(root, 'alpha-v1', 'reviews', 'link.json'));
+		fs.symlinkSync(path.join(outside, 'reviews-target'), path.join(root, 'alpha-v1', 'reviews', 'linkdir'));
+		put(path.join(root, 'iota-v8', 'reviews', 'latest.json'), '{}');
+		fs.symlinkSync(path.join(outside, 'file.md'), path.join(root, 'iota-v8', 'reviews', 'link.json'));
+		fs.symlinkSync(path.join(outside, 'file.md'), path.join(root, 'iota-v8.md'));
+		const listing = logic.listContextFiles({ root });
+		assert.deepEqual(listing.symlinks, ['alpha-v1/reviews/link.json', 'alpha-v1/reviews/linkdir', 'eps-v5.md', 'iota-v8.md', 'iota-v8/reviews/link.json', 'theta-v7/reviews', 'zeta-v6']);
+		assert.deepEqual(rels(listing), ['alpha-v1.md', 'alpha-v1/reviews/history/2026-10-01.json', 'alpha-v1/reviews/latest.json', 'beta-v2.md', 'iota-v8/reviews/latest.json']);
+
+		const linkedRoot = path.join(caseDir('list-linked-root'), 'link');
+		fs.symlinkSync(root, linkedRoot);
+		const viaLink = logic.listContextFiles({ root: linkedRoot });
+		assert.deepEqual(rels(viaLink), rels(listing));
+		assert.equal(viaLink.files[0].abs, path.join(linkedRoot, 'alpha-v1.md'));
+		assert.deepEqual(viaLink.symlinks, listing.symlinks);
+		assert.deepEqual(viaLink.orgSkipped, ['beta-v2/']);
+		const dangling = path.join(caseDir('list-dangling'), 'link');
+		fs.symlinkSync(path.join(outside, 'nowhere'), dangling);
+		assert.deepEqual(logic.listContextFiles({ root: dangling }), { files: [], orgSkipped: [], symlinks: [] });
+	});
+
+	it('listContextFiles: a missing root through an injected fs gives empty lists, and any other read error is thrown with its code', () => {
+		const missing = { readdirSync: () => { throw errorWithCode('ENOENT'); } };
+		assert.deepEqual(logic.listContextFiles({ root: '/r', fs: missing }), { files: [], orgSkipped: [], symlinks: [] });
+		const notDir = { readdirSync: () => { throw errorWithCode('ENOTDIR'); } };
+		assert.deepEqual(logic.listContextFiles({ root: '/r', fs: notDir }), { files: [], orgSkipped: [], symlinks: [] });
+		const denied = { readdirSync: () => { throw errorWithCode('EACCES'); } };
+		assert.throws(() => logic.listContextFiles({ root: '/r', fs: denied }), { code: 'EACCES' });
+	});
+
+	it('listContextFiles: a folder or a file that vanishes while the listing runs is skipped', () => {
+		const root = buildContextRoot('list-vanish');
+		const vanishing = {
+			readdirSync: (dir, options) => {
+				if (dir === path.join(root, 'alpha-v1', 'reviews', 'history')) throw errorWithCode('ENOENT');
+				return fs.readdirSync(dir, options);
+			},
+			lstatSync: (file) => {
+				if (file === path.join(root, 'beta-v2.md')) throw errorWithCode('ENOENT');
+				return fs.lstatSync(file);
+			},
+			readFileSync: (file, encoding) => fs.readFileSync(file, encoding),
+		};
+		assert.deepEqual(rels(logic.listContextFiles({ root, fs: vanishing })), ['alpha-v1.md', 'alpha-v1/reviews/latest.json']);
+		const folderGone = {
+			readdirSync: (dir, options) => {
+				if (dir === path.join(root, 'alpha-v1')) throw errorWithCode('ENOENT');
+				return fs.readdirSync(dir, options);
+			},
+			lstatSync: (file) => fs.lstatSync(file),
+			readFileSync: (file, encoding) => fs.readFileSync(file, encoding),
+		};
+		assert.deepEqual(rels(logic.listContextFiles({ root, fs: folderGone })), ['alpha-v1.md', 'beta-v2.md']);
+	});
+
+	it('listContextFiles: a stat or metadata read error other than a missing file is thrown with its code, and a file that is no longer a regular file is skipped', () => {
+		const root = buildContextRoot('list-errors');
+		const wrapped = (over) => ({ readdirSync: (dir, options) => fs.readdirSync(dir, options), lstatSync: (file) => fs.lstatSync(file), readFileSync: (file, encoding) => fs.readFileSync(file, encoding), ...over });
+		const statDenied = wrapped({
+			lstatSync: (file) => {
+				if (file === path.join(root, 'alpha-v1.md')) throw errorWithCode('EACCES');
+				return fs.lstatSync(file);
+			},
+		});
+		assert.throws(() => logic.listContextFiles({ root, fs: statDenied }), { code: 'EACCES' });
+
+		const metadataFile = path.join(root, 'beta-v2', 'metadata.json');
+		const metadataDenied = wrapped({
+			readFileSync: (file, encoding) => {
+				if (file === metadataFile) throw errorWithCode('EACCES');
+				return fs.readFileSync(file, encoding);
+			},
+		});
+		assert.throws(() => logic.listContextFiles({ root, fs: metadataDenied }), { code: 'EACCES' });
+		const metadataGone = wrapped({
+			readFileSync: (file, encoding) => {
+				if (file === metadataFile) throw errorWithCode('ENOENT');
+				return fs.readFileSync(file, encoding);
+			},
+		});
+		const listing = logic.listContextFiles({ root, fs: metadataGone });
+		assert.deepEqual(listing.orgSkipped, []);
+		assert.ok(rels(listing).includes('beta-v2/reviews/latest.json'));
+
+		const swapped = wrapped({
+			lstatSync: (file) => (file === path.join(root, 'alpha-v1.md') ? { isFile: () => false, size: 0, mtimeMs: 0 } : fs.lstatSync(file)),
+		});
+		assert.equal(rels(logic.listContextFiles({ root, fs: swapped })).includes('alpha-v1.md'), false);
+	});
+
+	it('listContextFiles: the org folders are listed in the order of their text with the slash', () => {
+		const root = path.join(caseDir('list-org-order'), 'contexts');
+		for (const name of ['a-v1', 'a-v1-x-v2', 'b-v1']) put(path.join(root, name, 'metadata.json'), '{"snapshot":{}}');
+		assert.deepEqual(logic.listContextFiles({ root }).orgSkipped, ['a-v1-x-v2/', 'a-v1/', 'b-v1/']);
+	});
+
+	it('listContextFiles: the listing is sorted by relative path', () => {
+		const root = path.join(caseDir('list-sorted'), 'contexts');
+		for (const name of ['b-v1.md', 'a-v1.md', 'c-v1.md', 'a-v10.md', 'a-v2.md']) put(path.join(root, name), name);
+		put(path.join(root, 'b-v1', 'reviews', 'z.json'), '{}');
+		put(path.join(root, 'b-v1', 'reviews', 'a.json'), '{}');
+		assert.deepEqual(rels(logic.listContextFiles({ root })), ['a-v1.md', 'a-v10.md', 'a-v2.md', 'b-v1.md', 'b-v1/reviews/a.json', 'b-v1/reviews/z.json', 'c-v1.md']);
+	});
+});
+
+describe('planContexts and sameContent', () => {
+	const BASE = 1700000000000;
+	const absent = () => ({ exists: false, isFile: false, same: false, parentIsFile: false });
+
+	function contextRoot(label, files) {
+		const root = path.join(caseDir(label), 'contexts');
+		fs.mkdirSync(root, { recursive: true });
+		for (const [rel, spec] of Object.entries(files)) {
+			const abs = path.join(root, ...rel.split('/'));
+			put(abs, spec.text);
+			if (spec.mtimeMs !== undefined) fs.utimesSync(abs, spec.mtimeMs / 1000, spec.mtimeMs / 1000);
+		}
+		return root;
+	}
+
+	function plan(claudeFiles, cursorFiles, target = absent) {
+		const claude = claudeFiles === null ? undefined : logic.listContextFiles({ root: contextRoot('plan-claude', claudeFiles) });
+		const cursor = cursorFiles === null ? undefined : logic.listContextFiles({ root: contextRoot('plan-cursor', cursorFiles) });
+		return { claude, cursor, result: logic.planContexts({ claude, cursor, target }) };
+	}
+
+	it('planContexts: identical once; newer wins; a tie goes to claude; already present; kept existing; a parent that is a file is blocked', () => {
+		const { claude, cursor, result } = plan(
+			{
+				'same-v1.md': { text: 'same text', mtimeMs: BASE },
+				'claude-newer-v1.md': { text: 'claude new', mtimeMs: BASE + 5000 },
+				'cursor-newer-v1.md': { text: 'claude old', mtimeMs: BASE },
+				'tie-v1.md': { text: 'claude tie', mtimeMs: BASE },
+				'only-claude-v1.md': { text: 'only claude', mtimeMs: BASE },
+			},
+			{
+				'same-v1.md': { text: 'same text', mtimeMs: BASE + 9000 },
+				'claude-newer-v1.md': { text: 'cursor old', mtimeMs: BASE },
+				'cursor-newer-v1.md': { text: 'cursor new', mtimeMs: BASE + 5000 },
+				'tie-v1.md': { text: 'cursor tie', mtimeMs: BASE },
+				'only-cursor-v1.md': { text: 'only cursor', mtimeMs: BASE },
+			},
+		);
+		const srcOf = (rel, from) => (from === 'claude' ? claude : cursor).files.find((file) => file.rel === rel).abs;
+		assert.deepEqual(result.copies, [
+			{ rel: 'claude-newer-v1.md', from: 'claude', src: srcOf('claude-newer-v1.md', 'claude') },
+			{ rel: 'cursor-newer-v1.md', from: 'cursor', src: srcOf('cursor-newer-v1.md', 'cursor') },
+			{ rel: 'only-claude-v1.md', from: 'claude', src: srcOf('only-claude-v1.md', 'claude') },
+			{ rel: 'only-cursor-v1.md', from: 'cursor', src: srcOf('only-cursor-v1.md', 'cursor') },
+			{ rel: 'same-v1.md', from: 'claude', src: srcOf('same-v1.md', 'claude') },
+			{ rel: 'tie-v1.md', from: 'claude', src: srcOf('tie-v1.md', 'claude') },
+		]);
+		assert.deepEqual(result.duplicates, [
+			{ rel: 'claude-newer-v1.md', used: 'claude' },
+			{ rel: 'cursor-newer-v1.md', used: 'cursor' },
+			{ rel: 'tie-v1.md', used: 'claude' },
+		]);
+		assert.deepEqual({ alreadyPresent: result.alreadyPresent, keptExisting: result.keptExisting, blocked: result.blocked }, { alreadyPresent: 0, keptExisting: [], blocked: [] });
+		assert.deepEqual(Object.keys(result), ['copies', 'alreadyPresent', 'keptExisting', 'duplicates', 'blocked']);
+	});
+
+	it('planContexts: two files of the same size with different content are different, and the newer one wins', () => {
+		const { result } = plan({ 'a-v1.md': { text: 'abcd', mtimeMs: BASE } }, { 'a-v1.md': { text: 'abce', mtimeMs: BASE + 1000 } });
+		assert.deepEqual(result.duplicates, [{ rel: 'a-v1.md', used: 'cursor' }]);
+		assert.equal(result.copies[0].from, 'cursor');
+	});
+
+	it('planContexts: either root may be missing or empty', () => {
+		const files = { 'a-v1.md': { text: 'a', mtimeMs: BASE } };
+		assert.deepEqual(plan(null, null).result, { copies: [], alreadyPresent: 0, keptExisting: [], duplicates: [], blocked: [] });
+		assert.deepEqual(plan(files, null).result.copies.map((copy) => copy.from), ['claude']);
+		assert.deepEqual(plan(null, files).result.copies.map((copy) => copy.from), ['cursor']);
+		const empty = { files: [], orgSkipped: [], symlinks: [] };
+		const listing = logic.listContextFiles({ root: contextRoot('plan-one', files) });
+		assert.deepEqual(logic.planContexts({ claude: empty, cursor: listing, target: absent }).copies.map((copy) => copy.from), ['cursor']);
+		assert.deepEqual(logic.planContexts({ claude: listing, cursor: empty, target: absent }).copies.map((copy) => copy.from), ['claude']);
+	});
+
+	it('planContexts: the target decides between a copy, already present, kept existing, and blocked, and gets the relative path and the chosen source', () => {
+		const calls = [];
+		const answers = {
+			'copy-v1.md': absent(),
+			'present-v1.md': { exists: true, isFile: true, same: true, parentIsFile: false },
+			'different-v1.md': { exists: true, isFile: true, same: false, parentIsFile: false },
+			'folder-v1.md': { exists: true, isFile: false, same: false, parentIsFile: false },
+			'blocked-v1/reviews/latest.json': { exists: false, isFile: false, same: false, parentIsFile: true },
+		};
+		const files = { 'copy-v1.md': { text: 'c', mtimeMs: BASE }, 'present-v1.md': { text: 'p', mtimeMs: BASE }, 'different-v1.md': { text: 'd', mtimeMs: BASE }, 'folder-v1.md': { text: 'f', mtimeMs: BASE }, 'blocked-v1/reviews/latest.json': { text: 'b', mtimeMs: BASE } };
+		const { claude, result } = plan(files, null, (rel, source) => {
+			calls.push([rel, source]);
+			return answers[rel];
+		});
+		assert.deepEqual(result.copies.map((copy) => copy.rel), ['copy-v1.md']);
+		assert.equal(result.alreadyPresent, 1);
+		assert.deepEqual(result.keptExisting, ['different-v1.md', 'folder-v1.md']);
+		assert.deepEqual(result.blocked, ['blocked-v1/reviews/latest.json']);
+		assert.deepEqual(result.duplicates, []);
+		assert.deepEqual(calls.map(([rel]) => rel), ['blocked-v1/reviews/latest.json', 'copy-v1.md', 'different-v1.md', 'folder-v1.md', 'present-v1.md']);
+		const first = claude.files.find((file) => file.rel === 'copy-v1.md');
+		assert.deepEqual(calls.find(([rel]) => rel === 'copy-v1.md')[1], { rel: 'copy-v1.md', from: 'claude', src: first.abs, size: first.size, mtimeMs: first.mtimeMs });
+	});
+
+	it('planContexts: an existing target that is not a file is kept even when it claims to be the same', () => {
+		const { result } = plan({ 'a-v1.md': { text: 'a', mtimeMs: BASE } }, null, () => ({ exists: true, isFile: false, same: true, parentIsFile: false }));
+		assert.deepEqual(result, { copies: [], alreadyPresent: 0, keptExisting: ['a-v1.md'], duplicates: [], blocked: [] });
+	});
+
+	it('planContexts: a target whose parent is a file is blocked even when it also claims to exist, and an existing different file is never planned for a copy', () => {
+		const { result } = plan({ 'a-v1.md': { text: 'a', mtimeMs: BASE } }, null, () => ({ exists: true, isFile: true, same: true, parentIsFile: true }));
+		assert.deepEqual(result, { copies: [], alreadyPresent: 0, keptExisting: [], duplicates: [], blocked: ['a-v1.md'] });
+	});
+
+	it('planContexts: a TypeError without target, and the default fs reads the real files', () => {
+		assert.throws(() => logic.planContexts(), { name: 'TypeError', message: 'planContexts needs target' });
+		assert.throws(() => logic.planContexts({ claude: { files: [] } }), { name: 'TypeError', message: 'planContexts needs target' });
+		const { result } = plan({ 'a-v1.md': { text: 'same', mtimeMs: BASE } }, { 'a-v1.md': { text: 'same', mtimeMs: BASE + 1000 } });
+		assert.deepEqual(result.duplicates, []);
+	});
+
+	it('planContexts: the hashing of two roots uses the injected fs', () => {
+		const reads = [];
+		const injected = {
+			lstatSync: () => ({ isFile: () => true, size: 4 }),
+			readFileSync: (file) => {
+				reads.push(file);
+				return Buffer.from('same');
+			},
+		};
+		const claude = { files: [{ rel: 'a-v1.md', abs: '/c/a-v1.md', size: 4, mtimeMs: BASE }] };
+		const cursor = { files: [{ rel: 'a-v1.md', abs: '/u/a-v1.md', size: 4, mtimeMs: BASE + 1 }] };
+		const result = logic.planContexts({ claude, cursor, target: absent, fs: injected });
+		assert.deepEqual(reads, ['/c/a-v1.md', '/u/a-v1.md']);
+		assert.deepEqual(result.duplicates, []);
+		assert.deepEqual(result.copies, [{ rel: 'a-v1.md', from: 'claude', src: '/c/a-v1.md' }]);
+	});
+
+	it('sameContent: the size first, then sha256; empty files, folders, links, and missing files', () => {
+		const dir = caseDir('same-content');
+		const write = (name, text) => {
+			put(path.join(dir, name), text);
+			return path.join(dir, name);
+		};
+		const one = write('one', 'abcdef');
+		assert.equal(logic.sameContent({ a: one, b: write('two', 'abcdef') }), true);
+		assert.equal(logic.sameContent({ a: one, b: write('three', 'abcdeg') }), false);
+		assert.equal(logic.sameContent({ a: one, b: write('four', 'abcde') }), false);
+		assert.equal(logic.sameContent({ a: write('e1', ''), b: write('e2', '') }), true);
+		assert.equal(logic.sameContent({ a: one, b: dir }), false);
+		assert.equal(logic.sameContent({ a: dir, b: dir }), false);
+		assert.equal(logic.sameContent({ a: one, b: path.join(dir, 'missing') }), false);
+		if (process.platform !== 'win32') {
+			fs.symlinkSync(one, path.join(dir, 'link'));
+			assert.equal(logic.sameContent({ a: one, b: path.join(dir, 'link') }), false);
+		}
+	});
+
+	it('sameContent: files of different sizes, an empty pair, and entries that are not regular files are decided without reading', () => {
+		const reads = [];
+		const sized = (sizes, regular = true) => ({
+			lstatSync: (file) => ({ isFile: () => regular, size: sizes[file] }),
+			readFileSync: (file) => {
+				reads.push(file);
+				return Buffer.from('x');
+			},
+		});
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: sized({ '/a': 5, '/b': 6 }) }), false);
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: sized({ '/a': 0, '/b': 0 }) }), true);
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: sized({ '/a': 5, '/b': 5 }, false) }), false);
+		const mixed = {
+			lstatSync: (file) => ({ isFile: () => file === '/a', size: 5 }),
+			readFileSync: (file) => {
+				reads.push(file);
+				return Buffer.from('x');
+			},
+		};
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: mixed }), false);
+		assert.equal(logic.sameContent({ a: '/b', b: '/a', fs: mixed }), false);
+		assert.deepEqual(reads, []);
+	});
+
+	it('sameContent: a file over 64 MB is never called identical, one of exactly 64 MB is hashed, and a read error means different', () => {
+		const LIMIT = 64 * 1024 * 1024;
+		const reads = [];
+		const withSize = (size, failing) => ({
+			lstatSync: () => ({ isFile: () => true, size }),
+			readFileSync: (file) => {
+				reads.push(file);
+				if (failing) throw errorWithCode('EIO');
+				return Buffer.from('x');
+			},
+		});
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: withSize(LIMIT + 1) }), false);
+		assert.deepEqual(reads, []);
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: withSize(LIMIT) }), true);
+		assert.deepEqual(reads, ['/a', '/b']);
+		assert.equal(logic.sameContent({ a: '/a', b: '/b', fs: withSize(5, true) }), false);
+	});
+});
+
+describe('applyContextCopies', () => {
+	const NOW = 1700000000000;
+	const COPYFILE_EXCL = fs.constants.COPYFILE_EXCL;
+
+	function sourceRoot(label, files) {
+		const root = path.join(caseDir(label), 'old-contexts');
+		for (const [rel, text] of Object.entries(files)) put(path.join(root, ...rel.split('/')), text);
+		return root;
+	}
+
+	const planFor = (root, rels) => ({ copies: rels.map((rel) => ({ rel, from: 'claude', src: path.join(root, ...rel.split('/')) })) });
+	const targetFor = (label) => path.join(caseDir(label), 'make-custom-app', 'contexts');
+	const listAll = (root) => {
+		const out = [];
+		const walk = (dir) => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else out.push(path.relative(root, full).split(path.sep).join('/'));
+			}
+		};
+		if (fs.existsSync(root)) walk(root);
+		return out.sort();
+	};
+
+	function recordingFs(overrides = {}) {
+		const calls = [];
+		const wrapped = { calls };
+		for (const name of ['readdirSync', 'lstatSync', 'mkdirSync', 'copyFileSync', 'linkSync', 'unlinkSync', 'utimesSync', 'renameSync']) {
+			wrapped[name] = (...args) => {
+				calls.push([name, ...args]);
+				if (overrides[name]) return overrides[name](args, () => fs[name](...args));
+				return fs[name](...args);
+			};
+		}
+		return wrapped;
+	}
+
+	it('applyContextCopies: copies into new folders of mode 0700, keeps the file content and the source mtime, and leaves no temp file', () => {
+		const root = sourceRoot('apply-basic', { 'a-v1.md': 'note a', 'a-v1/reviews/latest.json': '{"a":1}', 'a-v1/reviews/deep/x.json': '{"x":2}' });
+		const old = new Date(NOW - 40 * DAY);
+		for (const rel of ['a-v1.md', 'a-v1/reviews/latest.json']) fs.utimesSync(path.join(root, ...rel.split('/')), old, old);
+		const targetRoot = targetFor('apply-basic-target');
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'a-v1/reviews/latest.json', 'a-v1/reviews/deep/x.json']), targetRoot, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 3, errors: [] });
+		assert.deepEqual(listAll(targetRoot), ['a-v1.md', 'a-v1/reviews/deep/x.json', 'a-v1/reviews/latest.json']);
+		assert.equal(fs.readFileSync(path.join(targetRoot, 'a-v1.md'), 'utf8'), 'note a');
+		assert.equal(fs.readFileSync(path.join(targetRoot, 'a-v1', 'reviews', 'latest.json'), 'utf8'), '{"a":1}');
+		for (const rel of ['a-v1.md', 'a-v1/reviews/latest.json']) {
+			const src = fs.statSync(path.join(root, ...rel.split('/')));
+			const dst = fs.statSync(path.join(targetRoot, ...rel.split('/')));
+			assert.ok(Math.abs(dst.mtimeMs - src.mtimeMs) < 2, `${rel} mtime`);
+			assert.equal(dst.nlink, 1);
+		}
+		if (process.platform !== 'win32') {
+			for (const dir of [targetRoot, path.join(targetRoot, 'a-v1'), path.join(targetRoot, 'a-v1', 'reviews'), path.join(targetRoot, 'a-v1', 'reviews', 'deep')]) {
+				assert.equal(fs.statSync(dir).mode & 0o777, 0o700, dir);
+			}
+		}
+	});
+
+	it('applyContextCopies: an existing folder keeps its mode', POSIX_ONLY, () => {
+		const root = sourceRoot('apply-mode', { 'a-v1/reviews/latest.json': '{}' });
+		const targetRoot = targetFor('apply-mode-target');
+		fs.mkdirSync(path.join(targetRoot, 'a-v1'), { recursive: true });
+		fs.chmodSync(path.join(targetRoot, 'a-v1'), 0o755);
+		fs.chmodSync(targetRoot, 0o750);
+		logic.applyContextCopies({ plan: planFor(root, ['a-v1/reviews/latest.json']), targetRoot, pid: 1, now: NOW });
+		assert.equal(fs.statSync(path.join(targetRoot, 'a-v1')).mode & 0o777, 0o755);
+		assert.equal(fs.statSync(targetRoot).mode & 0o777, 0o750);
+		assert.equal(fs.statSync(path.join(targetRoot, 'a-v1', 'reviews')).mode & 0o777, 0o700);
+	});
+
+	it('applyContextCopies: never overwrites; a file that appeared after the plan stays as it is, is reported with its code, and the other files are still copied', () => {
+		const root = sourceRoot('apply-never', { 'a-v1.md': 'new a', 'b-v1.md': 'new b' });
+		const targetRoot = targetFor('apply-never-target');
+		put(path.join(targetRoot, 'a-v1.md'), 'user wrote this');
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'b-v1.md']), targetRoot, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 1, errors: [{ rel: 'a-v1.md', code: 'EEXIST' }] });
+		assert.equal(fs.readFileSync(path.join(targetRoot, 'a-v1.md'), 'utf8'), 'user wrote this');
+		assert.equal(fs.readFileSync(path.join(targetRoot, 'b-v1.md'), 'utf8'), 'new b');
+		assert.deepEqual(listAll(targetRoot), ['a-v1.md', 'b-v1.md']);
+	});
+
+	it('applyContextCopies: never overwrites a symbolic link or a folder at the target path either', POSIX_ONLY, () => {
+		const root = sourceRoot('apply-never-link', { 'a-v1.md': 'new a', 'b-v1.md': 'new b' });
+		const targetRoot = targetFor('apply-never-link-target');
+		const elsewhere = path.join(caseDir('apply-never-link-out'), 'secret.txt');
+		put(elsewhere, 'untouched');
+		fs.mkdirSync(targetRoot, { recursive: true });
+		fs.symlinkSync(elsewhere, path.join(targetRoot, 'a-v1.md'));
+		fs.mkdirSync(path.join(targetRoot, 'b-v1.md'));
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'b-v1.md']), targetRoot, pid: 4242, now: NOW });
+		assert.equal(result.copied, 0);
+		assert.deepEqual(result.errors.map((error) => error.rel), ['a-v1.md', 'b-v1.md']);
+		assert.equal(fs.readFileSync(elsewhere, 'utf8'), 'untouched');
+		assert.deepEqual(listAll(targetRoot), ['a-v1.md']);
+	});
+
+	it('applyContextCopies: the temp file is <dst>.migrate-<pid>-<n>.tmp with n counting from 1, copied with COPYFILE_EXCL, and the file is made with a hard link', () => {
+		const root = sourceRoot('apply-calls', { 'a-v1.md': 'a', 'b-v1.md': 'b' });
+		const targetRoot = targetFor('apply-calls-target');
+		const recording = recordingFs();
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'b-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+		assert.equal(result.copied, 2);
+		const interesting = recording.calls.filter(([name]) => ['copyFileSync', 'linkSync', 'unlinkSync', 'renameSync'].includes(name));
+		assert.deepEqual(interesting, [
+			['copyFileSync', path.join(root, 'a-v1.md'), `${path.join(targetRoot, 'a-v1.md')}.migrate-4242-1.tmp`, COPYFILE_EXCL],
+			['linkSync', `${path.join(targetRoot, 'a-v1.md')}.migrate-4242-1.tmp`, path.join(targetRoot, 'a-v1.md')],
+			['unlinkSync', `${path.join(targetRoot, 'a-v1.md')}.migrate-4242-1.tmp`],
+			['copyFileSync', path.join(root, 'b-v1.md'), `${path.join(targetRoot, 'b-v1.md')}.migrate-4242-2.tmp`, COPYFILE_EXCL],
+			['linkSync', `${path.join(targetRoot, 'b-v1.md')}.migrate-4242-2.tmp`, path.join(targetRoot, 'b-v1.md')],
+			['unlinkSync', `${path.join(targetRoot, 'b-v1.md')}.migrate-4242-2.tmp`],
+		]);
+		const stamps = recording.calls.filter(([name]) => name === 'utimesSync');
+		assert.deepEqual(stamps.map(([, file]) => file), [path.join(targetRoot, 'a-v1.md'), path.join(targetRoot, 'b-v1.md')]);
+		assert.equal(typeof stamps[0][2], 'number');
+		assert.equal(stamps[0][3], fs.statSync(path.join(root, 'a-v1.md')).mtimeMs / 1000);
+	});
+
+	it('applyContextCopies: falls back to rename on EXDEV, EPERM, and ENOTSUP after it checked that the target is still free', () => {
+		for (const code of ['EXDEV', 'EPERM', 'ENOTSUP']) {
+			const root = sourceRoot(`apply-${code}`, { 'a-v1.md': `from ${code}` });
+			const targetRoot = targetFor(`apply-${code}-target`);
+			const recording = recordingFs({
+				linkSync: () => {
+					throw errorWithCode(code);
+				},
+			});
+			const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+			assert.deepEqual(result, { copied: 1, errors: [] }, code);
+			assert.equal(fs.readFileSync(path.join(targetRoot, 'a-v1.md'), 'utf8'), `from ${code}`);
+			assert.deepEqual(listAll(targetRoot), ['a-v1.md']);
+			const dst = path.join(targetRoot, 'a-v1.md');
+			const tmp = `${dst}.migrate-4242-1.tmp`;
+			const order = recording.calls.map(([name, ...args]) => `${name}:${args[0] === tmp || args[0] === dst ? args[0] : ''}`);
+			const linked = order.indexOf(`linkSync:${tmp}`);
+			const checked = order.indexOf(`lstatSync:${dst}`);
+			const renamed = order.indexOf(`renameSync:${tmp}`);
+			assert.ok(linked >= 0 && linked < checked && checked < renamed, `${code} order ${order.join(' ')}`);
+			assert.deepEqual(recording.calls[renamed].slice(1), [tmp, dst]);
+			assert.equal(recording.calls.some(([name]) => name === 'unlinkSync'), false, code);
+		}
+	});
+
+	it('applyContextCopies: the rename fallback does not overwrite a file that appeared after the link failed', () => {
+		const root = sourceRoot('apply-exdev-race', { 'a-v1.md': 'ours' });
+		const targetRoot = targetFor('apply-exdev-race-target');
+		const dst = path.join(targetRoot, 'a-v1.md');
+		const recording = recordingFs({
+			linkSync: () => {
+				put(dst, 'theirs');
+				throw errorWithCode('EXDEV');
+			},
+		});
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 0, errors: [{ rel: 'a-v1.md', code: 'EEXIST' }] });
+		assert.equal(fs.readFileSync(dst, 'utf8'), 'theirs');
+		assert.deepEqual(listAll(targetRoot), ['a-v1.md']);
+		assert.equal(recording.calls.some(([name]) => name === 'renameSync'), false);
+	});
+
+	it('applyContextCopies: a temp file that cannot be removed after an error does not hide the first error', () => {
+		const root = sourceRoot('apply-cleanup-fails', { 'a-v1.md': 'a' });
+		const targetRoot = targetFor('apply-cleanup-fails-target');
+		const recording = recordingFs({
+			linkSync: () => {
+				throw errorWithCode('EMLINK');
+			},
+			unlinkSync: () => {
+				throw errorWithCode('EACCES');
+			},
+		});
+		assert.deepEqual(logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW }), { copied: 0, errors: [{ rel: 'a-v1.md', code: 'EMLINK' }] });
+	});
+
+	it('applyContextCopies: a temp file that already exists is left alone when the copy reports EEXIST', () => {
+		const root = sourceRoot('apply-tmp-exists', { 'a-v1.md': 'a' });
+		const targetRoot = targetFor('apply-tmp-exists-target');
+		const recording = recordingFs({
+			copyFileSync: () => {
+				throw errorWithCode('EEXIST');
+			},
+		});
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 0, errors: [{ rel: 'a-v1.md', code: 'EEXIST' }] });
+		assert.equal(recording.calls.some(([name]) => name === 'unlinkSync'), false);
+	});
+
+	it('applyContextCopies: a failing check of the target in the rename fallback is recorded with its code and removes the temp file', () => {
+		const root = sourceRoot('apply-exdev-check', { 'a-v1.md': 'ours', 'b-v1.md': 'next' });
+		const targetRoot = targetFor('apply-exdev-check-target');
+		const first = path.join(targetRoot, 'a-v1.md');
+		const recording = recordingFs({
+			linkSync: ([tmp, dst], real) => {
+				if (dst === first) throw errorWithCode('EXDEV');
+				return real();
+			},
+			lstatSync: ([file], real) => {
+				if (file === first) throw errorWithCode('EACCES');
+				return real();
+			},
+		});
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'b-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 1, errors: [{ rel: 'a-v1.md', code: 'EACCES' }] });
+		assert.deepEqual(listAll(targetRoot), ['b-v1.md']);
+	});
+
+	it('applyContextCopies: records an error and continues, removes the temp file, and reports only the code', () => {
+		const root = sourceRoot('apply-errors', { 'a-v1.md': 'a', 'b-v1.md': 'b', 'c-v1.md': 'c', 'd-v1.md': 'd', 'e-v1.md': 'e' });
+		const targetRoot = targetFor('apply-errors-target');
+		const failures = {
+			'a-v1.md': () => {
+				throw errorWithCode('EACCES');
+			},
+			'c-v1.md': () => {
+				throw new Error(`plain failure with ${FAKE.pinecone}`);
+			},
+		};
+		const recording = recordingFs({
+			copyFileSync: ([src, tmp], real) => {
+				const failing = failures[path.basename(src)];
+				if (failing) {
+					put(tmp, 'partial');
+					failing();
+				}
+				return real();
+			},
+			linkSync: ([, dst], real) => {
+				if (path.basename(dst) === 'd-v1.md') throw errorWithCode('EMLINK');
+				return real();
+			},
+		});
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md', 'b-v1.md', 'c-v1.md', 'd-v1.md', 'e-v1.md']), targetRoot, fs: recording, pid: 4242, now: NOW });
+		assert.deepEqual(result, {
+			copied: 2,
+			errors: [
+				{ rel: 'a-v1.md', code: 'EACCES' },
+				{ rel: 'c-v1.md', code: 'UNKNOWN' },
+				{ rel: 'd-v1.md', code: 'EMLINK' },
+			],
+		});
+		assert.deepEqual(listAll(targetRoot), ['b-v1.md', 'e-v1.md']);
+		assert.equal(JSON.stringify(result).includes(FAKE.pinecone), false);
+	});
+
+	it('applyContextCopies: a failing mkdir, an invalid relative path, and a source that is not a regular file are recorded and nothing is written outside the target', () => {
+		const root = sourceRoot('apply-invalid', { 'a-v1.md': 'a', 'file-v1/x.json': 'x', 'ok-v1.md': 'ok' });
+		const targetRoot = targetFor('apply-invalid-target');
+		put(path.join(targetRoot, 'file-v1'), 'a file where a folder is needed');
+		const plan = planFor(root, ['file-v1/x.json', 'ok-v1.md']);
+		const outside = path.join(path.dirname(targetRoot), 'escaped.md');
+		plan.copies.push(
+			{ rel: '../escaped.md', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: '/abs-v1.md', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: 'a//b-v1.md', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: './dot-v1.md', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: 'back\\slash-v1.md', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: '', from: 'claude', src: path.join(root, 'a-v1.md') },
+			{ rel: 'dir-src-v1.md', from: 'claude', src: root },
+			{ rel: 'nosrc-v1.md', from: 'claude' },
+			{ from: 'claude', src: path.join(root, 'a-v1.md') },
+			null,
+			5,
+		);
+		const result = logic.applyContextCopies({ plan, targetRoot, pid: 4242, now: NOW });
+		assert.equal(result.copied, 1);
+		const byRel = Object.fromEntries(result.errors.map((error) => [error.rel, error.code]));
+		assert.equal(typeof byRel['file-v1/x.json'], 'string');
+		assert.equal(byRel['../escaped.md'], 'EINVAL');
+		assert.equal(byRel['/abs-v1.md'], 'EINVAL');
+		assert.equal(byRel['a//b-v1.md'], 'EINVAL');
+		assert.equal(byRel['./dot-v1.md'], 'EINVAL');
+		assert.equal(byRel['back\\slash-v1.md'], 'EINVAL');
+		assert.equal(byRel[''], 'EINVAL');
+		assert.equal(byRel['dir-src-v1.md'], 'EINVAL');
+		assert.equal(byRel['nosrc-v1.md'], 'EINVAL');
+		assert.equal(result.errors.length, 12);
+		assert.equal(result.errors.filter((error) => error.rel === '' && error.code === 'EINVAL').length, 4);
+		assert.equal(fs.existsSync(outside), false);
+		assert.deepEqual(listAll(targetRoot), ['file-v1', 'ok-v1.md']);
+	});
+
+	it('applyContextCopies: a source that became a symbolic link is not followed', POSIX_ONLY, () => {
+		const root = sourceRoot('apply-src-link', { 'real-v1.md': 'real' });
+		const outside = path.join(caseDir('apply-src-link-out'), 'secret.md');
+		put(outside, 'do not copy');
+		fs.symlinkSync(outside, path.join(root, 'swapped-v1.md'));
+		const targetRoot = targetFor('apply-src-link-target');
+		const result = logic.applyContextCopies({ plan: planFor(root, ['swapped-v1.md', 'real-v1.md']), targetRoot, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 1, errors: [{ rel: 'swapped-v1.md', code: 'EINVAL' }] });
+		assert.deepEqual(listAll(targetRoot), ['real-v1.md']);
+	});
+
+	it('applyContextCopies: sweeps its own and stale temp files but keeps a fresh temp file of another pid', () => {
+		const targetRoot = targetFor('apply-sweep');
+		const at = (name, ageMs, text = 'temp') => {
+			const file = path.join(targetRoot, ...name.split('/'));
+			put(file, text);
+			const when = new Date(NOW - ageMs);
+			fs.utimesSync(file, when, when);
+			return file;
+		};
+		const ownFresh = at('own-fresh-v1.md.migrate-4242-1.tmp', 1000);
+		const ownOld = at('deep/own-old-v1.md.migrate-4242-9.tmp', 30 * 60 * 1000);
+		const staleOther = at('a-v1/reviews/stale-v1.md.migrate-9999-3.tmp', 11 * 60 * 1000);
+		const freshOther = at('fresh-v1.md.migrate-9999-2.tmp', 9 * 60 * 1000);
+		const freshOtherDeep = at('deep/fresh-v1.md.migrate-7-1.tmp', 1000);
+		const realFile = at('keep-v1.md', 60 * DAY, 'real note');
+		const similar = [
+			at('old-v1.md.migrate-9999.tmp', 60 * DAY),
+			at('old-v1.md.migrate-x-1.tmp', 60 * DAY),
+			at('old-v1.md.migrate-9999-1.tmp.bak', 60 * DAY),
+			at('old-v1.md.tmp', 60 * DAY),
+			at('old-v1.md.migrate-9999-1', 60 * DAY),
+			at('old-v1.mdmigrate-9999-1.tmp', 60 * DAY),
+		];
+		const result = logic.applyContextCopies({ plan: { copies: [] }, targetRoot, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 0, errors: [] });
+		for (const gone of [ownFresh, ownOld, staleOther]) assert.equal(fs.existsSync(gone), false, gone);
+		for (const kept of [freshOther, freshOtherDeep, realFile, ...similar]) assert.equal(fs.existsSync(kept), true, kept);
+		assert.equal(fs.readFileSync(realFile, 'utf8'), 'real note');
+	});
+
+	it('applyContextCopies: the sweep never follows a symbolic link and never removes a link or a folder that has a temp name', POSIX_ONLY, () => {
+		const targetRoot = targetFor('apply-sweep-links');
+		const outside = caseDir('apply-sweep-out');
+		put(path.join(outside, 'x-v1.md.migrate-4242-1.tmp'), 'outside temp');
+		fs.mkdirSync(targetRoot, { recursive: true });
+		fs.symlinkSync(outside, path.join(targetRoot, 'linked-dir'));
+		fs.symlinkSync(path.join(outside, 'x-v1.md.migrate-4242-1.tmp'), path.join(targetRoot, 'y-v1.md.migrate-4242-2.tmp'));
+		fs.mkdirSync(path.join(targetRoot, 'dir-v1.md.migrate-4242-3.tmp'));
+		put(path.join(targetRoot, 'dir-v1.md.migrate-4242-3.tmp', 'inner-v1.md.migrate-4242-4.tmp'), 'inner');
+		logic.applyContextCopies({ plan: { copies: [] }, targetRoot, pid: 4242, now: NOW });
+		assert.equal(fs.readFileSync(path.join(outside, 'x-v1.md.migrate-4242-1.tmp'), 'utf8'), 'outside temp');
+		assert.equal(fs.lstatSync(path.join(targetRoot, 'y-v1.md.migrate-4242-2.tmp')).isSymbolicLink(), true);
+		assert.equal(fs.existsSync(path.join(targetRoot, 'dir-v1.md.migrate-4242-3.tmp')), true);
+		assert.equal(fs.existsSync(path.join(targetRoot, 'dir-v1.md.migrate-4242-3.tmp', 'inner-v1.md.migrate-4242-4.tmp')), false);
+	});
+
+	it('applyContextCopies: a missing target root with nothing to copy stays missing, and a failing sweep does not stop the copies', () => {
+		const missing = path.join(caseDir('apply-nothing'), 'nowhere', 'contexts');
+		assert.deepEqual(logic.applyContextCopies({ plan: { copies: [] }, targetRoot: missing }), { copied: 0, errors: [] });
+		assert.deepEqual(logic.applyContextCopies({ targetRoot: missing }), { copied: 0, errors: [] });
+		assert.equal(fs.existsSync(path.dirname(missing)), false);
+
+		const root = sourceRoot('apply-sweep-fail', { 'a-v1.md': 'a' });
+		const targetRoot = targetFor('apply-sweep-fail-target');
+		put(path.join(targetRoot, 'x-v1.md.migrate-4242-5.tmp'), 'temp');
+		put(path.join(targetRoot, 'sub', 'y-v1.md.migrate-4242-6.tmp'), 'temp');
+		const stubborn = recordingFs({
+			unlinkSync: ([file], real) => {
+				if (file.includes('.migrate-4242-5.tmp')) throw errorWithCode('EACCES');
+				return real();
+			},
+			readdirSync: ([dir], real) => {
+				if (dir === path.join(targetRoot, 'sub')) throw errorWithCode('EACCES');
+				return real();
+			},
+		});
+		const result = logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot, fs: stubborn, pid: 4242, now: NOW });
+		assert.deepEqual(result, { copied: 1, errors: [] });
+		assert.equal(fs.existsSync(path.join(targetRoot, 'a-v1.md')), true);
+	});
+
+	it('applyContextCopies: now may be a function, and the defaults are this process and the clock', () => {
+		const root = sourceRoot('apply-defaults', { 'a-v1.md': 'a' });
+		const targetRoot = targetFor('apply-defaults-target');
+		const stale = path.join(targetRoot, 'x-v1.md.migrate-9999-1.tmp');
+		put(stale, 'temp');
+		const when = new Date(NOW - 11 * 60 * 1000);
+		fs.utimesSync(stale, when, when);
+		assert.deepEqual(logic.applyContextCopies({ plan: { copies: [] }, targetRoot, now: () => NOW }), { copied: 0, errors: [] });
+		assert.equal(fs.existsSync(stale), false);
+
+		const own = path.join(targetRoot, `y-v1.md.migrate-${process.pid}-1.tmp`);
+		put(own, 'temp');
+		assert.deepEqual(logic.applyContextCopies({ plan: planFor(root, ['a-v1.md']), targetRoot }), { copied: 1, errors: [] });
+		assert.equal(fs.existsSync(own), false);
+		assert.deepEqual(listAll(targetRoot), ['a-v1.md']);
+	});
+
+	it('applyContextCopies: a TypeError without targetRoot, and with one that is empty or not a string', () => inTempCwd('apply-no-root', () => {
+		for (const value of [undefined, '', null, 5, {}]) {
+			assert.throws(() => logic.applyContextCopies({ plan: { copies: [] }, targetRoot: value }), { name: 'TypeError', message: 'applyContextCopies needs targetRoot' });
+		}
+		assert.throws(() => logic.applyContextCopies(), { name: 'TypeError', message: 'applyContextCopies needs targetRoot' });
+		assert.deepEqual(fs.readdirSync(process.cwd()), []);
+	}));
+});
+
+describe('verifyInstall', () => {
+	const INSTALL = path.join(path.sep, 'cache', 'make-custom-app', 'make-custom-app', '3.0.0');
+	const MANIFEST = path.join(INSTALL, '.claude-plugin', 'plugin.json');
+	const SKILL = path.join(INSTALL, 'skills', 'make-app-setup', 'SKILL.md');
+	const SERVER = path.join(INSTALL, 'mcp', 'index.mjs');
+	const usable = (extra = {}) => ({ status: 'usable', reason: null, id: ID, installPath: INSTALL, version: '3.0.0', ...extra });
+	const manifest = (extra = {}) => JSON.stringify({ name: 'make-custom-app', version: '3.0.0', ...extra });
+	const present = () => true;
+
+	it('verifyInstall: each problem', () => {
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest(), exists: present }), []);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ status: 'inactive', reason: 'disabled' }), manifestText: manifest(), exists: present }), []);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: `\uFEFF${manifest()}`, exists: present }), []);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '3.1.0' }), manifestText: manifest({ version: '3.1.0' }), exists: present }), []);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '10.0.0' }), manifestText: manifest({ version: '10.0.0' }), exists: present }), []);
+
+		const asked = [];
+		const checks = (extra) => logic.verifyInstall({ status: usable(), manifestText: manifest(), exists: (file) => (asked.push(file), true), ...extra });
+		checks();
+		assert.deepEqual(asked, [SKILL, SERVER]);
+
+		assert.deepEqual(logic.verifyInstall({ status: { status: 'absent', reason: 'cache-missing', id: null, installPath: null, version: null }, manifestText: manifest(), exists: present }), ['claude did not record the plugin as installed (cache-missing)']);
+		assert.deepEqual(logic.verifyInstall({ status: { status: 'absent', reason: null }, manifestText: manifest(), exists: present }), ['claude did not record the plugin as installed']);
+		assert.deepEqual(logic.verifyInstall({ status: { status: 'absent', reason: 'bad reason\nwith text' }, manifestText: manifest(), exists: present }), ['claude did not record the plugin as installed']);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ installPath: null }), manifestText: manifest(), exists: present }), ['the install path of the plugin is not recorded']);
+		for (const status of [null, 'usable', 5, [], {}]) {
+			assert.deepEqual(logic.verifyInstall({ status, manifestText: manifest(), exists: present }), ['claude did not record the plugin as installed'], String(status));
+		}
+
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: '{ not json', exists: present }), [`${MANIFEST} is not valid JSON`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: '', exists: present }), [`${MANIFEST} is not valid JSON`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: '[1]', exists: present }), [`${MANIFEST} does not hold a JSON object`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: 'null', exists: present }), [`${MANIFEST} does not hold a JSON object`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: null, exists: present }), [`${MANIFEST} could not be read`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: undefined, exists: present }), [`${MANIFEST} could not be read`]);
+
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest({ name: 'other-plugin' }), exists: present }), [`the name in ${MANIFEST} is not make-custom-app`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: JSON.stringify({ version: '3.0.0' }), exists: present }), [`the name in ${MANIFEST} is not make-custom-app`]);
+
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '2.9.9' }), manifestText: manifest({ version: '2.9.9' }), exists: present }), [`the version in ${MANIFEST} (2.9.9) is below 3.0.0`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '2.99.99' }), manifestText: manifest({ version: '2.99.99' }), exists: present }), [`the version in ${MANIFEST} (2.99.99) is below 3.0.0`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: null }), manifestText: manifest({ version: '2.4.0-beta.1' }), exists: present }), [`the version in ${MANIFEST} (2.4.0) is below 3.0.0`]);
+		for (const version of ['3.0', 'latest', 3, null, '', '3.0.x']) {
+			assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest({ version }), exists: present }), [`the version in ${MANIFEST} is missing or not a version number`], String(version));
+		}
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: JSON.stringify({ name: 'make-custom-app' }), exists: present }), [`the version in ${MANIFEST} is missing or not a version number`]);
+
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '3.0.1' }), manifestText: manifest({ version: '3.0.0' }), exists: present }), [`the version in ${MANIFEST} differs from the version recorded for the install`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: null }), manifestText: manifest({ version: '3.0.0' }), exists: present }), []);
+
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest(), exists: (file) => file !== SKILL }), [`${SKILL} is missing`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest(), exists: (file) => file !== SERVER }), [`${SERVER} is missing`]);
+		assert.deepEqual(logic.verifyInstall({ status: usable(), manifestText: manifest(), exists: () => false }), [`${SKILL} is missing`, `${SERVER} is missing`]);
+	});
+
+	it('verifyInstall: reports every problem at once, in a fixed order, and never quotes the manifest', () => {
+		const text = JSON.stringify({ name: FAKE.other, version: FAKE.pinecone });
+		const problems = logic.verifyInstall({ status: usable({ version: '3.0.1' }), manifestText: text, exists: () => false });
+		assert.deepEqual(problems, [`the name in ${MANIFEST} is not make-custom-app`, `the version in ${MANIFEST} is missing or not a version number`, `${SKILL} is missing`, `${SERVER} is missing`]);
+		const broken = logic.verifyInstall({ status: usable(), manifestText: `{"name": "${FAKE.other}", "version": ${FAKE.pinecone}}`, exists: present });
+		assert.deepEqual(broken, [`${MANIFEST} is not valid JSON`]);
+		for (const problem of [...problems, ...broken]) for (const seed of Object.values(FAKE)) assert.equal(problem.includes(seed), false);
+		assert.deepEqual(logic.verifyInstall({ status: usable({ version: '3.0.1' }), manifestText: manifest({ version: '2.0.0' }), exists: present }), [
+			`the version in ${MANIFEST} (2.0.0) is below 3.0.0`,
+			`the version in ${MANIFEST} differs from the version recorded for the install`,
+		]);
+	});
+
+	it('verifyInstall: a TypeError without status or exists', () => {
+		assert.throws(() => logic.verifyInstall(), { name: 'TypeError', message: 'verifyInstall needs status and exists' });
+		assert.throws(() => logic.verifyInstall({ manifestText: '{}', exists: present }), { name: 'TypeError', message: 'verifyInstall needs status and exists' });
+		assert.throws(() => logic.verifyInstall({ status: usable(), manifestText: '{}' }), { name: 'TypeError', message: 'verifyInstall needs status and exists' });
+	});
+});
+
+describe('nextLines, summaryLines, and jsonReport', () => {
+	const MAKE_DIR = '~/.make-custom-app';
+	const LOCK = `${MAKE_DIR}/cleanup.lock`;
+	const NEXT_CLAUDE = 'Next: restart Claude Code, then run /make-custom-app:make-app-setup (or start any Make task). It lists the old install and removes it after you confirm.';
+	const NEXT_CURSOR = 'Next: turn on the Cursor setting Include Third-Party Plugins (Cursor loads the plugin installed for Claude Code), restart Cursor, then run /make-app-setup (or start any Make task). It lists the old install and removes it after you confirm.';
+	const NEXT_HANDOFF = 'Next: continue with the make-app-setup skill of the plugin; it lists the old install and removes it after you confirm.';
+	const NOTHING_DELETED = 'Nothing was deleted. The old skill keeps working until the cleanup.';
+	const DISABLED = 'The plugin is installed but disabled; this script does not enable it. To use it, run in your own terminal: claude plugin enable make-custom-app@make-custom-app';
+	const ADDRESS = 'https://github.com/minsu-kang/make-custom-app-skill.git';
+
+	function baseReport(over = {}) {
+		return {
+			ok: true,
+			exitCode: 0,
+			editor: 'claude',
+			dryRun: false,
+			claude: { bin: '/usr/local/bin/claude', version: '2.1.312 (Claude Code)' },
+			marketplace: { action: 'added', source: ADDRESS },
+			plugin: { action: 'installed', version: '3.0.0', problems: [] },
+			lock: { held: false, pid: null },
+			secrets: { copied: [], keptExisting: [], conflicts: [], skipped: [], error: null },
+			contexts: { copied: 0, alreadyPresent: 0, keptExisting: [], orgSkipped: [], duplicates: [], symlinks: [], errors: [] },
+			next: [],
+			...over,
+		};
+	}
+
+	const SCHEMA_KEYS = ['ok', 'exitCode', 'editor', 'dryRun', 'claude', 'marketplace', 'plugin', 'lock', 'secrets', 'contexts', 'next'];
+
+	it('nextLines: the exact lines for each editor, installed now or not', () => {
+		assert.deepEqual(logic.nextLines('claude', true), [NEXT_CLAUDE]);
+		assert.deepEqual(logic.nextLines('cursor', true), [NEXT_CURSOR]);
+		assert.deepEqual(logic.nextLines('claude', false), [NEXT_HANDOFF]);
+		assert.deepEqual(logic.nextLines('cursor', false), [NEXT_HANDOFF]);
+		for (const editor of [undefined, 'vscode', '', null]) {
+			assert.throws(() => logic.nextLines(editor, true), { name: 'TypeError', message: 'nextLines needs the editor claude or cursor' }, String(editor));
+			assert.throws(() => logic.nextLines(editor, false), { name: 'TypeError', message: 'nextLines needs the editor claude or cursor' }, String(editor));
+		}
+	});
+
+	it('summaryLines and jsonReport: the exact lines', () => {
+		const full = baseReport({
+			marketplace: { action: 'present', source: '/Users/x/make-custom-app-skill' },
+			secrets: {
+				copied: ['pinecone-api-key', 'openai-api-key'],
+				keptExisting: ['pinecone-index-name'],
+				conflicts: [
+					{ key: 'openai-api-key', used: 'claude-registration', others: ['cursor-env'] },
+					{ key: 'pinecone-api-key', used: 'secrets-file', others: ['claude-env', 'cursor-registration:make-app-context'] },
+					{ key: 'pinecone-index-name', used: 'claude-env', others: ['cursor-registration:a', 'cursor-env'] },
+				],
+				skipped: [{ key: 'x', reason: 'placeholder' }],
+				error: null,
+			},
+			contexts: {
+				copied: 12,
+				alreadyPresent: 3,
+				keptExisting: ['y-v1.md', 'z-v1/reviews/latest.json'],
+				orgSkipped: ['hubspot-v2/'],
+				duplicates: [{ rel: 'hubspot-v2.md', used: 'claude' }, { rel: 'x-v1.md', used: 'cursor' }],
+				symlinks: ['link-v1.md'],
+				errors: [{ rel: 'q-v1.md', code: 'EACCES' }],
+			},
+		});
+		assert.deepEqual(logic.summaryLines(full), [
+			'Plugin make-custom-app@make-custom-app: installed, version 3.0.0',
+			'Marketplace make-custom-app was already there (/Users/x/make-custom-app-skill); it was kept.',
+			'MCP keys copied to ~/.make-custom-app-skill-secrets: pinecone-api-key, openai-api-key',
+			'MCP keys kept (the secrets file already had a value): pinecone-index-name',
+			'MCP keys with different values in the old install (the first source was used): openai-api-key (claude-registration; also cursor-env)',
+			'MCP keys with different values in the old install (the first source was used): pinecone-index-name (claude-env; also cursor-registration:a, cursor-env)',
+			'MCP keys that differ from the old install (the value in the secrets file is used, so the plugin uses another value than the old registration): pinecone-api-key (claude-env, cursor-registration:make-app-context)',
+			'App contexts copied to ~/.make-custom-app/contexts: 12 files; 7 notes below',
+			'  skipped hubspot-v2/ (written by the org downloader; its data can be partial)',
+			'  both editors had hubspot-v2.md: used the Claude Code copy (newer)',
+			'  both editors had x-v1.md: used the Cursor copy (newer)',
+			'  kept y-v1.md (the target already has a different file)',
+			'  kept z-v1/reviews/latest.json (the target already has a different file)',
+			'  skipped link-v1.md (a symbolic link)',
+			'  failed q-v1.md (EACCES)',
+			NOTHING_DELETED,
+			NEXT_CLAUDE,
+		]);
+	});
+
+	it('summaryLines: the plain installed report has the plugin line, the contexts line, nothing deleted, and the next line', () => {
+		assert.deepEqual(logic.summaryLines(baseReport({ secrets: { copied: ['openai-api-key'], keptExisting: [], conflicts: [], skipped: [], error: null }, contexts: { ...baseReport().contexts, copied: 1 } })), [
+			'Plugin make-custom-app@make-custom-app: installed, version 3.0.0',
+			'MCP keys copied to ~/.make-custom-app-skill-secrets: openai-api-key',
+			'App contexts copied to ~/.make-custom-app/contexts: 1 files',
+			NOTHING_DELETED,
+			NEXT_CLAUDE,
+		]);
+		assert.deepEqual(logic.summaryLines(baseReport({ editor: 'cursor' })), [
+			'Plugin make-custom-app@make-custom-app: installed, version 3.0.0',
+			'MCP keys: none found in the old install',
+			'App contexts copied to ~/.make-custom-app/contexts: 0 files',
+			NOTHING_DELETED,
+			NEXT_CURSOR,
+		]);
+	});
+
+	it('summaryLines: the plugin line for an already installed plugin (the handoff path) and a disabled one', () => {
+		assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action: 'present', version: '3.0.0', problems: [] }, marketplace: { action: 'skipped', source: null } })), [
+			'Plugin make-custom-app@make-custom-app: already installed, version 3.0.0',
+			'MCP keys: none found in the old install',
+			'App contexts copied to ~/.make-custom-app/contexts: 0 files',
+			NOTHING_DELETED,
+			NEXT_HANDOFF,
+		]);
+		assert.deepEqual(logic.summaryLines(baseReport({ editor: 'cursor', plugin: { action: 'present', version: '3.0.1', problems: [] } })).slice(-1), [NEXT_HANDOFF]);
+		assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action: 'disabled', version: '3.0.0', problems: [] }, marketplace: { action: 'skipped', source: null } })), [
+			'Plugin make-custom-app@make-custom-app: installed but disabled, version 3.0.0',
+			'MCP keys: none found in the old install',
+			'App contexts copied to ~/.make-custom-app/contexts: 0 files',
+			NOTHING_DELETED,
+			DISABLED,
+		]);
+		assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action: 'installed', version: null, problems: [] } }))[0], 'Plugin make-custom-app@make-custom-app: installed');
+		assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action: 'present', version: 'bad\nversion', problems: [] } }))[0], 'Plugin make-custom-app@make-custom-app: already installed');
+	});
+
+	it('summaryLines: a failed or skipped plugin prints no plugin, key, context, deletion, or next line', () => {
+		for (const action of ['failed', 'skipped']) {
+			assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action, version: null, problems: ['x'] }, marketplace: { action: 'failed', source: null } })), [], action);
+		}
+		assert.deepEqual(logic.summaryLines(baseReport({ plugin: { action: 'failed', version: null, problems: [] }, marketplace: { action: 'present', source: ADDRESS } })), [`Marketplace make-custom-app was already there (${ADDRESS}); it was kept.`]);
+	});
+
+	it('summaryLines: the lock line with a pid, and without a pid with the delete hint; no keys or contexts lines then', () => {
+		const held = (pid) => baseReport({ lock: { held: true, pid }, exitCode: 4, ok: false });
+		assert.deepEqual(logic.summaryLines(held(4242)), [
+			'Plugin make-custom-app@make-custom-app: installed, version 3.0.0',
+			`Another migration or cleanup is running (lock ${LOCK}, pid 4242). Nothing was copied; run this script again.`,
+			NOTHING_DELETED,
+			NEXT_CLAUDE,
+		]);
+		assert.deepEqual(logic.summaryLines(held(null)), [
+			'Plugin make-custom-app@make-custom-app: installed, version 3.0.0',
+			`Another migration or cleanup is running (lock ${LOCK}). Nothing was copied; run this script again. If no other run is active, delete ${LOCK} and ${LOCK}.takeover, then run it again.`,
+			NOTHING_DELETED,
+			NEXT_CLAUDE,
+		]);
+		for (const pid of [0, -1, 1.5, '4242', NaN, undefined]) {
+			assert.equal(logic.summaryLines(held(pid))[1].startsWith(`Another migration or cleanup is running (lock ${LOCK}). Nothing was copied;`), true, String(pid));
+		}
+		const noLock = logic.summaryLines(baseReport({ lock: { held: false, pid: 4242 } }));
+		assert.equal(noLock.some((line) => line.startsWith('Another migration')), false);
+	});
+
+	it('summaryLines: a present marketplace shows its address, its kind only without an address, and no parentheses without a value', () => {
+		const markets = [
+			['https://example.test/marketplace.git', ' (https://example.test/marketplace.git)'],
+			['/Users/x/folder', ' (/Users/x/folder)'],
+			['git', ' (git)'],
+			[null, ''],
+			['', ''],
+			[undefined, ''],
+			[5, ''],
+			['line\nbreak', ''],
+		];
+		for (const [source, shown] of markets) {
+			assert.equal(logic.summaryLines(baseReport({ marketplace: { action: 'present', source } }))[1], `Marketplace make-custom-app was already there${shown}; it was kept.`, String(source));
+		}
+		const parsed = logic.parseMarketplaceList(JSON.stringify([{ name: 'make-custom-app', source: 'git', url: ADDRESS, installLocation: '/x' }, { name: 'make-custom-app', source: 'directory', path: '/Users/x/folder' }, { name: 'make-custom-app', source: 'git' }]));
+		assert.deepEqual(parsed.map((entry) => entry.source), [ADDRESS, '/Users/x/folder', 'git']);
+		for (const entry of parsed) assert.equal(logic.summaryLines(baseReport({ marketplace: { action: 'present', source: entry.source } }))[1], `Marketplace make-custom-app was already there (${entry.source}); it was kept.`);
+		for (const action of ['added', 'skipped', 'failed']) {
+			assert.equal(logic.summaryLines(baseReport({ marketplace: { action, source: ADDRESS } })).some((line) => line.startsWith('Marketplace')), false, action);
+		}
+	});
+
+	it('summaryLines and jsonReport: an address with a user name or a token in front of the host is shown without it', () => {
+		const url = 'https://someone:fake-other-token-1111@github.com/minsu-kang/make-custom-app-skill.git';
+		const report = baseReport({ marketplace: { action: 'present', source: url } });
+		assert.equal(logic.summaryLines(report)[1], 'Marketplace make-custom-app was already there (https://github.com/minsu-kang/make-custom-app-skill.git); it was kept.');
+		assert.equal(logic.jsonReport(report).marketplace.source, 'https://github.com/minsu-kang/make-custom-app-skill.git');
+		assert.equal(logic.jsonReport(baseReport({ marketplace: { action: 'present', source: 'git@github.com:minsu-kang/x.git' } })).marketplace.source, 'git@github.com:minsu-kang/x.git');
+	});
+
+	it('summaryLines: the none-found line, a keys-error line instead of it, and no line for skipped keys', () => {
+		const withSecrets = (secrets) => logic.summaryLines(baseReport({ secrets: { copied: [], keptExisting: [], conflicts: [], skipped: [], error: null, ...secrets } }));
+		assert.equal(withSecrets({})[1], 'MCP keys: none found in the old install');
+		assert.equal(withSecrets({ skipped: [{ key: 'openai-api-key', reason: 'placeholder' }] })[1], 'MCP keys: none found in the old install');
+		assert.equal(withSecrets({ keptExisting: ['openai-api-key'] })[1], 'MCP keys kept (the secrets file already had a value): openai-api-key');
+		assert.equal(withSecrets({ conflicts: [{ key: 'openai-api-key', used: 'secrets-file', others: ['claude-env'] }] })[1].startsWith('MCP keys that differ from the old install'), true);
+		const failed = withSecrets({ error: '/h/.claude.json is not valid JSON' });
+		assert.deepEqual(failed.slice(1, 2), ['MCP keys: not copied completely (/h/.claude.json is not valid JSON)']);
+		assert.equal(failed.some((line) => line.includes('none found')), false);
+		const partial = withSecrets({ copied: ['openai-api-key'], error: 'read-back mismatch: openai-api-key' });
+		assert.deepEqual(partial.slice(1, 3), ['MCP keys copied to ~/.make-custom-app-skill-secrets: openai-api-key', 'MCP keys: not copied completely (read-back mismatch: openai-api-key)']);
+	});
+
+	it('summaryLines: the contexts line counts its notes, and a line with no notes has no note count', () => {
+		const withContexts = (contexts) => logic.summaryLines(baseReport({ contexts: { ...baseReport().contexts, ...contexts } }));
+		assert.equal(withContexts({ copied: 4 })[1], 'MCP keys: none found in the old install');
+		assert.equal(withContexts({ copied: 4 })[2], 'App contexts copied to ~/.make-custom-app/contexts: 4 files');
+		assert.deepEqual(withContexts({ copied: 2, orgSkipped: ['a-v1/'] }).slice(2, 4), ['App contexts copied to ~/.make-custom-app/contexts: 2 files; 1 notes below', '  skipped a-v1/ (written by the org downloader; its data can be partial)']);
+		assert.equal(withContexts({ copied: 2, orgSkipped: ['a-v1'] })[3], '  skipped a-v1/ (written by the org downloader; its data can be partial)');
+		assert.equal(withContexts({ alreadyPresent: 9 })[2], 'App contexts copied to ~/.make-custom-app/contexts: 0 files');
+		const noisy = withContexts({ symlinks: ['bad\nname-v1.md'], errors: [{ rel: 'bad\u2028x-v1.md', code: 'EACCES' }], keptExisting: ['tab\tname-v1.md'] });
+		assert.deepEqual(noisy.slice(3, 6), ['  kept tab?name-v1.md (the target already has a different file)', '  skipped bad?name-v1.md (a symbolic link)', '  failed bad?x-v1.md (EACCES)']);
+	});
+
+	it('jsonReport: exactly the schema keys, with copies of the given values and defaults for missing parts', () => {
+		const report = baseReport({
+			exitCode: 4,
+			ok: false,
+			editor: 'cursor',
+			dryRun: true,
+			claude: { bin: null, version: null },
+			marketplace: { action: 'present', source: null },
+			plugin: { action: 'present', version: '3.0.0', problems: ['a problem'] },
+			lock: { held: true, pid: 4242 },
+			secrets: {
+				copied: ['openai-api-key'],
+				keptExisting: ['pinecone-api-key'],
+				conflicts: [{ key: 'pinecone-api-key', used: 'secrets-file', others: ['claude-env'] }],
+				skipped: [{ key: 'pinecone-index-name', reason: 'reference' }],
+				error: 'read-back mismatch: openai-api-key',
+			},
+			contexts: {
+				copied: 2,
+				alreadyPresent: 1,
+				keptExisting: ['k-v1.md'],
+				orgSkipped: ['o-v1/'],
+				duplicates: [{ rel: 'd-v1.md', used: 'cursor' }],
+				symlinks: ['s-v1.md'],
+				errors: [{ rel: 'e-v1.md', code: 'EACCES' }],
+			},
+		});
+		const out = logic.jsonReport(report);
+		assert.deepEqual(Object.keys(out), SCHEMA_KEYS);
+		assert.deepEqual(Object.keys(out.claude), ['bin', 'version']);
+		assert.deepEqual(Object.keys(out.marketplace), ['action', 'source']);
+		assert.deepEqual(Object.keys(out.plugin), ['action', 'version', 'problems']);
+		assert.deepEqual(Object.keys(out.lock), ['held', 'pid']);
+		assert.deepEqual(Object.keys(out.secrets), ['copied', 'keptExisting', 'conflicts', 'skipped', 'error']);
+		assert.deepEqual(Object.keys(out.contexts), ['copied', 'alreadyPresent', 'keptExisting', 'orgSkipped', 'duplicates', 'symlinks', 'errors']);
+		assert.deepEqual(out, { ...report, next: [NEXT_HANDOFF] });
+		assert.notEqual(out.secrets.copied, report.secrets.copied);
+		assert.notEqual(out.contexts.errors[0], report.contexts.errors[0]);
+		assert.doesNotThrow(() => JSON.stringify(out));
+
+		const bare = logic.jsonReport({ editor: 'claude' });
+		assert.deepEqual(bare, {
+			ok: false,
+			exitCode: 1,
+			editor: 'claude',
+			dryRun: false,
+			claude: { bin: null, version: null },
+			marketplace: { action: 'skipped', source: null },
+			plugin: { action: 'skipped', version: null, problems: [] },
+			lock: { held: false, pid: null },
+			secrets: { copied: [], keptExisting: [], conflicts: [], skipped: [], error: null },
+			contexts: { copied: 0, alreadyPresent: 0, keptExisting: [], orgSkipped: [], duplicates: [], symlinks: [], errors: [] },
+			next: [],
+		});
+		assert.throws(() => logic.jsonReport({}), { name: 'TypeError', message: 'jsonReport needs the editor claude or cursor' });
+		assert.throws(() => logic.jsonReport(), { name: 'TypeError', message: 'jsonReport needs the editor claude or cursor' });
+		assert.throws(() => logic.summaryLines({ editor: 'other' }), { name: 'TypeError', message: 'summaryLines needs the editor claude or cursor' });
+	});
+
+	it('jsonReport: the next lines follow the editor and the plugin action, and the given next is not used', () => {
+		const next = (editor, action) => logic.jsonReport(baseReport({ editor, plugin: { action, version: '3.0.0', problems: [] }, next: ['something else'] })).next;
+		assert.deepEqual(next('claude', 'installed'), [NEXT_CLAUDE]);
+		assert.deepEqual(next('cursor', 'installed'), [NEXT_CURSOR]);
+		assert.deepEqual(next('claude', 'present'), [NEXT_HANDOFF]);
+		assert.deepEqual(next('cursor', 'present'), [NEXT_HANDOFF]);
+		for (const action of ['disabled', 'failed', 'skipped']) assert.deepEqual(next('claude', action), [], action);
+	});
+
+	it('jsonReport: wrong types are replaced by the defaults, and unknown keys are dropped', () => {
+		const out = logic.jsonReport({
+			ok: 'yes',
+			exitCode: 'x',
+			editor: 'claude',
+			dryRun: 1,
+			extra: 'dropped',
+			claude: { bin: 5, version: 'a\nb', extra: 'dropped' },
+			marketplace: { action: 'present', source: ['x'] },
+			plugin: { action: 'present', version: 5, problems: ['one', 2, null] },
+			lock: { held: 'yes', pid: '4242' },
+			secrets: { copied: 'openai-api-key', keptExisting: [1, 'a'], conflicts: [null, 'x', { key: 5, used: 'u' }, { key: 'k', used: 5 }, { key: 'k', used: 'u', others: 'o', extra: 1 }], skipped: [{ key: 'k', reason: 'placeholder', extra: 1 }, 5, { key: 'k' }, { reason: 'x' }], error: 5 },
+			contexts: { copied: 'many', alreadyPresent: -1, keptExisting: 'x', orgSkipped: [5], duplicates: [{ rel: 5, used: 'claude' }, { rel: 'r', used: 'other' }, { rel: 'r', used: 'claude', extra: 1 }], symlinks: null, errors: [{ rel: 5, code: 'EIO' }, { rel: 'r', code: 5 }, { rel: 'r', code: 'EIO', message: 'dropped' }] },
+		});
+		assert.deepEqual(out, {
+			ok: false,
+			exitCode: 1,
+			editor: 'claude',
+			dryRun: false,
+			claude: { bin: null, version: null },
+			marketplace: { action: 'present', source: null },
+			plugin: { action: 'present', version: null, problems: ['one'] },
+			lock: { held: false, pid: null },
+			secrets: { copied: [], keptExisting: ['a'], conflicts: [{ key: 'k', used: 'u', others: [] }], skipped: [{ key: 'k', reason: 'placeholder' }], error: null },
+			contexts: { copied: 0, alreadyPresent: 0, keptExisting: [], orgSkipped: [], duplicates: [{ rel: 'r', used: 'claude' }], symlinks: [], errors: [{ rel: 'r', code: 'EIO' }] },
+			next: [NEXT_HANDOFF],
+		});
+	});
+
+	it('summaryLines and jsonReport: seeded secret values and a seeded parse-error text never appear', () => {
+		const home = caseDir('report-seeds');
+		const badJson = `{"mcpServers": {"make-custom-app": {"env": {"OPENAI_API_KEY": "${FAKE.openai}", "PINECONE_API_KEY": "${FAKE.pinecone}" oops}}}}`;
+		const parseMessage = (() => {
+			try {
+				JSON.parse(badJson);
+			} catch (err) {
+				return err.message;
+			}
+			return '';
+		})();
+		put(path.join(home, '.claude.json'), badJson);
+		put(path.join(home, '.cursor', 'mcp.json'), `{"mcpServers": {"make-app-context": {"command": "node", "args": ["${path.join(home, '.cursor', 'skills', 'make-custom-app', 'mcp-server', 'dist', 'index.js')}"], "env": {"OPENAI_API_KEY": "${FAKE.cursor}", "PINECONE_API_KEY": "${FAKE.other}"}}}}`);
+		const read = logic.readSecretSources({ home });
+		assert.equal(read.errors.length, 1);
+		const plan = logic.planSecrets({ sources: read.sources, existingText: `pinecone-api-key: ${FAKE.pinecone2}\n` });
+		const report = baseReport({
+			secrets: { ...plan, sources: read.sources, updates: plan.updates, error: read.errors[0], raw: parseMessage },
+			contexts: { ...baseReport().contexts, copied: 1 },
+		});
+		const shown = [...logic.summaryLines(report), JSON.stringify(logic.jsonReport(report)), JSON.stringify(logic.jsonReport({ ...report, plugin: { ...report.plugin, action: 'present' } }))].join('\n');
+		for (const seed of Object.values(FAKE)) assert.equal(shown.includes(seed), false, seed);
+		if (parseMessage !== '') assert.equal(shown.includes(parseMessage), false);
+		assert.equal(shown.includes('"sources"'), false);
+		assert.equal(shown.includes('"updates"'), false);
+		assert.equal(shown.includes('"raw"'), false);
+		assert.ok(shown.includes('openai-api-key'));
+	});
 });
