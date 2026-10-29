@@ -36,7 +36,7 @@ Restart Claude Code (or run `/reload-plugins`). Then:
 
 ### Cursor
 
-Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above, restart Cursor, and check that the three MCP servers of the plugin (`make-app-context`, `make`, `atlassian`) appear in the MCP settings of Cursor. A route for machines that have Cursor only is not documented yet.
+Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. A route for machines that have Cursor only is not documented yet.
 
 ## Update
 
@@ -149,7 +149,7 @@ mcp/               index.mjs, the built context server
 mcp-server/        TypeScript source of that server
 mcp.json           the three MCP servers
 hooks/             the Cursor sessionStart hook (Cursor only)
-tools/             repo tools: hard-rules sync, MCP bundle build, install verification
+tools/             repo tools: hard-rules sync, MCP bundle build, install verification, trigger test
 .github/           CI and the content checks
 ```
 

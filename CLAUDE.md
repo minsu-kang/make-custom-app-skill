@@ -16,6 +16,7 @@ mcp-server/       TypeScript source of that server (also the payload of the old 
 mcp.json          the three MCP servers (make-app-context, make, atlassian)
 hooks/            the Cursor sessionStart hook: hooks-cursor.json and session-start.js (Cursor only)
 tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js
+tools/trigger-test/   maintainer trigger test (spec 11 item 8): run-claude.js, run-cursor.js, jira-stub.js, prompts.json
 .github/          workflows and the content checks (plugin-check.js, check-skill.js)
 docs/superpowers/ design spec and implementation plans (left out of the merge to master)
 skill/ rules/ install-*.sh install-*.ps1 version.json   the 2.x bridge: do not change except as named in the spec
@@ -43,6 +44,10 @@ node .github/scripts/check-skill.js
 # Load the working tree as a plugin, or check a real install
 claude --plugin-dir .
 node tools/verify-plugin.js            # install into an isolated config and inspect it (add --live for model sessions)
+
+# Trigger test after any change to a skill description (real model sessions: about 0.1 USD of Claude usage per prompt, an unknown amount of Cursor quota)
+node tools/trigger-test/run-claude.js --condition clean
+node tools/trigger-test/run-cursor.js
 ```
 
 Keep the test globs quoted so Node expands them in any shell. The MCP server is never started from this repo directly: the plugin runs the committed bundle, and the 2.x installers build `mcp-server/` in the user's skill folder.
@@ -65,9 +70,9 @@ Documents write `<plugin root>/shared/...`. The plugin root is the directory on 
 
 ### Skills and triggering
 
-Skills trigger by description, so write the trigger first. `plugin-check.js` enforces the `Not for` clause, a plain one-line YAML value, a warning above 400 characters and a failure above 1,024, and a budget for the nine together. A skill may pre-approve exactly two scripts with `allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/<name>.js"*)`: `check-setup` and `review-changes`. The quoted form is the one that matches: an unquoted command and any other script still prompt. All other scripts keep the harness permission prompt on top of the hard rules.
+Skills trigger by description, so write the trigger first. `plugin-check.js` enforces the `Not for` clause, a plain one-line YAML value, a warning above 400 characters and a failure above 1,024, and a budget for the nine together. A skill may pre-approve exactly two scripts with `allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/<name>.js"*)`: `check-setup` and `review-changes`. The quoted form is the one that matches: an unquoted command and any other script still prompt. All other scripts keep the harness permission prompt on top of the hard rules. Rerun the trigger test (spec section 11 item 8) after any change to a skill description; the pass mark is 18 of 20 positive prompts per editor.
 
-Cursor often reads no skill for a natural prompt, so a `sessionStart` hook (`hooks/session-start.js`) adds one factual line that names the nine skills (measured via `--plugin-dir` only; spec section 13). Claude Code does not need it and does not register it: the Cursor-format file `hooks/hooks-cursor.json` is named by the `hooks` field of `.cursor-plugin/plugin.json`, and `hooks/hooks.json` (the Claude format) must not exist, because it would add the line to every Claude session. `plugin-check.js` enforces this, including that the `hooks` field and `hooks/hooks-cursor.json` come together (the numbers and the decision are in spec section 5).
+Cursor often reads no skill for a natural prompt, so a `sessionStart` hook (`hooks/session-start.js`) adds one factual line that names the nine skills (measured with `--plugin-dir` and on the installed route; spec section 11 item 8). Claude Code does not need it and does not register it: the Cursor-format file `hooks/hooks-cursor.json` is named by the `hooks` field of `.cursor-plugin/plugin.json`, and `hooks/hooks.json` (the Claude format) must not exist, because it would add the line to every Claude session. `plugin-check.js` enforces this, including that the `hooks` field and `hooks/hooks-cursor.json` come together (the numbers and the decision are in spec section 5).
 
 ### Editor and contexts
 
