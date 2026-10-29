@@ -14,6 +14,7 @@ shared/           hard-rules.md, index.md, workflows/, references/, scripts/ (+ 
 mcp/index.mjs     built MCP context server, committed
 mcp-server/       TypeScript source of that server (also the payload of the old installers)
 mcp.json          the three MCP servers (make-app-context, make, atlassian)
+hooks/            the Cursor sessionStart hook: hooks-cursor.json and session-start.js (Cursor only)
 tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js
 .github/          workflows and the content checks (plugin-check.js, check-skill.js)
 docs/superpowers/ design spec and implementation plans (left out of the merge to master)
@@ -66,6 +67,8 @@ Documents write `<plugin root>/shared/...`. The plugin root is the directory on 
 
 Skills trigger by description, so write the trigger first. `plugin-check.js` enforces the `Not for` clause, a plain one-line YAML value, a warning above 400 characters and a failure above 1,024, and a budget for the nine together. A skill may pre-approve exactly two scripts with `allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/shared/scripts/<name>.js"*)`: `check-setup` and `review-changes`. The quoted form is the one that matches: an unquoted command and any other script still prompt. All other scripts keep the harness permission prompt on top of the hard rules.
 
+Cursor often reads no skill for a natural prompt, so a `sessionStart` hook (`hooks/session-start.js`) adds one factual line that names the nine skills (measured via `--plugin-dir` only; spec section 13). Claude Code does not need it and does not register it: the Cursor-format file `hooks/hooks-cursor.json` is named by the `hooks` field of `.cursor-plugin/plugin.json`, and `hooks/hooks.json` (the Claude format) must not exist, because it would add the line to every Claude session. `plugin-check.js` enforces this, including that the `hooks` field and `hooks/hooks-cursor.json` come together (the numbers and the decision are in spec section 5).
+
 ### Editor and contexts
 
 Scripts resolve the editor with `shared/scripts/lib/paths.js`: the `--editor claude|cursor` flag, then `CLAUDECODE`, then `CURSOR_AGENT`, then the `editor:` line of the secrets file; there is no silent default, because the editor selects the Make credential source. App contexts live in `~/.make-custom-app/contexts` for both editors. Plugin-internal paths come from `__dirname`.
@@ -82,7 +85,7 @@ Scripts resolve the editor with `shared/scripts/lib/paths.js`: the `--editor cla
 - `legacy-bridge`: installs the 2.x skill in a fake `HOME` from this checkout and drives its built server (`tools/legacy-bridge.js`), while the installers exist.
 - `skill-scripts` (Node 22 and 24): the script tests with coverage, for `shared/scripts` and for the old tree.
 - `skill-check`: `check-skill.js` for the old tree (it reads the newest 2.x CHANGELOG entry, so the plugin entry above it is skipped), and the guard that `skill/`, `rules/`, the installers, and `version.json` are unchanged on integration branches.
-- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, marketplace, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
+- `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, marketplace, hooks, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
 - `plugin-validate`: `claude plugin validate` with a pinned Claude Code version.
 - `lint-misc`: `shellcheck` on the two `.sh` installers and `actionlint`.
 

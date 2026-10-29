@@ -148,6 +148,7 @@ shared/            hard-rules.md, workflows/, references/, scripts/ (and their t
 mcp/               index.mjs, the built context server
 mcp-server/        TypeScript source of that server
 mcp.json           the three MCP servers
+hooks/             the Cursor sessionStart hook (Cursor only)
 tools/             repo tools: hard-rules sync, MCP bundle build, install verification
 .github/           CI and the content checks
 ```

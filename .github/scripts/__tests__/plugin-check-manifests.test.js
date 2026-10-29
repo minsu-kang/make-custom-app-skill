@@ -63,6 +63,7 @@ test('the real manifests of this repository pass against their own CHANGELOG', (
 		'plugin-rules/.gitkeep': '',
 		'CHANGELOG.md': fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8'),
 	};
+	for (const name of fs.readdirSync(path.join(REPO, 'hooks'))) files[`hooks/${name}`] = fs.readFileSync(path.join(REPO, 'hooks', name), 'utf8');
 	const r = run(files);
 	assert.equal(r.status, 0, r.out);
 });

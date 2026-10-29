@@ -8,8 +8,8 @@
 // An explicit --scope that does not exist is an error. Without --scope the run is a full run: besides the
 // per-file checks it checks the skill layer (the nine skills of spec 4.1, or the names given by --skills),
 // the hard-rules blocks, that every workflow is named by a skill (outside its hard-rules block) and every reference
-// by shared/index.md, that README.md lists every entry script of shared/scripts, the syntax of tools/, .github/scripts/ and
-// shared/scripts/, and mcp.json, the plugin manifests and the marketplace when they exist.
+// by shared/index.md, that README.md lists every entry script of shared/scripts, the syntax of tools/, .github/scripts/, hooks/
+// and shared/scripts/, and mcp.json, the plugin manifests, the Cursor hooks and the marketplace when they exist.
 // --release-base=<ref> adds the release rule (spec 9.2 item 8): when the payload (skills/, shared/, mcp/, mcp.json, hooks/,
 // either plugin.json) differs from <ref>, the plugin version must be greater than the one on <ref>. CI sets it for pull
 // requests and pushes whose base is master; the integration branch does not use it.
@@ -53,6 +53,9 @@ const CHANGELOG_TOP = /^## (\d+\.\d+\.\d+)(?: \u2014 \d{4}-\d{2}-\d{2}| \(unrele
 const MCP_LOCAL = 'make-app-context';
 const MCP_REMOTE = { make: 'https://mcp.make.com/v2', atlassian: 'https://mcp.atlassian.com/v1/mcp' };
 const MCP_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}/';
+const CLAUDE_HOOKS_FILE = 'hooks/hooks.json';
+const CURSOR_HOOKS_FILE = 'hooks/hooks-cursor.json';
+const HOOK_SCRIPT = /\.\/hooks\/[\w./-]+/g;
 const PLACEHOLDER = /\$\{([^}]*)\}/g;
 const SECRET_LIKE = /(?<![\w-])(?:sk-[\w-]{8,}|pcsk_[\w-]{8,}|ATATT3x[\w=-]+)/;
 const ANCHOR = [
@@ -412,6 +415,44 @@ function checkManifests() {
 	else if (top[1] !== claude.version) error('CHANGELOG.md', `top entry ${top[1]} differs from the plugin version ${claude.version}`);
 }
 
+function checkHooks() {
+	const cursorManifest = '.cursor-plugin/plugin.json';
+	if (fs.existsSync(path.join(ROOT, CLAUDE_HOOKS_FILE))) {
+		error(CLAUDE_HOOKS_FILE, `must not exist: Claude Code would run it in every session and add the hook text to each one; the hook is registered for Cursor only, through the "hooks" field of ${cursorManifest} (spec 5)`);
+	}
+	let manifest;
+	try {
+		manifest = JSON.parse(fs.readFileSync(path.join(ROOT, cursorManifest), 'utf8'));
+	} catch {
+		return; // checkManifests reports a manifest that is missing or not JSON
+	}
+	if (manifest === null || typeof manifest !== 'object') return;
+	if (!Object.hasOwn(manifest, 'hooks')) {
+		if (fs.existsSync(path.join(ROOT, CURSOR_HOOKS_FILE))) error(cursorManifest, `${CURSOR_HOOKS_FILE} exists but "hooks" is not set; add "hooks": "./${CURSOR_HOOKS_FILE}"`);
+		return;
+	}
+	const field = manifest.hooks;
+	const target = typeof field === 'string' && field.startsWith('./') ? path.posix.normalize(field) : '';
+	if (!target.startsWith('hooks/')) return error(cursorManifest, `hooks must be a relative path to a file in hooks/ that starts with "./hooks/", not ${JSON.stringify(field)}`);
+	if (!fs.existsSync(path.join(ROOT, target))) return error(cursorManifest, `hooks points at ${target}, which does not exist`);
+	if (!fs.statSync(path.join(ROOT, target)).isFile()) return error(cursorManifest, `hooks points at ${target}, which is not a file`);
+	const config = readJson(target);
+	if (!config) return;
+	if (config.version !== 1) error(target, 'version must be 1 (the Cursor hooks format)');
+	const entries = config.hooks && config.hooks.sessionStart;
+	if (!Array.isArray(entries) || !entries.length) return error(target, 'hooks.sessionStart must be a non-empty array');
+	entries.forEach((entry, i) => {
+		const command = entry && entry.command;
+		if (typeof command !== 'string' || !command.trim()) return error(target, `hooks.sessionStart[${i}] has no command string`);
+		const scripts = [...command.matchAll(HOOK_SCRIPT)].map((m) => path.posix.normalize(m[0]));
+		if (!scripts.length) return error(target, `hooks.sessionStart[${i}] names no script in hooks/ (a command must run a ./hooks/<name> script)`);
+		for (const named of scripts) {
+			if (!fs.existsSync(path.join(ROOT, named))) error(target, `hooks.sessionStart[${i}] names ${named}, which does not exist`);
+			else if (!fs.statSync(path.join(ROOT, named)).isFile()) error(target, `hooks.sessionStart[${i}] names ${named}, which is not a file`);
+		}
+	});
+}
+
 function git(...gitArgs) {
 	return spawnSync('git', gitArgs, { cwd: ROOT, encoding: 'utf8' });
 }
@@ -487,7 +528,7 @@ function checkMarketplace() {
 
 function checkSyntax() {
 	const isJs = (n) => n.endsWith('.js');
-	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('shared/scripts', isJs)]) {
+	for (const rel of [...listFiles('tools', isJs), ...listFiles('.github/scripts', isJs), ...listFiles('hooks', isJs), ...listFiles('shared/scripts', isJs)]) {
 		const result = spawnSync(process.execPath, ['--check', path.join(ROOT, rel)], { encoding: 'utf8' });
 		if (result.status !== 0) error(rel, `syntax check failed: ${(result.stderr || '').split('\n').find((l) => l.trim()) || 'unknown error'}`);
 	}
@@ -517,6 +558,7 @@ if (FULL_RUN) {
 	if (fs.existsSync(path.join(ROOT, 'mcp.json'))) checkMcpConfig();
 	if (fs.existsSync(path.join(ROOT, '.claude-plugin')) || fs.existsSync(path.join(ROOT, '.cursor-plugin'))) checkManifests();
 	if (fs.existsSync(path.join(ROOT, '.claude-plugin', 'marketplace.json'))) checkMarketplace();
+	checkHooks();
 	checkSyntax();
 }
 
