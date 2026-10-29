@@ -134,6 +134,8 @@ function checkOldTree({ mode, entries, base, head }) {
 	for (const { status, path: file } of entries) {
 		if (status === 'D' || (file !== VERSION_JSON && !ALLOWED_PATHS.includes(file))) {
 			findings.push(`${file}: changes to this old-tree path are not allowed during the bridge (git status ${status})`);
+		} else if (status === 'T') {
+			findings.push(`${file}: file type changed`);
 		}
 	}
 

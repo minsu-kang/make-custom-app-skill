@@ -81,6 +81,7 @@ const check = (mode, entries, base, head) => guard.checkOldTree({ mode, entries,
 const notAllowed = (file, status) => `${file}: changes to this old-tree path are not allowed during the bridge (git status ${status})`;
 const SECTION_FINDING = 'skill/SKILL.md: changed outside the version line and the "## Plugin migration" section';
 const skillVersionFinding = (from, to) => `skill/SKILL.md: version changed from ${from} to ${to}; versions change only in the release commit`;
+const typeChanged = (file) => `${file}: file type changed`;
 const VERSION_JSON_CHANGED = 'version.json: changed; it changes only in the release commit';
 const stillReads = (v) => `version.json: the old tree changed but version.json still reads ${v}; a bridge change needs a 2.4.x bump of version.json and skill/SKILL.md together`;
 const differsFromSkill = (a, b) => `version.json: version ${a} differs from the skill/SKILL.md version ${b}`;
@@ -123,7 +124,7 @@ const BASE_FILES = {
 
 /**
  * A repository with a commit "base" (tag base) that holds the old tree of 2.3.13, and a commit on a branch with `changes`
- * applied after `moves` (git mv pairs). A null value in `changes` deletes a file.
+ * applied after `moves` (git mv pairs). A null value in `changes` deletes a file, and `{ symlink: target }` replaces it with a symbolic link.
  */
 function repo({ changes = {}, moves = [] }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'old-tree-guard-'));
@@ -137,7 +138,10 @@ function repo({ changes = {}, moves = [] }) {
 		for (const [from, to] of moves) git(root, 'mv', from, to);
 		for (const [rel, body] of Object.entries(changes)) {
 			if (body === null) fs.rmSync(path.join(root, rel));
-			else write(root, { [rel]: body });
+			else if (typeof body === 'object') {
+				fs.rmSync(path.join(root, rel), { force: true });
+				fs.symlinkSync(body.symlink, path.join(root, rel));
+			} else write(root, { [rel]: body });
 		}
 		git(root, 'add', '-A');
 		git(root, 'commit', '-q', '-m', 'work');
@@ -197,7 +201,7 @@ test('branch: each of the seven allowed paths passes (A for the four new files, 
 });
 
 test('branch: a SKILL.md change inside the Plugin migration section passes', () => {
-	const section = ['The plugin replaces this skill.', 'Run migrate-to-plugin.js.'];
+	const section = ['The plugin replaces this skill.', '### Sub heading', 'Run migrate-to-plugin.js.'];
 	const head = { versionJson: BASE.versionJson, skillMd: skillMd({ migration: section }) };
 	assert.deepEqual(check('branch', [entry('M', 'skill/SKILL.md')], BASE, head), []);
 	const edited = { versionJson: BASE.versionJson, skillMd: skillMd({ migration: [...section, 'One more line.'] }) };
@@ -245,6 +249,15 @@ test('branch: a SKILL.md version change fails', () => {
 	assert.equal(guard.skillVersion('---\nname: x\nversion: 2.4.0\n'), null);
 	assert.equal(guard.skillVersion('# Title\nversion: 2.4.0\n'), null);
 	assert.equal(guard.skillVersion(null), null);
+});
+
+test('both modes: findings come in the order path, section, version', () => {
+	const e = [entry('M', 'skill/scripts/download-app.js'), entry('M', 'skill/SKILL.md'), entry('M', 'version.json')];
+	const branchHead = { versionJson: pair('2.4.0').versionJson, skillMd: skillMd({ version: '2.4.0', tail: 'Changed.' }) };
+	assert.deepEqual(check('branch', e.slice(1), BASE, branchHead), [SECTION_FINDING, skillVersionFinding('2.3.13', '2.4.0'), VERSION_JSON_CHANGED]);
+	assert.deepEqual(check('branch', e, BASE, branchHead), [notAllowed('skill/scripts/download-app.js', 'M'), SECTION_FINDING, skillVersionFinding('2.3.13', '2.4.0'), VERSION_JSON_CHANGED]);
+	const releaseHead = { versionJson: pair('2.4.0').versionJson, skillMd: skillMd({ version: '2.4.1', tail: 'Changed.' }) };
+	assert.deepEqual(check('release', e, BASE, releaseHead), [notAllowed('skill/scripts/download-app.js', 'M'), SECTION_FINDING, differsFromSkill('2.4.0', '2.4.1')]);
 });
 
 test('branch: a version.json change fails', () => {
@@ -301,6 +314,26 @@ test('both modes: deleting skill/scripts/check-setup.js fails, and a rename show
 			const r = cli(root, [`--mode=${mode}`, '--base=base']);
 			assert.equal(r.status, 1, r.out);
 			assert.deepEqual(r.lines, [`old-tree-guard: ${notAllowed('skill/scripts/check-setup.js', 'D')}`, summary(1, mode, 'base')]);
+		});
+	}
+});
+
+test('both modes: a type change on a guarded path fails', () => {
+	for (const mode of ['branch', 'release']) {
+		const head = mode === 'release' ? pair('2.4.0') : BASE;
+		assert.deepEqual(check(mode, [entry('T', 'skill/scripts/check-setup.js')], BASE, head), [typeChanged('skill/scripts/check-setup.js')], mode);
+		assert.deepEqual(check(mode, [entry('T', 'skill/scripts/download-app.js')], BASE, head), [notAllowed('skill/scripts/download-app.js', 'T')], mode);
+	}
+	assert.deepEqual(check('branch', [entry('T', 'version.json')], BASE, BASE), [typeChanged('version.json'), VERSION_JSON_CHANGED]);
+	assert.deepEqual(check('release', [entry('T', 'version.json')], BASE, pair('2.4.0')), [typeChanged('version.json')]);
+
+	for (const mode of ['branch', 'release']) {
+		const changes = { 'skill/scripts/check-setup.js': { symlink: 'download-app.js' } };
+		if (mode === 'release') Object.assign(changes, { 'version.json': pair('2.4.0').versionJson, 'skill/SKILL.md': pair('2.4.0').skillMd });
+		withRepo({ changes }, (root) => {
+			const r = cli(root, [`--mode=${mode}`, '--base=base']);
+			assert.equal(r.status, 1, r.out);
+			assert.deepEqual(r.lines, [`old-tree-guard: ${typeChanged('skill/scripts/check-setup.js')}`, summary(1, mode, 'base')]);
 		});
 	}
 });
@@ -468,6 +501,10 @@ test('cli: prints ::error lines under GitHub Actions and plain lines otherwise',
 	withRepo({ changes: { 'skill/odd%name\n::error::x': 'x\n' } }, (root) => {
 		const r = cli(root, ['--mode=branch', '--base=base'], { GITHUB_ACTIONS: 'true' });
 		assert.deepEqual(r.lines, [`::error::${notAllowed('skill/odd%25name%0A::error::x', 'A')}`, summary(1, 'branch', 'base')]);
+	});
+	withRepo({ changes: { 'skill/cr\rname': 'x\n' } }, (root) => {
+		const r = cli(root, ['--mode=branch', '--base=base'], { GITHUB_ACTIONS: 'true' });
+		assert.deepEqual(r.lines, [`::error::${notAllowed('skill/cr%0Dname', 'A')}`, summary(1, 'branch', 'base')]);
 	});
 });
 
