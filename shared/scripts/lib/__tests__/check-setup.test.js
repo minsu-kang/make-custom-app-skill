@@ -374,7 +374,7 @@ describe('check-setup in a fake HOME, old 2.x install left behind', () => {
 		const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
 		fs.writeFileSync(claudeMd, '<!-- make-custom-app-skill -->\nold block\n<!-- /make-custom-app-skill -->\n');
 		const claudeJson = path.join(home, '.claude.json');
-		fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', env: { OPENAI_API_KEY: TOKEN } } } }));
+		fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { 'make-custom-app': { command: 'node', args: [path.join(skillDir, 'mcp-server', 'dist', 'index.js')], env: { OPENAI_API_KEY: TOKEN } } } }));
 		return { skillDir, claudeMd, claudeJson };
 	}
 

@@ -14,7 +14,7 @@ const SCRIPTS_DIR = path.resolve(__dirname, '..', '..');
 const LIB_DIR = path.join(SCRIPTS_DIR, 'lib');
 
 /** Files that name the old layout on purpose: they forbid it or detect it. */
-const OLD_LAYOUT_ALLOWED = new Set(['entry-scripts.test.js', 'legacy-install.js', 'legacy-install.test.js', 'layout.test.js']);
+const OLD_LAYOUT_ALLOWED = new Set(['entry-scripts.test.js', 'fake-legacy-home.js', 'legacy-install.js', 'legacy-install.test.js', 'layout.test.js']);
 const OLD_LAYOUT = /skill-root|version-guard|ensureFreshSkill|getSkillRoot|getEditorDir|\bSKILL_ROOT\b|\bCONTEXTS_DIR\b|skills\/make-custom-app|\.claude\/skills|\.cursor\/skills/;
 
 /** Scripts that must not call the account check: they report the account item themselves. */
