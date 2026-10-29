@@ -155,6 +155,9 @@ const FAKE_CLAUDE_VERSION = '2.1.312';
 const FAKE_PLUGIN_VERSION = '3.0.0';
 const FAKE_WRONG_VERSION = '2.9.0';
 const FAKE_MODES = ['normal', 'add-fails', 'install-fails', 'install-no-record', 'wrong-version', 'hang', 'disabled', 'object-entry', 'already-added', 'not-claude'];
+const FAKE_HANG_DEFAULT_MS = 30000;
+const FAKE_HANG_MAX_MS = 600000;
+const SHEBANG_MAX_LENGTH = 100;
 const OLD_EDITORS = ['claude', 'cursor'];
 const OLD_PLUGIN_STATES = ['none', 'usable', 'disabled'];
 const FAKE_ENV_VARS = { PINECONE_API_KEY: 'fake-pinecone-0001', OPENAI_API_KEY: 'fake-openai-0001', PINECONE_INDEX_NAME: 'make-app-contexts' };
@@ -178,23 +181,14 @@ function isObject(value) {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function readJsonFile(file, fallback) {
-	try {
-		return JSON.parse(fs.readFileSync(file, 'utf8'));
-	} catch {
-		return fallback;
-	}
-}
-
-function writeJsonFile(file, value) {
-	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-}
-
 function isInsidePath(file, root) {
 	if (typeof file !== 'string' || typeof root !== 'string') return false;
 	const relative = path.relative(root, file);
 	return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function hasParentSegment(value) {
+	return typeof value === 'string' && value.split(/[\\/]/).includes('..');
 }
 
 function realishPath(file) {
@@ -214,38 +208,135 @@ function realishPath(file) {
 	}
 }
 
-function writePluginFiles({ config, version, record, disabled, objectEntry }) {
+function refusal(message) {
+	const error = new Error(message);
+	error.refusal = true;
+	return error;
+}
+
+// guard(file, kind, label) returns the normalized path that it checked; every read, write, and folder of the fake goes through it and uses that value.
+function makeGuard(rootReal) {
+	return function guard(file, kind, label) {
+		const deny = (reason) => {
+			throw refusal(`${label || file} ${reason}`);
+		};
+		if (typeof file !== 'string' || !path.isAbsolute(file)) deny('is not an absolute path');
+		const target = path.resolve(file);
+		let leaf = null;
+		try {
+			leaf = fs.lstatSync(target);
+		} catch (err) {
+			if (err.code !== 'ENOENT') deny('cannot be inspected');
+		}
+		if (leaf !== null) {
+			if (leaf.isSymbolicLink()) deny('is a symbolic link');
+			if (kind === 'file' && !leaf.isFile()) deny('is not a regular file');
+			if (kind === 'dir' && !leaf.isDirectory()) deny('is not a folder');
+		}
+		const rest = [path.basename(target)];
+		let existing = path.dirname(target);
+		for (;;) {
+			try {
+				fs.lstatSync(existing);
+				break;
+			} catch (err) {
+				if (err.code !== 'ENOENT') deny('cannot be inspected');
+			}
+			const parent = path.dirname(existing);
+			if (parent === existing) deny('cannot be resolved');
+			rest.push(path.basename(existing));
+			existing = parent;
+		}
+		let real = null;
+		try {
+			real = fs.realpathSync(existing);
+			if (!fs.statSync(real).isDirectory()) real = null;
+		} catch {
+			real = null;
+		}
+		if (real === null) deny('cannot be resolved');
+		if (!isInsidePath(path.join(real, ...rest.reverse()), rootReal)) deny('is outside FAKE_CLAUDE_ROOT');
+		return target;
+	};
+}
+
+function makeIo({ guard, dry }) {
+	return {
+		read(file) {
+			const target = guard(file, 'file');
+			try {
+				return fs.readFileSync(target, 'utf8');
+			} catch (err) {
+				if (err.code === 'ENOENT') return null;
+				throw err;
+			}
+		},
+		write(file, text, mode) {
+			const target = guard(file, 'file');
+			if (dry) return;
+			fs.mkdirSync(path.dirname(target), { recursive: true });
+			fs.writeFileSync(target, text, mode === undefined ? undefined : { mode });
+		},
+		append(file, text) {
+			const target = guard(file, 'file');
+			if (dry) return;
+			fs.mkdirSync(path.dirname(target), { recursive: true });
+			fs.appendFileSync(target, text);
+		},
+		mkdir(dir) {
+			const target = guard(dir, 'dir');
+			if (!dry) fs.mkdirSync(target, { recursive: true });
+		},
+		list(dir) {
+			const target = guard(dir, 'dir');
+			try {
+				return fs.readdirSync(target);
+			} catch (err) {
+				if (err.code === 'ENOENT') return [];
+				throw err;
+			}
+		},
+	};
+}
+
+function readJsonFile(io, file, fallback) {
+	const text = io.read(file);
+	if (text === null) return fallback;
+	try {
+		return JSON.parse(text);
+	} catch {
+		return fallback;
+	}
+}
+
+function writeJsonFile(io, file, value) {
+	io.write(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writePluginFiles(io, { config, version, record, disabled, objectEntry }) {
 	const installPath = path.join(config, 'plugins', 'cache', 'make-custom-app', 'make-custom-app', version);
-	for (const parts of [['.claude-plugin'], ['skills', 'make-app-setup'], ['mcp']]) fs.mkdirSync(path.join(installPath, ...parts), { recursive: true });
-	fs.writeFileSync(path.join(installPath, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'make-custom-app', version }));
-	fs.writeFileSync(path.join(installPath, 'skills', 'make-app-setup', 'SKILL.md'), '---\nname: make-app-setup\ndescription: Fake plugin skill of the test harness.\n---\n\nFake plugin skill.\n');
-	fs.writeFileSync(path.join(installPath, 'mcp', 'index.mjs'), '// fake plugin MCP bundle of the test harness\n');
+	io.write(path.join(installPath, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'make-custom-app', version }));
+	io.write(path.join(installPath, 'skills', 'make-app-setup', 'SKILL.md'), '---\nname: make-app-setup\ndescription: Fake plugin skill of the test harness.\n---\n\nFake plugin skill.\n');
+	io.write(path.join(installPath, 'mcp', 'index.mjs'), '// fake plugin MCP bundle of the test harness\n');
 	if (record) {
 		const file = path.join(config, 'plugins', 'installed_plugins.json');
-		const installed = readJsonFile(file, { version: 2, plugins: {} });
+		const installed = readJsonFile(io, file, { version: 2, plugins: {} });
 		if (!isObject(installed.plugins)) installed.plugins = {};
 		const now = new Date().toISOString();
 		const entry = { scope: 'user', installPath, version, installedAt: now, lastUpdated: now, gitCommitSha: '0'.repeat(40) };
 		installed.plugins[PLUGIN_ID] = objectEntry ? entry : [entry];
-		writeJsonFile(file, installed);
+		writeJsonFile(io, file, installed);
 	}
 	const settingsFile = path.join(config, 'settings.json');
-	const settings = readJsonFile(settingsFile, {});
+	const settings = readJsonFile(io, settingsFile, {});
 	settings.enabledPlugins = { ...(isObject(settings.enabledPlugins) ? settings.enabledPlugins : {}), [PLUGIN_ID]: !disabled };
-	writeJsonFile(settingsFile, settings);
+	writeJsonFile(io, settingsFile, settings);
 	return installPath;
 }
 
-function rewriteUserFile({ env, config }) {
+function rewriteUserFile(io, { env, userFile, config }) {
 	if (env.FAKE_CLAUDE_USER_FILE !== 'rewrite') return;
-	const folder = typeof env.CLAUDE_CONFIG_DIR === 'string' && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : env.HOME;
-	const file = path.join(folder, '.claude.json');
-	let text = null;
-	try {
-		text = fs.readFileSync(file, 'utf8');
-	} catch (err) {
-		if (err.code !== 'ENOENT') throw err;
-	}
+	const text = io.read(userFile);
 	let data = {};
 	if (text !== null) {
 		try {
@@ -256,10 +347,8 @@ function rewriteUserFile({ env, config }) {
 		if (!isObject(data)) return;
 	}
 	const backups = path.join(config, 'backups');
-	const hasBackup = fs.existsSync(backups) && fs.readdirSync(backups).some((name) => name.startsWith('.claude.json.backup.'));
-	if (text !== null && !hasBackup) {
-		fs.mkdirSync(backups, { recursive: true, mode: 0o700 });
-		fs.writeFileSync(path.join(backups, `.claude.json.backup.${Date.now()}`), text, { mode: 0o600 });
+	if (text !== null && !io.list(backups).some((name) => name.startsWith('.claude.json.backup.'))) {
+		io.write(path.join(backups, `.claude.json.backup.${Date.now()}`), text, 0o600);
 	}
 	const own = {
 		firstStartTime: new Date().toISOString(),
@@ -272,19 +361,56 @@ function rewriteUserFile({ env, config }) {
 		migrationVersion: 11,
 	};
 	for (const [key, value] of Object.entries(own)) if (!Object.hasOwn(data, key)) data[key] = value;
-	fs.writeFileSync(file, JSON.stringify(data, null, 2), { mode: 0o600 });
+	io.write(userFile, JSON.stringify(data, null, 2), 0o600);
+}
+
+function runCommand({ argv, env, config, userFile, mode, io }) {
+	const done = (code, out = null, err = null) => ({ code, out, err, hang: false });
+	if (argv.length === 1 && argv[0] === '--version') return done(0, mode === 'not-claude' ? '1.0.0 (Other Tool)' : `${FAKE_CLAUDE_VERSION} (Claude Code)`);
+	if (mode === 'not-claude' || argv[0] !== 'plugin') return done(2, null, 'unexpected command');
+	if (mode === 'hang') return { code: 0, out: null, err: null, hang: true };
+	const marketplacesFile = path.join(config, 'fake-marketplaces.json');
+	const entry = { name: MARKETPLACE_NAME, source: 'git', url: MARKETPLACE_URL, installLocation: path.join(config, 'plugins', 'marketplaces', MARKETPLACE_NAME) };
+	const marketplaces = () => {
+		const held = readJsonFile(io, marketplacesFile, null);
+		if (Array.isArray(held)) return held;
+		return mode === 'already-added' ? [entry] : [];
+	};
+	const added = () => marketplaces().some((held) => held.name === MARKETPLACE_NAME);
+	const rest = argv.slice(1);
+
+	if (rest.length === 3 && rest[0] === 'marketplace' && rest[1] === 'list' && rest[2] === '--json') return done(0, JSON.stringify(marketplaces(), null, 2));
+	if (rest.length === 3 && rest[0] === 'marketplace' && rest[1] === 'add') {
+		if (rest[2] !== MARKETPLACE_URL) return done(1, null, `fatal: unknown source ${rest[2]}`);
+		if (mode === 'add-fails') return done(1, null, 'fatal: could not add the marketplace (fake failure)');
+		if (added()) return done(0, `Marketplace '${MARKETPLACE_NAME}' already on disk`);
+		writeJsonFile(io, marketplacesFile, [...marketplaces(), entry]);
+		io.mkdir(entry.installLocation);
+		const settingsFile = path.join(config, 'settings.json');
+		const settings = readJsonFile(io, settingsFile, {});
+		const known = isObject(settings.extraKnownMarketplaces) ? settings.extraKnownMarketplaces : {};
+		settings.extraKnownMarketplaces = { ...known, [MARKETPLACE_NAME]: { source: { source: 'git', url: MARKETPLACE_URL } } };
+		writeJsonFile(io, settingsFile, settings);
+		rewriteUserFile(io, { env, userFile, config });
+		return done(0, `Successfully added marketplace: ${MARKETPLACE_NAME}`);
+	}
+	if (rest.length === 2 && rest[0] === 'install' && rest[1] === PLUGIN_ID) {
+		if (!added()) return done(1, null, `Error: marketplace ${MARKETPLACE_NAME} is not added`);
+		if (mode === 'install-fails') return done(1, null, 'Error: could not install the plugin (fake failure)');
+		const installed = readJsonFile(io, path.join(config, 'plugins', 'installed_plugins.json'), null);
+		if (isObject(installed) && isObject(installed.plugins) && Object.hasOwn(installed.plugins, PLUGIN_ID)) return done(0, 'already installed (scope: user)');
+		const version = mode === 'wrong-version' ? FAKE_WRONG_VERSION : FAKE_PLUGIN_VERSION;
+		writePluginFiles(io, { config, version, record: mode !== 'install-no-record', disabled: mode === 'disabled', objectEntry: mode === 'object-entry' });
+		rewriteUserFile(io, { env, userFile, config });
+		return done(0, `Installed ${PLUGIN_ID} (scope: user)`);
+	}
+	return done(2, null, 'unexpected command');
 }
 
 function fakeClaudeMain(argv, env) {
-	const out = (text) => process.stdout.write(`${text}\n`);
-	const err = (text) => process.stderr.write(`${text}\n`);
 	const refuse = (what) => {
-		err(`fake claude: ${what}; refusing`);
+		process.stderr.write(`fake claude: ${what}; refusing\n`);
 		return 97;
-	};
-	const unexpected = () => {
-		err('unexpected command');
-		return 2;
 	};
 	const realAbsolute = (value) => {
 		if (typeof value !== 'string' || !path.isAbsolute(value)) return null;
@@ -294,105 +420,76 @@ function fakeClaudeMain(argv, env) {
 			return null;
 		}
 	};
-	const root = realAbsolute(env.FAKE_CLAUDE_ROOT);
-	const home = realAbsolute(env.HOME);
-	if (root === null || home === null || !isInsidePath(home, root)) return refuse('HOME is outside FAKE_CLAUDE_ROOT');
+	const rootReal = realAbsolute(env.FAKE_CLAUDE_ROOT);
+	const homeReal = realAbsolute(env.HOME);
+	if (rootReal === null || homeReal === null) return refuse('HOME is outside FAKE_CLAUDE_ROOT');
+	if (rootReal === TEST_ROOT_REAL || !isInsidePath(rootReal, TEST_ROOT_REAL)) return refuse('FAKE_CLAUDE_ROOT is outside the test root');
+	if (!isInsidePath(homeReal, rootReal)) return refuse('HOME is outside FAKE_CLAUDE_ROOT');
+	for (const name of ['HOME', 'CLAUDE_CONFIG_DIR', 'FAKE_CLAUDE_LOG']) {
+		if (hasParentSegment(env[name])) return refuse(`${name} contains a .. segment`);
+	}
+	const home = path.resolve(env.HOME);
 	const configSet = typeof env.CLAUDE_CONFIG_DIR === 'string' && env.CLAUDE_CONFIG_DIR !== '';
-	if (configSet && !isInsidePath(realishPath(env.CLAUDE_CONFIG_DIR), root)) return refuse('CLAUDE_CONFIG_DIR is outside FAKE_CLAUDE_ROOT');
-	const config = configSet ? env.CLAUDE_CONFIG_DIR : path.join(env.HOME, '.claude');
-	if (!isInsidePath(realishPath(config), root)) return refuse('the Claude config folder is outside FAKE_CLAUDE_ROOT');
-	const log = env.FAKE_CLAUDE_LOG;
-	if (!isInsidePath(realishPath(log), root)) return refuse('FAKE_CLAUDE_LOG is outside FAKE_CLAUDE_ROOT');
+	if (configSet && !isInsidePath(realishPath(env.CLAUDE_CONFIG_DIR), rootReal)) return refuse('CLAUDE_CONFIG_DIR is outside FAKE_CLAUDE_ROOT');
+	const config = configSet ? path.resolve(env.CLAUDE_CONFIG_DIR) : path.join(home, '.claude');
+	if (!isInsidePath(realishPath(config), rootReal)) return refuse('the Claude config folder is outside FAKE_CLAUDE_ROOT');
+	if (typeof env.FAKE_CLAUDE_LOG !== 'string' || !path.isAbsolute(env.FAKE_CLAUDE_LOG)) return refuse('FAKE_CLAUDE_LOG is outside FAKE_CLAUDE_ROOT');
+	const log = path.resolve(env.FAKE_CLAUDE_LOG);
+	const guard = makeGuard(rootReal);
+	const refused = (error) => {
+		if (error && error.refusal) return refuse(error.message);
+		throw error;
+	};
+	try {
+		guard(log, 'file', 'FAKE_CLAUDE_LOG');
+	} catch (error) {
+		return refused(error);
+	}
 	const mode = env.FAKE_CLAUDE_MODE || 'normal';
 	if (!FAKE_MODES.includes(mode)) {
-		err('fake claude: unknown FAKE_CLAUDE_MODE');
+		process.stderr.write('fake claude: unknown FAKE_CLAUDE_MODE\n');
 		return 2;
 	}
-	fs.mkdirSync(path.dirname(log), { recursive: true });
+	const context = { argv, env, config, userFile: path.join(configSet ? config : home, '.claude.json'), mode };
+	try {
+		runCommand({ ...context, io: makeIo({ guard, dry: true }) });
+	} catch (error) {
+		return refused(error);
+	}
+	const io = makeIo({ guard, dry: false });
 	const inherited = Object.keys(env).filter((name) => name.startsWith('CLAUDE_CODE_')).sort();
-	fs.appendFileSync(log, `${JSON.stringify({ argv, claudecode: 'CLAUDECODE' in env, inherited })}\n`);
-
-	if (argv.length === 1 && argv[0] === '--version') {
-		out(mode === 'not-claude' ? '1.0.0 (Other Tool)' : `${FAKE_CLAUDE_VERSION} (Claude Code)`);
-		return 0;
-	}
-	if (mode === 'not-claude' || argv[0] !== 'plugin') return unexpected();
-	if (mode === 'hang') {
-		setTimeout(() => {}, 600000);
-		return null;
-	}
-	const marketplacesFile = path.join(config, 'fake-marketplaces.json');
-	const entry = { name: MARKETPLACE_NAME, source: 'git', url: MARKETPLACE_URL, installLocation: path.join(config, 'plugins', 'marketplaces', MARKETPLACE_NAME) };
-	const marketplaces = () => {
-		const held = readJsonFile(marketplacesFile, null);
-		if (Array.isArray(held)) return held;
-		return mode === 'already-added' ? [entry] : [];
-	};
-	const added = () => marketplaces().some((held) => held.name === MARKETPLACE_NAME);
-	const rest = argv.slice(1);
-
-	if (rest.length === 3 && rest[0] === 'marketplace' && rest[1] === 'list' && rest[2] === '--json') {
-		out(JSON.stringify(marketplaces(), null, 2));
-		return 0;
-	}
-	if (rest.length === 3 && rest[0] === 'marketplace' && rest[1] === 'add') {
-		if (rest[2] !== MARKETPLACE_URL) {
-			err(`fatal: unknown source ${rest[2]}`);
-			return 1;
-		}
-		if (mode === 'add-fails') {
-			err('fatal: could not add the marketplace (fake failure)');
-			return 1;
-		}
-		if (added()) {
-			out(`Marketplace '${MARKETPLACE_NAME}' already on disk`);
-			return 0;
-		}
-		writeJsonFile(marketplacesFile, [...marketplaces(), entry]);
-		fs.mkdirSync(entry.installLocation, { recursive: true });
-		const settingsFile = path.join(config, 'settings.json');
-		const settings = readJsonFile(settingsFile, {});
-		const known = isObject(settings.extraKnownMarketplaces) ? settings.extraKnownMarketplaces : {};
-		settings.extraKnownMarketplaces = { ...known, [MARKETPLACE_NAME]: { source: { source: 'git', url: MARKETPLACE_URL } } };
-		writeJsonFile(settingsFile, settings);
-		rewriteUserFile({ env, config });
-		out(`Successfully added marketplace: ${MARKETPLACE_NAME}`);
-		return 0;
-	}
-	if (rest.length === 2 && rest[0] === 'install' && rest[1] === PLUGIN_ID) {
-		if (!added()) {
-			err(`Error: marketplace ${MARKETPLACE_NAME} is not added`);
-			return 1;
-		}
-		if (mode === 'install-fails') {
-			err('Error: could not install the plugin (fake failure)');
-			return 1;
-		}
-		const installed = readJsonFile(path.join(config, 'plugins', 'installed_plugins.json'), null);
-		if (isObject(installed) && isObject(installed.plugins) && Object.hasOwn(installed.plugins, PLUGIN_ID)) {
-			out('already installed (scope: user)');
-			return 0;
-		}
-		const version = mode === 'wrong-version' ? FAKE_WRONG_VERSION : FAKE_PLUGIN_VERSION;
-		writePluginFiles({ config, version, record: mode !== 'install-no-record', disabled: mode === 'disabled', objectEntry: mode === 'object-entry' });
-		rewriteUserFile({ env, config });
-		out(`Installed ${PLUGIN_ID} (scope: user)`);
-		return 0;
-	}
-	return unexpected();
+	io.append(log, `${JSON.stringify({ argv, claudecode: 'CLAUDECODE' in env, inherited })}\n`);
+	const result = runCommand({ ...context, io });
+	if (result.out !== null) process.stdout.write(`${result.out}\n`);
+	if (result.err !== null) process.stderr.write(`${result.err}\n`);
+	if (!result.hang) return result.code;
+	const asked = Number(env.FAKE_CLAUDE_HANG_MS);
+	setTimeout(() => {}, Number.isInteger(asked) && asked > 0 ? Math.min(asked, FAKE_HANG_MAX_MS) : FAKE_HANG_DEFAULT_MS);
+	return null;
 }
 
-function fakeClaudeSource() {
-	const constants = { PLUGIN_ID, MARKETPLACE_NAME, MARKETPLACE_URL, FAKE_CLAUDE_VERSION, FAKE_PLUGIN_VERSION, FAKE_WRONG_VERSION, FAKE_MODES };
-	const functions = [isObject, readJsonFile, writeJsonFile, isInsidePath, realishPath, writePluginFiles, rewriteUserFile, fakeClaudeMain];
+function shebangFits(node) {
+	return !/\s/.test(node) && node.length <= SHEBANG_MAX_LENGTH;
+}
+
+function fakeClaudeSource(node) {
+	const constants = { PLUGIN_ID, MARKETPLACE_NAME, MARKETPLACE_URL, FAKE_CLAUDE_VERSION, FAKE_PLUGIN_VERSION, FAKE_WRONG_VERSION, FAKE_MODES, FAKE_HANG_DEFAULT_MS, FAKE_HANG_MAX_MS, TEST_ROOT_REAL: TEST_ROOT };
+	const functions = [isObject, isInsidePath, hasParentSegment, realishPath, refusal, makeGuard, makeIo, readJsonFile, writeJsonFile, writePluginFiles, rewriteUserFile, runCommand, fakeClaudeMain];
+	const header = shebangFits(node) ? [`#!${node}`] : ['#!/bin/sh', `':' //; exec '${node.replace(/'/g, "'\\''")}' "$0" "$@"`];
 	return [
-		`#!${process.execPath}`,
+		...header,
 		"'use strict';",
 		"const fs = require('fs');",
 		"const path = require('path');",
 		...Object.entries(constants).map(([name, value]) => `const ${name} = ${JSON.stringify(value)};`),
 		...functions.map((fn) => fn.toString()),
-		'const code = fakeClaudeMain(process.argv.slice(2), process.env);',
+		'let code;',
+		'try {',
+		'\tcode = fakeClaudeMain(process.argv.slice(2), process.env);',
+		'} catch (error) {',
+		"\tprocess.stderr.write(`fake claude: unexpected error (${error && error.code ? error.code : 'unknown'})\\n`);",
+		'\tcode = 2;',
+		'}',
 		'if (code !== null) process.exitCode = code;',
 		'',
 	].join('\n');
@@ -421,20 +518,22 @@ function withEnv(base, overrides) {
 	return env;
 }
 
-function writeFakeClaude({ binDir, root } = {}) {
+function writeFakeClaude({ binDir, root, node = process.execPath } = {}) {
 	needParams('writeFakeClaude', { binDir, root }, ['binDir', 'root']);
 	if (!path.isAbsolute(root) || root === TEST_ROOT || !isInsidePath(root, TEST_ROOT)) throw new TypeError('writeFakeClaude: root must lie inside the test root');
 	if (!path.isAbsolute(binDir) || !isInsidePath(binDir, root)) throw new TypeError('writeFakeClaude: binDir must lie inside the root');
+	if (typeof node !== 'string' || !path.isAbsolute(node)) throw new TypeError('writeFakeClaude: node must be an absolute path');
 	fs.mkdirSync(binDir, { recursive: true });
 	const file = path.join(binDir, 'claude');
-	fs.writeFileSync(file, fakeClaudeSource());
+	fs.writeFileSync(file, fakeClaudeSource(node));
 	fs.chmodSync(file, 0o755);
 	return file;
 }
 
-function writeText(file, text, mode) {
+function writeText(file, text, mode = 0o644) {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, text, mode === undefined ? undefined : { mode });
+	fs.writeFileSync(file, text);
+	fs.chmodSync(file, mode);
 }
 
 function setMtime(file, iso) {
@@ -501,10 +600,11 @@ function buildOldHome({ root, editors = ['claude'], secrets = null, contexts = t
 		installPath: path.join(config, 'plugins', 'cache', 'make-custom-app', 'make-custom-app', FAKE_PLUGIN_VERSION),
 	};
 
+	// Modes as the old installers leave them (install-claude.sh lines 285, 403, 95, 155; mcp-server/register.js line 50): .env and .claude.json get no chmod, CLAUDE.md is a mktemp file, mcp.json is created 0600
 	for (const editor of editors) {
 		const skill = paths[`${editor}Skill`];
 		copyTree(SKILL_SOURCE, skill);
-		writeText(paths[`${editor}Env`], FAKE_ENV_FILE, 0o600);
+		writeText(paths[`${editor}Env`], FAKE_ENV_FILE, 0o644);
 		writeText(path.join(skill, 'mcp-server', 'dist', 'index.js'), '// fake built MCP server of the test harness\n');
 	}
 	if (editors.includes('claude')) {
@@ -517,8 +617,8 @@ function buildOldHome({ root, editors = ['claude'], secrets = null, contexts = t
 			projects: { [path.join(home, 'work')]: { allowedTools: [], history: [], mcpServers: {} } },
 		};
 		const text = `${JSON.stringify(claudeJson, null, 2)}\n`;
-		writeText(paths.claudeJson, malformedClaudeJson ? text.slice(0, text.indexOf(OTHER_CLAUDE_TOKEN) + OTHER_CLAUDE_TOKEN.length) : text, 0o600);
-		writeText(paths.claudeMd, `# My notes\n\nA paragraph of the user that the installer keeps.\n\n${SENTINEL_BLOCK}\n`);
+		writeText(paths.claudeJson, malformedClaudeJson ? text.slice(0, text.indexOf(OTHER_CLAUDE_TOKEN) + OTHER_CLAUDE_TOKEN.length) : text, 0o644);
+		writeText(paths.claudeMd, `# My notes\n\nA paragraph of the user that the installer keeps.\n\n${SENTINEL_BLOCK}\n`, 0o600);
 	}
 	if (editors.includes('cursor')) {
 		const cursorJson = {
@@ -534,7 +634,7 @@ function buildOldHome({ root, editors = ['claude'], secrets = null, contexts = t
 		}
 	}
 	if (contexts) writeOldContexts(paths);
-	if (plugin !== 'none') writePluginFiles({ config, version: FAKE_PLUGIN_VERSION, record: true, disabled: plugin === 'disabled', objectEntry: false });
+	if (plugin !== 'none') writePluginFiles(makeIo({ guard: (file) => file, dry: false }), { config, version: FAKE_PLUGIN_VERSION, record: true, disabled: plugin === 'disabled', objectEntry: false });
 	if (typeof secrets === 'string') writeText(paths.secrets, secrets, 0o600);
 
 	const env = { PATH: binDir, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, FAKE_CLAUDE_ROOT: root, FAKE_CLAUDE_LOG: log, CLAUDE_BIN: path.join(binDir, 'claude') };
@@ -1383,6 +1483,8 @@ describe('phase A harness', POSIX_ONLY, () => {
 		assert.equal(fs.existsSync(missing.paths.claudeJson), false);
 		assert.equal(runFake(missing, addArgs(), env).status, 0);
 		assert.equal(Object.hasOwn(readJson(missing.paths.claudeJson), 'machineID'), true);
+		// measured with claude 2.1.312: a .claude.json that claude creates is 0600
+		assert.equal(fs.statSync(missing.paths.claudeJson).mode & 0o777, 0o600);
 		assert.equal(fs.existsSync(path.join(missing.home, '.claude', 'backups')), false);
 
 		const broken = fresh({ malformedClaudeJson: true });
@@ -1390,5 +1492,273 @@ describe('phase A harness', POSIX_ONLY, () => {
 		assert.equal(runFake(broken, addArgs(), env).status, 0);
 		assert.equal(fs.readFileSync(broken.paths.claudeJson, 'utf8'), brokenText);
 		assert.equal(fs.existsSync(path.join(broken.home, '.claude', 'backups')), false);
+	});
+
+	it('the fake claude refuses a sibling folder whose name starts with the name of the root', () => {
+		const h = fresh();
+		const evil = `${h.root}-evil`;
+		fs.mkdirSync(path.join(evil, 'home'), { recursive: true });
+		fs.mkdirSync(path.join(evil, 'cfg'));
+		const beforeEvil = snapshotPaths(evil, ['']);
+		const beforeRoot = snapshotPaths(h.root, ['']);
+		const cases = [
+			['HOME', { HOME: path.join(evil, 'home') }, 'HOME is outside FAKE_CLAUDE_ROOT'],
+			['CLAUDE_CONFIG_DIR', { CLAUDE_CONFIG_DIR: path.join(evil, 'cfg') }, 'CLAUDE_CONFIG_DIR is outside FAKE_CLAUDE_ROOT'],
+			['CLAUDE_CONFIG_DIR not yet created', { CLAUDE_CONFIG_DIR: path.join(evil, 'new', 'cfg') }, 'CLAUDE_CONFIG_DIR is outside FAKE_CLAUDE_ROOT'],
+			['FAKE_CLAUDE_LOG', { FAKE_CLAUDE_LOG: path.join(evil, 'fake.log') }, 'FAKE_CLAUDE_LOG is outside FAKE_CLAUDE_ROOT'],
+		];
+		for (const [label, overrides, message] of cases) {
+			for (const argv of [['--version'], addArgs(), installArgs()]) {
+				const result = runFake(h, argv, overrides);
+				assert.equal(result.status, 97, `${label}: ${argv.join(' ')}`);
+				assert.equal(result.stdout, '', label);
+				assert.equal(result.stderr, `fake claude: ${message}; refusing\n`, label);
+			}
+		}
+		assert.deepEqual(snapshotPaths(evil, ['']), beforeEvil);
+		assert.deepEqual(snapshotPaths(h.root, ['']), beforeRoot);
+	});
+
+	it('the fake claude refuses a FAKE_CLAUDE_ROOT outside the test root it was written for', () => {
+		const h = fresh();
+		const parentLink = `${h.root}-parent-link`;
+		fs.symlinkSync(path.dirname(TEST_ROOT), parentLink);
+		const beforeRoot = snapshotPaths(h.root, ['']);
+		const roots = [
+			['the file system root', path.parse(TEST_ROOT).root],
+			['the folder that holds the test root', path.dirname(TEST_ROOT)],
+			['the test root itself', TEST_ROOT],
+			['a link to the folder that holds the test root', parentLink],
+		];
+		for (const [label, root] of roots) {
+			for (const argv of [['--version'], installArgs()]) {
+				const result = runFake(h, argv, { FAKE_CLAUDE_ROOT: root });
+				assert.equal(result.status, 97, `${label}: ${argv.join(' ')}`);
+				assert.equal(result.stdout, '', label);
+				assert.equal(result.stderr, 'fake claude: FAKE_CLAUDE_ROOT is outside the test root; refusing\n', label);
+			}
+		}
+		assert.deepEqual(snapshotPaths(h.root, ['']), beforeRoot);
+		assert.equal(fs.existsSync(h.log), false);
+	});
+
+	it('a symlinked FAKE_CLAUDE_ROOT works, whether HOME names the link or the real folder', () => {
+		const h = fresh();
+		const link = `${h.root}-link`;
+		fs.symlinkSync(h.root, link);
+		for (const home of [h.home, path.join(link, 'home')]) {
+			const overrides = { FAKE_CLAUDE_ROOT: link, HOME: home };
+			assert.equal(runFake(h, ['--version'], overrides).status, 0, home);
+			assert.equal(runFake(h, addArgs(), overrides).status, 0, home);
+			assert.equal(runFake(h, installArgs(), overrides).status, 0, home);
+		}
+		assert.equal(statusOf(h).status, 'usable');
+		assert.equal(readLog(h.log).length, 6);
+	});
+
+	describe('writes of the fake claude', () => {
+		function refused(label, { setup = () => {}, argv, overrides = () => ({}), stderr }) {
+			const h = fresh();
+			const outside = makeRoot();
+			fs.mkdirSync(path.join(outside, 'dir'));
+			fs.writeFileSync(path.join(outside, 'target.json'), '{"keep":true}\n');
+			const config = path.join(h.home, '.claude');
+			const context = { h, outside, config };
+			setup(context);
+			const beforeOutside = snapshotPaths(outside, ['']);
+			const beforeRoot = snapshotPaths(h.root, ['']);
+			const beforeParent = snapshotPaths(TEST_ROOT, ['x']);
+			const result = runFake(h, argv, overrides(context));
+			assert.equal(result.error, undefined, label);
+			assert.equal(result.status, 97, `${label}: ${result.stderr}`);
+			assert.equal(result.stdout, '', label);
+			assert.match(result.stderr, stderr(context), label);
+			assert.deepEqual(snapshotPaths(outside, ['']), beforeOutside, `${label}: the outside folder changed`);
+			assert.deepEqual(snapshotPaths(h.root, ['']), beforeRoot, `${label}: the root changed`);
+			assert.deepEqual(snapshotPaths(TEST_ROOT, ['x']), beforeParent, label);
+		}
+
+		const exact = (text) => () => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n$`);
+		const refusing = (file, what) => exact(`fake claude: ${file} ${what}; refusing`);
+		const rewrite = { FAKE_CLAUDE_USER_FILE: 'rewrite' };
+
+		it('refuse an unnormalized HOME, CLAUDE_CONFIG_DIR, or FAKE_CLAUDE_LOG', () => {
+			refused('log with a .. segment behind a link', {
+				setup: ({ h, outside }) => fs.symlinkSync(path.join(outside, 'dir'), path.join(h.root, 'link')),
+				argv: ['--version'],
+				overrides: ({ h }) => ({ FAKE_CLAUDE_LOG: `${h.root}/link/../x/fake.log` }),
+				stderr: exact('fake claude: FAKE_CLAUDE_LOG contains a .. segment; refusing'),
+			});
+			refused('HOME with a .. segment', {
+				argv: ['--version'],
+				overrides: ({ h }) => ({ HOME: `${h.root}/tmp/../home` }),
+				stderr: exact('fake claude: HOME contains a .. segment; refusing'),
+			});
+			refused('CLAUDE_CONFIG_DIR with a .. segment', {
+				argv: ['--version'],
+				overrides: ({ h }) => ({ CLAUDE_CONFIG_DIR: `${h.root}/tmp/../config` }),
+				stderr: exact('fake claude: CLAUDE_CONFIG_DIR contains a .. segment; refusing'),
+			});
+		});
+
+		it('refuse a FAKE_CLAUDE_LOG that is a link, behind a dangling link, or a folder', () => {
+			refused('log a dangling link', {
+				setup: ({ h, outside }) => fs.symlinkSync(path.join(outside, 'new.log'), path.join(h.root, 'dangling.log')),
+				argv: ['--version'],
+				overrides: ({ h }) => ({ FAKE_CLAUDE_LOG: path.join(h.root, 'dangling.log') }),
+				stderr: exact('fake claude: FAKE_CLAUDE_LOG is a symbolic link; refusing'),
+			});
+			refused('log a link to an existing outside file', {
+				setup: ({ h, outside }) => fs.symlinkSync(path.join(outside, 'target.json'), path.join(h.root, 'linked.log')),
+				argv: ['--version'],
+				overrides: ({ h }) => ({ FAKE_CLAUDE_LOG: path.join(h.root, 'linked.log') }),
+				stderr: exact('fake claude: FAKE_CLAUDE_LOG is a symbolic link; refusing'),
+			});
+			refused('log inside a dangling link folder', {
+				setup: ({ h, outside }) => fs.symlinkSync(path.join(outside, 'nodir'), path.join(h.root, 'logs')),
+				argv: ['--version'],
+				overrides: ({ h }) => ({ FAKE_CLAUDE_LOG: path.join(h.root, 'logs', 'fake.log') }),
+				stderr: exact('fake claude: FAKE_CLAUDE_LOG cannot be resolved; refusing'),
+			});
+			refused('log a folder', {
+				setup: ({ h }) => fs.mkdirSync(path.join(h.root, 'log-dir')),
+				argv: ['--version'],
+				overrides: ({ h }) => ({ FAKE_CLAUDE_LOG: path.join(h.root, 'log-dir') }),
+				stderr: exact('fake claude: FAKE_CLAUDE_LOG is not a regular file; refusing'),
+			});
+		});
+
+		it('refuse a settings.json that is a link, before anything else is written', () => {
+			refused('settings.json a link', {
+				setup: ({ config, outside }) => {
+					fs.mkdirSync(config, { recursive: true });
+					fs.symlinkSync(path.join(outside, 'target.json'), path.join(config, 'settings.json'));
+				},
+				argv: addArgs(),
+				stderr: ({ config }) => refusing(path.join(config, 'settings.json'), 'is a symbolic link')(),
+			});
+		});
+
+		it('refuse to read a state file that is a link, also for a command that writes nothing', () => {
+			refused('fake-marketplaces.json a link', {
+				setup: ({ config, outside }) => {
+					fs.mkdirSync(config, { recursive: true });
+					fs.symlinkSync(path.join(outside, 'target.json'), path.join(config, 'fake-marketplaces.json'));
+				},
+				argv: listArgs(),
+				stderr: ({ config }) => refusing(path.join(config, 'fake-marketplaces.json'), 'is a symbolic link')(),
+			});
+		});
+
+		it('refuse a plugins folder that is a link to another folder, before anything else is written', () => {
+			refused('plugins a link to an outside folder', {
+				setup: ({ config, outside }) => {
+					fs.mkdirSync(config, { recursive: true });
+					fs.symlinkSync(path.join(outside, 'dir'), path.join(config, 'plugins'));
+				},
+				argv: addArgs(),
+				stderr: () => /^fake claude: .*plugins.* is outside FAKE_CLAUDE_ROOT; refusing\n$/,
+			});
+		});
+
+		it('refuse installed_plugins.json and the cache folder when they are links', () => {
+			const afterAdd = ({ h }) => assert.equal(runFake(h, addArgs()).status, 0);
+			refused('installed_plugins.json a link', {
+				setup: (context) => {
+					afterAdd(context);
+					fs.symlinkSync(path.join(context.outside, 'target.json'), path.join(context.config, 'plugins', 'installed_plugins.json'));
+				},
+				argv: installArgs(),
+				stderr: ({ config }) => refusing(path.join(config, 'plugins', 'installed_plugins.json'), 'is a symbolic link')(),
+			});
+			refused('cache a link to an outside folder', {
+				setup: (context) => {
+					afterAdd(context);
+					fs.symlinkSync(path.join(context.outside, 'dir'), path.join(context.config, 'plugins', 'cache'));
+				},
+				argv: installArgs(),
+				stderr: () => /^fake claude: .*cache.* is outside FAKE_CLAUDE_ROOT; refusing\n$/,
+			});
+		});
+
+		it('refuse a .claude.json and a backups folder that are links, in the rewrite mode', () => {
+			refused('.claude.json a link', {
+				setup: ({ h, outside }) => {
+					fs.rmSync(h.paths.claudeJson);
+					fs.symlinkSync(path.join(outside, 'target.json'), h.paths.claudeJson);
+				},
+				argv: addArgs(),
+				overrides: () => rewrite,
+				stderr: ({ h }) => refusing(h.paths.claudeJson, 'is a symbolic link')(),
+			});
+			refused('backups a link to an outside folder', {
+				setup: ({ config, outside }) => {
+					fs.mkdirSync(config, { recursive: true });
+					fs.symlinkSync(path.join(outside, 'dir'), path.join(config, 'backups'));
+				},
+				argv: addArgs(),
+				overrides: () => rewrite,
+				stderr: ({ config }) => refusing(path.join(config, 'backups'), 'is a symbolic link')(),
+			});
+		});
+
+		it('follow a link to a folder inside the root', () => {
+			const h = fresh();
+			const config = path.join(h.home, '.claude');
+			fs.mkdirSync(path.join(h.root, 'real-plugins'));
+			fs.mkdirSync(config, { recursive: true });
+			fs.symlinkSync(path.join(h.root, 'real-plugins'), path.join(config, 'plugins'));
+			assert.equal(runFake(h, addArgs()).status, 0);
+			assert.equal(runFake(h, installArgs()).status, 0);
+			assert.ok(fs.existsSync(path.join(h.root, 'real-plugins', 'marketplaces', 'make-custom-app')));
+			assert.ok(fs.existsSync(path.join(h.root, 'real-plugins', 'cache', 'make-custom-app', 'make-custom-app', '3.0.0', '.claude-plugin', 'plugin.json')));
+			assert.equal(statusOf(h).status, 'usable');
+		});
+	});
+
+	it('the hang mode ends by itself after FAKE_CLAUDE_HANG_MS, and an invalid value keeps the long default', () => {
+		const h = fresh();
+		const started = Date.now();
+		const ended = runFake(h, listArgs(), { FAKE_CLAUDE_MODE: 'hang', FAKE_CLAUDE_HANG_MS: '1200' }, 15000);
+		assert.equal(ended.error, undefined);
+		assert.equal(ended.status, 0);
+		assert.ok(Date.now() - started >= 1000);
+		const invalid = runFake(h, listArgs(), { FAKE_CLAUDE_MODE: 'hang', FAKE_CLAUDE_HANG_MS: 'soon' }, 1000);
+		assert.equal(invalid.error && invalid.error.code, 'ETIMEDOUT');
+	});
+
+	it('the fake claude starts when the node path holds spaces and a quote, and keeps the plain shebang otherwise', () => {
+		const h = buildOldHome({ root: makeRoot() });
+		const plain = writeFakeClaude({ binDir: h.binDir, root: h.paths.root });
+		const firstLine = (file) => fs.readFileSync(file, 'utf8').split('\n')[0];
+		assert.equal(firstLine(plain), shebangFits(process.execPath) ? `#!${process.execPath}` : '#!/bin/sh');
+		assert.equal(fs.statSync(plain).mode & 0o777, 0o755);
+		const odd = path.join(h.paths.root, "it's a node folder");
+		fs.mkdirSync(odd);
+		fs.symlinkSync(process.execPath, path.join(odd, 'node'));
+		const wrapped = writeFakeClaude({ binDir: path.join(h.paths.root, 'wrapper-bin'), root: h.paths.root, node: path.join(odd, 'node') });
+		assert.equal(firstLine(wrapped), '#!/bin/sh');
+		assert.equal(fs.statSync(wrapped).mode & 0o777, 0o755);
+		const result = spawnSync(wrapped, ['--version'], { cwd: h.home, env: h.env, encoding: 'utf8' });
+		assert.equal(result.error, undefined);
+		assert.deepEqual([result.status, result.stdout, result.stderr], [0, '2.1.312 (Claude Code)\n', '']);
+		assert.deepEqual(readLog(h.log).map((entry) => entry.argv), [['--version']]);
+		assert.throws(() => writeFakeClaude({ binDir: h.binDir, root: h.paths.root, node: 'node' }), /node must be an absolute path/);
+	});
+
+	it('buildOldHome files carry the modes of the old installers', () => {
+		const h = buildOldHome({ root: makeRoot(), editors: ['claude', 'cursor'], secrets: 'make-api-key: fake-make-token-0001\n' });
+		const mode = (file) => fs.statSync(file).mode & 0o777;
+		// install-claude.sh:285 and install-cursor.sh:251 write mcp-server/.env with a plain heredoc and no chmod (0644 under umask 022)
+		assert.deepEqual([mode(h.paths.claudeEnv), mode(h.paths.cursorEnv)], [0o644, 0o644]);
+		// install-claude.sh:403 writes ~/.claude.json with fs.writeFileSync and no mode (0644 when the installer creates it)
+		assert.equal(mode(h.paths.claudeJson), 0o644);
+		// mcp-server/register.js:50 and :81 create ~/.cursor/mcp.json with mode 0600
+		assert.equal(mode(h.paths.cursorMcp), 0o600);
+		// install-claude.sh:95 and the mv in wire_claude_md: ~/.claude/CLAUDE.md is a mktemp file, so 0600
+		assert.equal(mode(h.paths.claudeMd), 0o600);
+		// install-claude.sh:155 and install-cursor.sh:83 chmod 600 the secrets file
+		assert.equal(mode(h.paths.secrets), 0o600);
+		assert.equal(mode(path.join(h.paths.claudeContexts, 'alpha-v1.md')), 0o644);
 	});
 });
