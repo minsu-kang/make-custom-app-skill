@@ -91,12 +91,21 @@ jobs:
         with:
           node-version: 24
       - run: node .github/scripts/check-skill.js
-      - name: Old tree unchanged on integration branches
-        if: github.ref_name != 'master' && !startsWith(github.ref, 'refs/tags/')
+      - name: Old tree changes only in the bridge files (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags origin master:refs/remotes/origin/master
           base=$(git merge-base origin/master HEAD)
-          git diff --exit-code "$base" HEAD -- skill rules install-claude.sh install-claude.ps1 install-cursor.sh install-cursor.ps1 version.json
+          mode=branch
+          if [ "$BASE_REF" = master ]; then mode=release; fi
+          node .github/scripts/old-tree-guard.js --mode="$mode" --base="$base"
+      - name: Old tree changes only in the bridge files (pushes to master)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/old-tree-guard.js --mode=release --base="$BEFORE"
 
   plugin-check:
     name: Plugin content consistency
