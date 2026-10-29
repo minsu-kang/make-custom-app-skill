@@ -1041,6 +1041,23 @@ describe('childEnv and spawnSpec', () => {
 		assert.doesNotThrow(() => spawn(['plugin', 'install', 'make-custom-app@make-custom-app', '--scope=user', 'https://github.com/o/r.git']));
 	});
 
+	it('spawnSpec: a Windows .cmd path with a percent sign or a quote throws without naming the path, and only on that branch', () => {
+		const spawn = (bin, platform = 'win32') => logic.spawnSpec({ bin, args: ['--version'], platform, env: {}, home: HOME, timeoutMs: 1 });
+		for (const bin of ['C:\\100%\\npm\\claude.cmd', 'C:\\%APPDATA%\\claude.cmd', 'C:\\a"b\\claude.cmd']) {
+			let failure;
+			try {
+				spawn(bin);
+			} catch (err) {
+				failure = err;
+			}
+			assert.ok(failure instanceof TypeError, bin);
+			assert.equal(failure.message, 'spawnSpec: the path of claude.cmd holds a character that cmd.exe would read as syntax');
+			assert.doesNotThrow(() => spawn(bin, 'linux'), `posix ${bin}`);
+			assert.doesNotThrow(() => spawn(bin.replace(/\.cmd$/, '.exe')), `exe ${bin}`);
+		}
+		assert.doesNotThrow(() => spawn('C:\\Users\\First Last (x86)\\a&b^c\\claude.cmd'));
+	});
+
 	it('childEnv and spawnSpec: a TypeError without env, home, or platform', () => {
 		assert.throws(() => logic.childEnv({ home: HOME }), { name: 'TypeError', message: 'childEnv needs env and home' });
 		assert.throws(() => logic.childEnv({ env: {} }), { name: 'TypeError', message: 'childEnv needs env and home' });
@@ -1847,9 +1864,9 @@ describe('acquireMigrationLock', () => {
 		}
 	});
 
-	it('acquireMigrationLock: the 5 s limit for a file without a pid is strict, read through the injected stat and clock', () => {
+	it('acquireMigrationLock: the 5 s limit for a file without a pid is strict in both directions (a modification time more than 5 s ahead is stale too), read through the injected stat and clock', () => {
 		const at = (ageMs) => wrappedFs({ statSync: () => ({ mtimeMs: NOW - ageMs }) });
-		for (const [ageMs, replaced] of [[5000, false], [5001, true], [0, false], [-1000, false]]) {
+		for (const [ageMs, replaced] of [[5000, false], [5001, true], [0, false], [-1000, false], [-5000, false], [-5001, true], [-86400000, true]]) {
 			const home = caseDir('lock-limit');
 			put(lockFile(home), '');
 			const result = logic.acquireMigrationLock({ home, fs: at(ageMs), pid: 5151, now: NOW, isAlive: alive });
@@ -1924,58 +1941,44 @@ describe('acquireMigrationLock', () => {
 		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
 	});
 
-	it('acquireMigrationLock: a takeover file older than 5 s whose pid is dead (or that holds no pid) is removed once, and any other takeover file blocks us and stays', () => {
+	it('acquireMigrationLock: a takeover file left behind, of any age and with any pid, gives held with no pid and stays in place', () => {
 		const cases = [
-			['dead pid, 6 s old', lockText(4242, 1), 6000, true],
-			['no pid, 6 s old', '', 6000, true],
-			['garbage, 6 s old', 'garbage', 6000, true],
-			['dead pid, fresh', lockText(4242, 1), 0, false],
-			['live pid, 6 s old', lockText(8888, 1), 6000, false],
-			['no pid, fresh', '', 0, false],
+			['dead pid, fresh', lockText(4242, 1), 0],
+			['dead pid, 6 s old', lockText(4242, 1), 6000],
+			['dead pid, 1 day old', lockText(4242, 1), 86400000],
+			['live pid, fresh', lockText(8888, 1), 0],
+			['live pid, 1 day old', lockText(8888, 1), 86400000],
+			['no pid, fresh', '', 0],
+			['no pid, 1 day old', '', 86400000],
+			['garbage, 1 day old', 'garbage', 86400000],
 		];
-		for (const [label, content, ageMs, removed] of cases) {
-			const home = caseDir('lock-takeover-old');
-			put(lockFile(home), lockText(4242, Date.now() - 2 * logic.LOCK_STALE_MS));
+		for (const [label, content, ageMs] of cases) {
+			const home = caseDir('lock-takeover-left');
+			const stale = lockText(4242, Date.now() - 2 * logic.LOCK_STALE_MS);
+			put(lockFile(home), stale);
 			put(takeoverFile(home), content);
 			ageFile(takeoverFile(home), ageMs);
 			const result = logic.acquireMigrationLock({ home, pid: 5151, isAlive: (pid) => pid === 8888 });
-			if (removed) {
-				assert.equal(result.ok, true, label);
-				assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, 5151, label);
-				assert.equal(fs.existsSync(takeoverFile(home)), false, label);
-			} else {
-				assert.deepEqual(result, { ok: false, pid: null }, label);
-				assert.equal(fs.readFileSync(takeoverFile(home), 'utf8'), content, label);
-				assert.equal(JSON.parse(fs.readFileSync(lockFile(home), 'utf8')).pid, 4242, label);
-			}
+			assert.deepEqual(result, { ok: false, pid: null }, label);
+			assert.equal(fs.readFileSync(takeoverFile(home), 'utf8'), content, label);
+			assert.equal(fs.readFileSync(lockFile(home), 'utf8'), stale, label);
+			assert.deepEqual(fs.readdirSync(lockDir(home)).sort(), ['cleanup.lock', 'cleanup.lock.takeover'], label);
 		}
 	});
 
-	it('acquireMigrationLock: the 5 s limit of a takeover file is strict, and a takeover file that vanishes or cannot be read gives held with no pid', () => {
-		for (const [ageMs, removed] of [[5000, false], [5001, true]]) {
-			const home = caseDir('lock-takeover-limit');
-			put(lockFile(home), staleByAge());
-			put(takeoverFile(home), lockText(4242, 1));
-			const result = logic.acquireMigrationLock({ home, fs: wrappedFs({ statSync: (file) => (file === takeoverFile(home) ? { mtimeMs: NOW - ageMs } : fs.statSync(file)) }), pid: 5151, now: NOW, isAlive: (pid) => pid === 8888 });
-			assert.equal(result.ok, removed, `age ${ageMs}`);
-		}
-
-		const vanishing = caseDir('lock-takeover-vanishing');
-		put(lockFile(vanishing), staleByAge());
-		put(takeoverFile(vanishing), lockText(8888, 1));
-		const gone = wrappedFs({ beforeRead: (file) => file === takeoverFile(vanishing) && fs.rmSync(file, { force: true }) });
-		assert.equal(logic.acquireMigrationLock({ home: vanishing, fs: gone, pid: 5151, now: NOW, isAlive: alive }).ok, true);
-
-		const unreadable = caseDir('lock-takeover-unreadable');
-		put(lockFile(unreadable), staleByAge());
-		put(takeoverFile(unreadable), lockText(8888, 1));
+	it('acquireMigrationLock: the takeover file is removed by the run that created it, also when the lock is unreadable under it, and a lock replaced meanwhile is held', () => {
+		const home = caseDir('lock-takeover-reread');
+		put(lockFile(home), staleByAge());
+		let reads = 0;
 		const denied = wrappedFs({
-			beforeRead: (file) => {
-				if (file === takeoverFile(unreadable)) throw errorWithCode('EACCES');
+			beforeRead(file) {
+				if (file === lockFile(home) && ++reads === 2) throw errorWithCode('EACCES');
 			},
 		});
-		assert.deepEqual(logic.acquireMigrationLock({ home: unreadable, fs: denied, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: null });
-		assert.equal(fs.readFileSync(takeoverFile(unreadable), 'utf8'), lockText(8888, 1));
+		assert.deepEqual(logic.acquireMigrationLock({ home, fs: denied, pid: 5151, now: NOW, isAlive: alive }), { ok: false, pid: null });
+		assert.equal(reads, 2);
+		assert.equal(fs.readFileSync(lockFile(home), 'utf8'), staleByAge());
+		assert.deepEqual(fs.readdirSync(lockDir(home)), ['cleanup.lock']);
 	});
 
 	it('acquireMigrationLock: a lock that cannot be read is reported as held with no pid, and nothing is removed', () => {

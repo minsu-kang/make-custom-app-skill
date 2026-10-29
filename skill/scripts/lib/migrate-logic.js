@@ -374,12 +374,16 @@ function childEnv(params) {
 }
 
 const CMD_UNSAFE_ARGUMENT = /[\s"&|<>^%]/;
+const CMD_UNSAFE_PATH = /["%]/;
 
 function spawnSpec(params) {
 	requireParams('spawnSpec', params, ['env', 'home', 'platform']);
 	const { bin, args = [], platform, env, home, timeoutMs } = params;
 	const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: childEnv({ env, home }), cwd: home, timeout: timeoutMs, windowsHide: true };
 	if (platform === 'win32' && /\.cmd$/i.test(bin)) {
+		if (CMD_UNSAFE_PATH.test(bin)) {
+			throw new TypeError('spawnSpec: the path of claude.cmd holds a character that cmd.exe would read as syntax');
+		}
 		if (args.some((arg) => CMD_UNSAFE_ARGUMENT.test(arg))) {
 			throw new TypeError('spawnSpec: an argument for claude.cmd holds a character that cmd.exe would read as syntax');
 		}
@@ -727,23 +731,12 @@ function acquireMigrationLock(params) {
 		const now = clock();
 		if (read.holder !== null) return !isAlive(read.holder.pid) || read.holder.at > now || now - read.holder.at > LOCK_STALE_MS;
 		const age = fileAgeMs(fs, file, now);
-		return age !== null && age > LOCK_PARTIAL_MS;
-	};
-	const claimTakeover = () => {
-		if (createExclusive(fs, takeoverFile, content)) return true;
-		const leftover = readLockFile(fs, takeoverFile);
-		if (leftover.missing) return createExclusive(fs, takeoverFile, content);
-		if (leftover.unreadable) return false;
-		const age = fileAgeMs(fs, takeoverFile, clock());
-		if (age === null || age <= LOCK_PARTIAL_MS || (leftover.holder !== null && isAlive(leftover.holder.pid))) return false;
-		removeIfPresent(fs, takeoverFile);
-		return createExclusive(fs, takeoverFile, content);
+		return age !== null && Math.abs(age) > LOCK_PARTIAL_MS;
 	};
 	const takeOver = (staleText) => {
-		if (!claimTakeover()) return { ok: false, pid: null };
+		if (!createExclusive(fs, takeoverFile, content)) return { ok: false, pid: null };
 		try {
 			const again = readLockFile(fs, file);
-			if (again.unreadable) return heldBy(again);
 			if (!again.missing) {
 				if (again.text !== staleText) return heldBy(again);
 				removeIfPresent(fs, file);
