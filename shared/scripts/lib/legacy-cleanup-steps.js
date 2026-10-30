@@ -183,11 +183,16 @@ function locateClaude(params) {
 // The facts
 // ---------------------------------------------------------------------------------------------------------------
 
-/** `{ state: 'ok', buffer, mode }`, or `missing` (no such file), `unusable` (not a regular file, or too large), or `error`. */
+/**
+ * `{ state: 'ok', buffer, mode }`, or `missing` (no such file), `unusable` (not a regular file), `toolarge` (a regular file
+ * above `limit`, with its `mode`, not read), or `error`. A caller turns `toolarge` into a fact of its own, never into
+ * "nothing there".
+ */
 function readFileRecord(fs, file, limit = MAX_READ_BYTES) {
 	try {
 		const stat = fs.statSync(file);
-		if (!stat.isFile() || stat.size > limit) return { state: 'unusable' };
+		if (!stat.isFile()) return { state: 'unusable' };
+		if (stat.size > limit) return { state: 'toolarge', mode: stat.mode & 0o777 };
 		return { state: 'ok', buffer: fs.readFileSync(file), mode: stat.mode & 0o777 };
 	} catch (err) {
 		return { state: isMissingFile(err) ? 'missing' : 'error' };
@@ -202,15 +207,16 @@ function decode(buffer) {
 
 /**
  * Reads a file and parses its text, again up to `attempts` times, `retryMs` apart, while it does not read or parse (a
- * writer may be in the middle of its write). A missing file, or one that is no regular file, ends at once. Returns null
- * when nothing parsed, else `{ text, mode, utf8Exact, value }`. The parser's error is dropped, so no text of the file
- * leaves this function.
+ * writer may be in the middle of its write). A missing file, one that is no regular file, or one above `limit` ends at
+ * once. The registration files are read with no limit (`Infinity`), as `detectLegacyInstall` and Claude Code read them,
+ * so a big `~/.claude.json` never turns into "no registration". Returns null when nothing parsed, else
+ * `{ text, mode, utf8Exact, value }`. The parser's error is dropped, so no text of the file leaves this function.
  */
-function readParsed({ fs, file, parse, attempts, retryMs, sleep }) {
+function readParsed({ fs, file, parse, attempts, retryMs, sleep, limit = MAX_READ_BYTES }) {
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		if (attempt > 0) sleep(retryMs);
-		const read = readFileRecord(fs, file);
-		if (read.state === 'missing' || read.state === 'unusable') return null;
+		const read = readFileRecord(fs, file, limit);
+		if (read.state === 'missing' || read.state === 'unusable' || read.state === 'toolarge') return null;
 		if (read.state === 'error') continue;
 		const { text, utf8Exact } = decode(read.buffer);
 		try {
@@ -307,6 +313,18 @@ function isDirectoryPath(fs, file) {
 }
 
 /**
+ * Where a link names, as an absolute path: a relative target is resolved against the real path of the folder that holds
+ * the link, as the system does (the logical parent may be a link itself). Null when it cannot be read.
+ */
+function linkTargetOf(fs, dir) {
+	try {
+		return path.resolve(fs.realpathSync(path.dirname(dir)), fs.readlinkSync(dir));
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The facts of an old skill folder (`DirFacts` of the plan), or null when it is not there, is no folder, or cannot be
  * listed. A symbolic link to a folder records `linkTarget` as an absolute path and is not walked or read.
  */
@@ -318,12 +336,9 @@ function skillFolderFacts(fs, dir) {
 		return null;
 	}
 	if (stat.isSymbolicLink()) {
-		if (!isDirectoryPath(fs, dir)) return null;
-		try {
-			return { path: dir, symlink: true, linkTarget: path.resolve(path.dirname(dir), fs.readlinkSync(dir)), skillName: null, version: null, topNames: [], fileCount: 0, sizeBytes: 0 };
-		} catch {
-			return null;
-		}
+		const linkTarget = linkTargetOf(fs, dir);
+		if (!isDirectoryPath(fs, dir) || linkTarget === null) return null;
+		return { path: dir, symlink: true, linkTarget, skillName: null, version: null, topNames: [], fileCount: 0, sizeBytes: 0 };
 	}
 	if (!stat.isDirectory()) return null;
 	const walked = walkFolder(fs, dir);
@@ -332,7 +347,7 @@ function skillFolderFacts(fs, dir) {
 	return { path: dir, symlink: false, linkTarget: null, skillName: name, version, ...walked };
 }
 
-/** The facts of the Cursor rules folder, or null. A link to a folder lists its top names and is not walked. */
+/** The facts of the Cursor rules folder, or null. A link to a folder lists its top names, records `symlink` and `linkTarget`, and is not walked. */
 function rulesFolderFacts(fs, dir) {
 	let stat;
 	try {
@@ -341,18 +356,19 @@ function rulesFolderFacts(fs, dir) {
 		return null;
 	}
 	if (stat.isSymbolicLink()) {
-		if (!isDirectoryPath(fs, dir)) return null;
+		const linkTarget = linkTargetOf(fs, dir);
+		if (!isDirectoryPath(fs, dir) || linkTarget === null) return null;
 		let names = [];
 		try {
 			names = fs.readdirSync(dir).sort();
 		} catch {
 			// a link whose folder cannot be listed has no names to show
 		}
-		return { path: dir, names, fileCount: 0, sizeBytes: 0 };
+		return { path: dir, names, fileCount: 0, sizeBytes: 0, symlink: true, linkTarget };
 	}
 	if (!stat.isDirectory()) return null;
 	const walked = walkFolder(fs, dir);
-	return walked === null ? null : { path: dir, names: walked.topNames, fileCount: walked.fileCount, sizeBytes: walked.sizeBytes };
+	return walked === null ? null : { path: dir, names: walked.topNames, fileCount: walked.fileCount, sizeBytes: walked.sizeBytes, symlink: false, linkTarget: null };
 }
 
 function realPathInside(fs, child, parent) {
@@ -364,16 +380,24 @@ function realPathInside(fs, child, parent) {
 	}
 }
 
-/** The `.env` of a skill folder, as read: text, mode, whether its bytes survive UTF-8, and whether its real path lies inside the real path of the folder. */
+/**
+ * The `.env` of a skill folder, as read: text, mode, whether its bytes survive UTF-8, and whether its real path lies
+ * inside the real path of the folder. One above the read cap is not read: it has no text, `utf8Exact` false, and
+ * `tooLarge` true, so the plan keeps it in the backup and never deletes it.
+ */
 function envFacts(fs, envFile, skillDir) {
 	const read = readFileRecord(fs, envFile);
-	if (read.state !== 'ok') return null;
+	if (read.state !== 'ok' && read.state !== 'toolarge') return null;
+	const insideSkill = realPathInside(fs, envFile, skillDir);
+	if (read.state === 'toolarge') return { path: envFile, text: '', mode: read.mode, utf8Exact: false, insideSkill, tooLarge: true };
 	const { text, utf8Exact } = decode(read.buffer);
-	return { path: envFile, text, mode: read.mode, utf8Exact, insideSkill: realPathInside(fs, envFile, skillDir) };
+	return { path: envFile, text, mode: read.mode, utf8Exact, insideSkill };
 }
 
+/** CLAUDE.md as read; one above the read cap is `{ file, tooLarge: true }`, which the plan turns into a manual item. */
 function claudeMdFacts(fs, file) {
 	const read = readFileRecord(fs, file);
+	if (read.state === 'toolarge') return { file, tooLarge: true };
 	if (read.state !== 'ok') return null;
 	let realPath;
 	try {
@@ -390,13 +414,13 @@ function entryFacts(entry, ownRoots) {
 }
 
 function claudeEntryFacts({ fs, file, ownRoots, sleep }) {
-	const read = readParsed({ fs, file, parse: parseJsonText, attempts: REGISTRATION_ATTEMPTS, retryMs: REGISTRATION_RETRY_MS, sleep });
+	const read = readParsed({ fs, file, parse: parseJsonText, attempts: REGISTRATION_ATTEMPTS, retryMs: REGISTRATION_RETRY_MS, sleep, limit: Infinity });
 	if (read === null || !isPlainObject(read.value) || !isPlainObject(read.value.mcpServers) || !Object.hasOwn(read.value.mcpServers, PLUGIN_NAME)) return null;
 	return { file, ...entryFacts(read.value.mcpServers[PLUGIN_NAME], ownRoots) };
 }
 
 function cursorMembersFacts({ fs, file, ownRoots, sleep }) {
-	const read = readParsed({ fs, file, parse: parseCursorText, attempts: REGISTRATION_ATTEMPTS, retryMs: REGISTRATION_RETRY_MS, sleep });
+	const read = readParsed({ fs, file, parse: parseCursorText, attempts: REGISTRATION_ATTEMPTS, retryMs: REGISTRATION_RETRY_MS, sleep, limit: Infinity });
 	if (read === null) return null;
 	const { format, value } = read.value;
 	const servers = isPlainObject(value) && isPlainObject(value.mcpServers) ? value.mcpServers : {};
@@ -478,7 +502,7 @@ function pluginFacts({ fs, configDir, pluginRoot, sleep }) {
 }
 
 function secretsFileText(fs, file) {
-	const read = readFileRecord(fs, file);
+	const read = readFileRecord(fs, file, Infinity);
 	return read.state === 'ok' ? read.buffer.toString('utf8') : null;
 }
 

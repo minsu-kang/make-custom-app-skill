@@ -6,17 +6,18 @@
  * isExecutable and spawnSync, so no `claude` of the host is ever started.
  */
 const { TEST_ROOT, assertIsolated } = require('./isolate-home');
-const { describe, it, before, after } = require('node:test');
+const { describe, it, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const childProcess = require('child_process');
 const steps = require('../legacy-cleanup-steps');
 const { buildPlan, DIGEST_PATTERN, DECLINE_TTL_MS, declineState } = require('../legacy-cleanup-logic');
 const { oldInstallPaths } = require('../legacy-install');
 const { FAKE, INSTALLER_ENV_TEXT, buildFakeLegacyHome, snapshot, diffSnapshots } = require('./fake-legacy-home');
 
+const { spawnSync } = childProcess;
 const POSIX_ONLY = { skip: process.platform === 'win32' };
 const SECRET_SEEDS = [FAKE.pinecone, FAKE.openai, FAKE.otherToken, FAKE.cursorToken, FAKE.conflictPinecone];
 const CLAUDE_OUT = { status: 0, stdout: '2.1.312 (Claude Code)\n', stderr: '' };
@@ -24,12 +25,31 @@ const CLAUDE_OUT = { status: 0, stdout: '2.1.312 (Claude Code)\n', stderr: '' };
 let work;
 let counter = 0;
 
+const underTestRoot = (file) => typeof file === 'string' && path.isAbsolute(file) && file.startsWith(TEST_ROOT + path.sep);
+const escapedSpawns = [];
+const guardedSpawn = (command, args, options) => {
+	if (!underTestRoot(command)) {
+		escapedSpawns.push(String(command));
+		throw new Error('a test tried to start a program outside the test root');
+	}
+	return spawnSync(command, args, options);
+};
+// The module reads child_process.spawnSync when a call has no spawnSync of its own, so nothing here can start a program
+// of the host (a `claude` in /opt/homebrew/bin, say). A refused start is recorded, and every test fails on it.
+childProcess.spawnSync = guardedSpawn;
+
 before(() => {
 	work = fs.mkdtempSync(path.join(os.tmpdir(), 'steps-test-'));
 });
 
+afterEach(() => {
+	assert.deepEqual(escapedSpawns.splice(0), [], 'a test tried to start a program outside the test root');
+});
+
 after(() => {
+	childProcess.spawnSync = spawnSync;
 	fs.rmSync(work, { recursive: true, force: true });
+	assert.deepEqual(escapedSpawns, []);
 });
 
 function caseRoot(label) {
@@ -65,8 +85,39 @@ function fakeHome(label, options = {}) {
 	return { ...built, root, pluginRoot };
 }
 
+/** Says yes only for an executable file inside the case root, so no fallback folder of the host is ever taken for `claude`. */
+function executableUnder(root) {
+	return (file) => {
+		try {
+			if (!file.startsWith(root + path.sep) || !fs.statSync(file).isFile()) return false;
+			fs.accessSync(file, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+}
+
+/** Runs a program only when it lies inside the case root, and fails on any other command. */
+function spawnUnder(root) {
+	return (command, args, options) => {
+		if (typeof command !== 'string' || !command.startsWith(root + path.sep)) throw new Error('a test tried to start a program outside its case root');
+		return spawnSync(command, args, options);
+	};
+}
+
 function gather(h, extra = {}) {
-	return steps.gatherFacts({ home: h.home, env: h.env, pluginRoot: h.pluginRoot, platform: process.platform, locate: false, sleep: () => {}, ...extra });
+	return steps.gatherFacts({
+		home: h.home,
+		env: h.env,
+		pluginRoot: h.pluginRoot,
+		platform: process.platform,
+		locate: false,
+		sleep: () => {},
+		isExecutable: executableUnder(h.root),
+		spawnSync: spawnUnder(h.root),
+		...extra,
+	});
 }
 
 /** Records each call of a `spawnSync` stand-in; `results` is one result, a list (the last one repeats), or a function. */
@@ -335,8 +386,12 @@ describe('claudeCandidates and locateClaude', () => {
 		put(path.join(other, 'claude'), `#!${process.execPath}\nconsole.log('1.0.0 (Some Other Tool)');\n`, 0o755);
 		const env = { ...h.env, PATH: `${other}:${h.binDir}` };
 		delete env.CLAUDE_BIN;
-		const found = steps.locateClaude({ env, home: h.home, platform: process.platform });
+		const found = steps.locateClaude({ env, home: h.home, platform: process.platform, isExecutable: executableUnder(h.root), spawnSync: spawnUnder(h.root) });
 		assert.deepEqual(found, { binary: h.paths.claudeBin, version: '2.1.312 (Claude Code)', explicit: false });
+		const asked = [];
+		const nothingElse = steps.locateClaude({ env: { ...env, PATH: other }, home: h.home, platform: process.platform, isExecutable: (file) => (asked.push(file), executableUnder(h.root)(file)), spawnSync: spawnUnder(h.root) });
+		assert.deepEqual(nothingElse, { binary: null, version: null, explicit: false }, 'the other program is skipped, and the host fallbacks are not executable here');
+		assert.ok(asked.includes('/opt/homebrew/bin/claude') && asked.includes('/usr/local/bin/claude'), 'the fallback folders were reached and refused');
 	});
 
 	it('locateClaude: a CLAUDE_BIN that is missing, is a folder, or is not executable gives null and nothing else is tried', POSIX_ONLY, () => {
@@ -480,7 +535,7 @@ describe('gatherFacts on a full home', () => {
 			claude: { binary: h.paths.claudeBin },
 			claudeSkill: skill(p.claudeSkill),
 			cursorSkill: skill(p.cursorSkill),
-			cursorRules: { path: p.cursorRules, names: ['make-custom-app.mdc'], fileCount: 1, sizeBytes: fs.readFileSync(rulesFile).length },
+			cursorRules: { path: p.cursorRules, names: ['make-custom-app.mdc'], fileCount: 1, sizeBytes: fs.readFileSync(rulesFile).length, symlink: false, linkTarget: null },
 			claudeEnv: { path: p.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true },
 			cursorEnv: { path: p.cursorEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true },
 			claudeEntry: {
@@ -530,7 +585,7 @@ describe('gatherFacts on a full home', () => {
 		assert.ok(JSON.stringify(facts).includes(FAKE.pinecone), 'the facts hold the values in memory, for the secrets step');
 	});
 
-	it('gatherFacts with locate true runs the fake through CLAUDE_BIN, and an unset CLAUDE_BIN with no claude anywhere gives binary null', POSIX_ONLY, () => {
+	it('gatherFacts with locate true runs the fake through CLAUDE_BIN, and a CLAUDE_BIN that names a missing file gives binary null', POSIX_ONLY, () => {
 		const h = fakeHome('locate-true');
 		assert.equal(gather(h, { locate: true }).claude.binary, h.paths.claudeBin);
 		assert.deepEqual(readLog(h), [{ argv: ['--version'], claudecode: false }]);
@@ -896,7 +951,7 @@ describe('gatherFacts: the old folders', () => {
 		const p = oldInstallPaths(h.home);
 		put(path.join(p.cursorRules, 'extra.mdc'), 'extra rule');
 		const facts = gather(h);
-		assert.deepEqual(facts.cursorRules, { path: p.cursorRules, names: ['extra.mdc', 'make-custom-app.mdc'], ...treeStats(p.cursorRules) });
+		assert.deepEqual(facts.cursorRules, { path: p.cursorRules, names: ['extra.mdc', 'make-custom-app.mdc'], ...treeStats(p.cursorRules), symlink: false, linkTarget: null });
 		assert.deepEqual(buildPlan(facts).items.find((item) => item.id === 'cursor.rules-dir').extraFiles, ['extra.mdc']);
 		put(path.join(p.cursorRules, '.cursor-plugin', 'plugin.json'), '{}\n');
 		assert.equal(gather(h).cursorRules, null);
@@ -907,7 +962,10 @@ describe('gatherFacts: the old folders', () => {
 		const target = path.join(linked.root, 'rules-target');
 		fs.renameSync(lp.cursorRules, target);
 		fs.symlinkSync(target, lp.cursorRules);
-		assert.deepEqual(gather(linked).cursorRules, { path: lp.cursorRules, names: ['make-custom-app.mdc'], fileCount: 0, sizeBytes: 0 });
+		assert.deepEqual(gather(linked).cursorRules, { path: lp.cursorRules, names: ['make-custom-app.mdc'], fileCount: 0, sizeBytes: 0, symlink: true, linkTarget: target });
+		const linkedItem = buildPlan(gather(linked)).items.find((item) => item.id === 'cursor.rules-dir');
+		assert.equal(linkedItem.symlink, true);
+		assert.ok(buildPlan(gather(linked)).lines.includes('  move    ~/.cursor/rules/make-custom-app (old Cursor rule folder, a symbolic link; only the link moves)'));
 		fs.rmSync(lp.cursorRules);
 		put(lp.cursorRules, 'a file');
 		assert.equal(gather(linked).cursorRules, null);
@@ -940,7 +998,7 @@ describe('gatherFacts: the old folders', () => {
 		assert.equal(gather(leading).claudeEnv.insideSkill, true);
 	});
 
-	it('gatherFacts: a .env that is a folder, is too large, or is missing gives null', () => {
+	it('gatherFacts: a .env that is a folder or is missing gives null', () => {
 		const h = fakeHome('env-odd');
 		const p = oldInstallPaths(h.home);
 		fs.rmSync(p.claudeEnv);
@@ -949,8 +1007,6 @@ describe('gatherFacts: the old folders', () => {
 		assert.equal(gather(h).claudeEnv, null);
 		fs.rmdirSync(p.claudeEnv);
 		put(p.claudeEnv, 'X=1\n');
-		const big = { ...fs, statSync: (file, ...rest) => (file === p.claudeEnv ? { isFile: () => true, size: 65 * 1024 * 1024, mode: 0o100644 } : fs.statSync(file, ...rest)) };
-		assert.equal(gather(h, { fs: big }).claudeEnv, null);
 		assert.equal(gather(h).claudeEnv.text, 'X=1\n');
 	});
 });
@@ -1068,7 +1124,7 @@ describe('gatherFacts: the registration files', () => {
 		assert.equal(facts.cursorMembers.text, fs.readFileSync(jsonc.paths.cursorMcp, 'utf8'));
 		const planItem = buildPlan(facts).items.find((item) => item.id === 'cursor.mcp-entry.make-app-context');
 		assert.equal(planItem.status, 'manual');
-		assert.equal(planItem.reason, '~/.cursor/mcp.json has comments or trailing commas, which the cleanup does not rewrite.');
+		assert.equal(planItem.reason, '~/.cursor/mcp.json has comments, trailing commas or a byte order mark, which the cleanup does not rewrite.');
 		assert.deepEqual(leaks(buildPlan(facts)), []);
 
 		const compact = fakeHome('cursor-compact', { cursorFormat: 'compact' });
@@ -1199,6 +1255,134 @@ describe('gatherFacts: the registration files', () => {
 	});
 });
 
+describe('gatherFacts: file sizes', () => {
+	const MIB = 1024 * 1024;
+	/** An fs whose stat says `file` is `size` bytes while its content stays as it is. */
+	const oversize = (file, size) => ({
+		...fs,
+		statSync(target, ...rest) {
+			const real = fs.statSync(target, ...rest);
+			if (target !== file) return real;
+			return { isFile: () => real.isFile(), isDirectory: () => real.isDirectory(), size, mode: real.mode, mtimeMs: real.mtimeMs };
+		},
+	});
+
+	it('gatherFacts: a parseable ~/.claude.json of 65 MiB still yields the entry, and so does an oversize Cursor mcp.json', () => {
+		const h = fakeHome('big-registration');
+		const p = oldInstallPaths(h.home);
+		const config = JSON.parse(fs.readFileSync(p.claudeJson, 'utf8'));
+		config.history = 'x'.repeat(65 * MIB);
+		fs.writeFileSync(p.claudeJson, JSON.stringify(config));
+		assert.ok(fs.statSync(p.claudeJson).size > 65 * MIB);
+		const facts = gather(h);
+		assert.equal(facts.claudeEntry.file, p.claudeJson);
+		assert.deepEqual(facts.claudeEntry.entry.args, [path.join(p.claudeSkill, 'mcp-server', 'dist', 'index.js')]);
+		assert.equal(buildPlan({ ...facts, claude: { binary: '/usr/local/bin/claude' } }).items.find((item) => item.id === 'claude.mcp-entry').status, 'ready');
+
+		const cursor = gather(h, { fs: oversize(p.cursorMcp, 70 * MIB) }).cursorMembers;
+		assert.deepEqual(cursor.members.map((member) => member.key), ['other-cursor', 'make-app-context']);
+		assert.equal(gather(h, { fs: oversize(p.claudeJson, 70 * MIB) }).claudeEntry.file, p.claudeJson);
+	});
+
+	it('gatherFacts: a CLAUDE.md above the read cap is a tooLarge fact, which the plan turns into a manual item', () => {
+		const h = fakeHome('big-claude-md');
+		const p = oldInstallPaths(h.home);
+		const facts = gather(h, { fs: oversize(p.claudeMd, 65 * MIB) });
+		assert.deepEqual(facts.claudeMd, { file: p.claudeMd, tooLarge: true });
+		const item = buildPlan(facts).items.find((entry) => entry.id === 'claude.sentinel');
+		assert.equal(item.status, 'manual');
+		assert.equal(item.reason, '~/.claude/CLAUDE.md is too large to read, so the cleanup does not look for its old skill block.');
+		assert.equal(gather(h, { fs: oversize(p.claudeMd, 64 * MIB) }).claudeMd.tooLarge, undefined, 'the cap itself is still read');
+		assert.equal(gather(h).claudeMd.utf8Exact, true);
+	});
+
+	it('gatherFacts: a .env above the read cap is a tooLarge fact that is never deleted, and a folder or a missing file stays null', () => {
+		const h = fakeHome('big-env');
+		const p = oldInstallPaths(h.home);
+		const facts = gather(h, { fs: oversize(p.claudeEnv, 65 * MIB) });
+		assert.deepEqual(facts.claudeEnv, { path: p.claudeEnv, text: '', mode: 0o644, utf8Exact: false, insideSkill: true, tooLarge: true });
+		assert.equal(facts.cursorEnv.tooLarge, undefined);
+		const plan = buildPlan(facts);
+		assert.equal(plan.items.find((item) => item.id === 'claude.env-file').action, 'keep-in-backup');
+		assert.equal(plan.items.find((item) => item.id === 'cursor.env-file').action, 'delete');
+		assert.deepEqual(leaks(plan), []);
+		fs.rmSync(p.claudeEnv);
+		assert.equal(gather(h, { fs: oversize(p.claudeEnv, 65 * MIB) }).claudeEnv, null, 'a missing file is not too large');
+	});
+
+	it('gatherFacts: the secrets file is read whatever its size, and an oversize plugin file fails closed (not recorded)', () => {
+		const h = fakeHome('big-other');
+		const facts = gather(h, { fs: oversize(h.paths.secrets, 70 * MIB) });
+		assert.equal(facts.secretsText, fs.readFileSync(h.paths.secrets, 'utf8'));
+		const plugin = gather(h, { fs: oversize(h.paths.installedPlugins, 70 * MIB) }).plugin;
+		assert.deepEqual(plugin, { recorded: false, userScope: false, enabled: false, installPath: null, version: null, runningFromInstall: false });
+		assert.notEqual(steps.pluginGuard(gather(h, { fs: oversize(h.paths.installedPlugins, 70 * MIB) })), null);
+	});
+});
+
+describe('gatherFacts: paths of a home with linked dot folders', () => {
+	/** A home whose `.claude` and `.cursor` are links into a dotfiles folder, and whose `.claude.json` is a link, the way dotfile managers lay it out. */
+	function dotfilesHome(label) {
+		const h = fakeHome(label);
+		const dotfiles = path.join(h.root, 'dotfiles');
+		fs.mkdirSync(dotfiles, { recursive: true });
+		for (const name of ['.claude', '.cursor']) {
+			fs.renameSync(path.join(h.home, name), path.join(dotfiles, name));
+			fs.symlinkSync(path.join(dotfiles, name), path.join(h.home, name));
+		}
+		fs.renameSync(path.join(h.home, '.claude.json'), path.join(dotfiles, 'claude.json'));
+		fs.symlinkSync(path.join(dotfiles, 'claude.json'), path.join(h.home, '.claude.json'));
+		fs.mkdirSync(path.join(dotfiles, '.claude', 'make-app-contexts'));
+		fs.mkdirSync(path.join(dotfiles, '.cursor', 'make-app-contexts'));
+		return { ...h, dotfiles };
+	}
+
+	it('every path field of the facts is the corresponding oldInstallPaths(home) entry, not a real path, and no plan item leaves that list', POSIX_ONLY, () => {
+		const h = dotfilesHome('dotfiles');
+		const p = oldInstallPaths(h.home);
+		const facts = gather(h);
+		assert.equal(facts.claudeSkill.path, p.claudeSkill);
+		assert.equal(facts.cursorSkill.path, p.cursorSkill);
+		assert.equal(facts.cursorRules.path, p.cursorRules);
+		assert.equal(facts.claudeEnv.path, p.claudeEnv);
+		assert.equal(facts.cursorEnv.path, p.cursorEnv);
+		assert.equal(facts.claudeEntry.file, p.claudeJson);
+		assert.equal(facts.cursorMembers.file, p.cursorMcp);
+		assert.equal(facts.claudeMd.file, p.claudeMd);
+		assert.deepEqual(facts.contextsDirs, [p.claudeContexts, p.cursorContexts]);
+		assert.equal(facts.configDir, path.join(h.home, '.claude'));
+		assert.equal(facts.claudeMd.realPath, path.join(h.dotfiles, '.claude', 'CLAUDE.md'), 'the real path is the one place a real path belongs');
+		assert.notEqual(facts.claudeMd.realPath, p.claudeMd);
+		assert.equal(facts.claudeEnv.insideSkill, true);
+		assert.equal(facts.cursorEnv.insideSkill, true);
+		assert.equal(facts.plugin.recorded, true);
+		assert.equal(facts.claudeSkill.symlink, false);
+
+		const allowed = new Set(Object.values(p));
+		const plan = buildPlan({ ...facts, claude: { binary: '/usr/local/bin/claude' } });
+		assert.deepEqual(plan.items.map((item) => item.status), Array(8).fill('ready'), 'no item became a foreign-path manual item');
+		for (const item of plan.items) assert.ok(allowed.has(item.path), `${item.id} names ${item.path}`);
+		for (const notice of plan.notices) if (notice.kind === 'contexts') assert.ok(allowed.has(notice.file), notice.file);
+		assert.deepEqual(leaks(plan), []);
+	});
+
+	it('gatherFacts: a relative link target is resolved against the real parent of the link, so a linked ~/.claude/skills gives the folder the link really names', POSIX_ONLY, () => {
+		const h = fakeHome('link-real-parent');
+		const p = oldInstallPaths(h.home);
+		const realSkills = path.join(h.root, 'skills-elsewhere');
+		fs.renameSync(path.dirname(p.claudeSkill), realSkills);
+		fs.symlinkSync(realSkills, path.dirname(p.claudeSkill));
+		fs.rmSync(path.join(realSkills, 'make-custom-app'), { recursive: true });
+		fs.mkdirSync(path.join(h.root, 'dev', 'skill'), { recursive: true });
+		fs.symlinkSync(path.join('..', 'dev', 'skill'), p.claudeSkill);
+		assert.equal(fs.realpathSync(p.claudeSkill), path.join(h.root, 'dev', 'skill'), 'the system resolves it against the real parent');
+		const facts = gather(h);
+		assert.equal(facts.claudeSkill.symlink, true);
+		assert.equal(facts.claudeSkill.linkTarget, path.join(h.root, 'dev', 'skill'));
+		assert.equal(facts.claudeSkill.path, p.claudeSkill);
+	});
+});
+
 describe('gatherFacts: file system failures', () => {
 	const failing = (names) => ({
 		...fs,
@@ -1232,7 +1416,7 @@ describe('gatherFacts: file system failures', () => {
 		const target = path.join(h.root, 'rules-target');
 		fs.renameSync(p.cursorRules, target);
 		fs.symlinkSync(target, p.cursorRules);
-		assert.deepEqual(gather(h, { fs: failing({ readdirSync: (dir) => dir === p.cursorRules }) }).cursorRules, { path: p.cursorRules, names: [], fileCount: 0, sizeBytes: 0 });
+		assert.deepEqual(gather(h, { fs: failing({ readdirSync: (dir) => dir === p.cursorRules }) }).cursorRules, { path: p.cursorRules, names: [], fileCount: 0, sizeBytes: 0, symlink: true, linkTarget: target });
 
 		fs.rmSync(p.cursorRules);
 		fs.renameSync(target, p.cursorRules);
@@ -1882,5 +2066,32 @@ describe('writeDecline and readDecline', () => {
 		steps.writeDecline({ home: h.home, digest: DIGEST, now: NOW });
 		steps.readDecline({ home: h.home });
 		assert.deepEqual(diffSnapshots(untouched, snapshot(h.root, outside)), []);
+	});
+});
+
+describe('the spawn guard of this file', () => {
+	it('no test path of this file can start a program outside the test root: the default spawn of the module goes through the guard', () => {
+		assert.equal(childProcess.spawnSync, guardedSpawn, 'the guard is installed');
+		assert.throws(() => childProcess.spawnSync('/usr/bin/true', []), { message: 'a test tried to start a program outside the test root' });
+		assert.deepEqual(escapedSpawns.splice(0), ['/usr/bin/true']);
+		const home = caseRoot('spawn-guard');
+		const found = steps.locateClaude({ env: { CLAUDE_BIN: '/usr/bin/true' }, home, platform: process.platform, isExecutable: () => true });
+		assert.deepEqual(found, { binary: null, version: null, explicit: true }, 'the default spawn refused it');
+		assert.deepEqual(escapedSpawns.splice(0), ['/usr/bin/true'], 'and recorded the attempt, which would fail any other test');
+		const facts = steps.gatherFacts({ home, env: { CLAUDE_BIN: '/opt/homebrew/bin/claude' }, pluginRoot: path.join(home, 'plugin'), locate: true, sleep: () => {}, isExecutable: () => true });
+		assert.equal(facts.claude.binary, null);
+		assert.deepEqual(escapedSpawns.splice(0), ['/opt/homebrew/bin/claude']);
+	});
+
+	it('the helpers that tests inject refuse a command or a file outside their case root', () => {
+		const root = caseRoot('guard-helpers');
+		assert.equal(executableUnder(root)('/usr/bin/true'), false);
+		assert.equal(executableUnder(root)(path.join(root, 'missing')), false);
+		assert.throws(() => spawnUnder(root)('/usr/bin/true', []), { message: 'a test tried to start a program outside its case root' });
+		put(path.join(root, 'run'), `#!${process.execPath}\nconsole.log('ok');\n`, 0o755);
+		if (process.platform !== 'win32') {
+			assert.equal(executableUnder(root)(path.join(root, 'run')), true);
+			assert.equal(spawnUnder(root)(path.join(root, 'run'), [], { encoding: 'utf8' }).stdout, 'ok\n');
+		}
 	});
 });

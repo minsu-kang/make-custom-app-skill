@@ -1756,6 +1756,7 @@ describe('buildPlan: the sentinel block', () => {
 	it('buildPlan: no block or no CLAUDE.md gives no sentinel item, and a block of CRLF text is ready', () => {
 		const none = (claudeMd) => buildPlan(fullFacts({ claudeMd }));
 		assert.equal(itemOf(none(null), 'claude.sentinel'), undefined);
+		assert.equal(itemOf(none({ file: PLAN_PATHS.claudeMd }), 'claude.sentinel'), undefined, 'facts with no text and no tooLarge flag name no block');
 		assert.equal(itemOf(none({ file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: '# only notes\n', mode: 0o644, utf8Exact: true }), 'claude.sentinel'), undefined);
 		const crlf = `# Notes\r\n\r\n${INSTALLER_BLOCK.replace(/\n/g, '\r\n')}\r\n`;
 		const item = itemOf(none({ file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: crlf, mode: 0o644, utf8Exact: true }), 'claude.sentinel');
@@ -1774,10 +1775,58 @@ describe('buildPlan: the sentinel block', () => {
 		const unknown = buildPlan(fullFacts({ claudeMd: { file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: `${INSTALLER_BLOCK}\n`, mode: 0o644 } }));
 		assert.equal(itemOf(unknown, 'claude.sentinel').status, 'manual');
 	});
+
+	it('buildPlan: a CLAUDE.md that is too large to read gives a manual sentinel item with a fixed reason, never no item', () => {
+		const REASON = '~/.claude/CLAUDE.md is too large to read, so the cleanup does not look for its old skill block.';
+		const FIX = `If it holds the old skill block, remove the lines from ${SENTINEL_OPEN} to ${SENTINEL_CLOSE} by hand.`;
+		const none = buildPlan(fullFacts({ claudeMd: null }));
+		for (const claudeMd of [
+			{ file: PLAN_PATHS.claudeMd, tooLarge: true },
+			{ file: PLAN_PATHS.claudeMd, tooLarge: true, realPath: PLAN_PATHS.claudeMd, text: `# Notes\n\n${INSTALLER_BLOCK}\n`, mode: 0o644, utf8Exact: true },
+		]) {
+			const plan = buildPlan(fullFacts({ claudeMd }));
+			const item = itemOf(plan, 'claude.sentinel');
+			assert.equal(item.status, 'manual');
+			assert.equal(item.kind, 'text-block');
+			assert.equal(item.action, 'remove-block');
+			assert.equal(item.path, PLAN_PATHS.claudeMd);
+			assert.equal(item.reason, REASON);
+			assert.equal(item.fix, FIX);
+			assert.equal(item.fingerprint, 'too-large');
+			assert.deepEqual(item.lines, []);
+			assert.equal(item.edited, false);
+			assert.ok(plan.lines.includes(`  claude.sentinel: ${REASON} Fix: ${FIX}`));
+			assert.equal(plan.groups[0].manual, 1);
+			assert.equal(plan.confirmRequired, true, 'the other items are still ready');
+			assert.notEqual(plan.digest, none.digest);
+			assert.deepEqual(plan.notices.filter((notice) => notice.kind === 'own-line'), []);
+		}
+		assert.equal(itemOf(none, 'claude.sentinel'), undefined);
+		const foreign = itemOf(buildPlan(fullFacts({ claudeMd: { file: '/etc/hosts', tooLarge: true } })), 'claude.sentinel');
+		assert.equal(foreign.path, PLAN_PATHS.claudeMd);
+		assert.equal(foreign.status, 'manual');
+		assert.equal(foreign.reason, 'The facts name a path that is not an old install location, so the cleanup does not touch it.');
+		const notLarge = buildPlan(fullFacts({ claudeMd: { file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: `# Notes\n\n${INSTALLER_BLOCK}\n`, mode: 0o644, utf8Exact: true, tooLarge: false } }));
+		assert.equal(itemOf(notLarge, 'claude.sentinel').status, 'ready');
+	});
+
+	it('buildPlan: an .env that is too large to read is kept in the backup and never deleted, whatever else the facts say', () => {
+		for (const group of ['claude', 'cursor']) {
+			for (const env of [{ text: '', utf8Exact: false }, { text: INSTALLER_ENV_TEXT, utf8Exact: true }]) {
+				const key = `${group}Env`;
+				const base = fullFacts()[key];
+				const plan = buildPlan(fullFacts({ [key]: { ...base, ...env, tooLarge: true } }));
+				const item = itemOf(plan, `${group}.env-file`);
+				assert.equal(item.status, 'ready', group);
+				assert.equal(item.action, 'keep-in-backup', group);
+			}
+		}
+		assert.equal(itemOf(buildPlan(fullFacts()), 'claude.env-file').action, 'delete');
+	});
 });
 
 describe('buildPlan: the Cursor registrations', () => {
-	const JSONC_REASON = '~/.cursor/mcp.json has comments or trailing commas, which the cleanup does not rewrite.';
+	const JSONC_REASON = '~/.cursor/mcp.json has comments, trailing commas or a byte order mark, which the cleanup does not rewrite.';
 	const UTF8_REASON = '~/.cursor/mcp.json is not valid UTF-8, so the cleanup does not rewrite it.';
 	const byHand = (key) => `Remove the "${key}" entry from ~/.cursor/mcp.json by hand.`;
 
@@ -1924,6 +1973,26 @@ describe('buildPlan: folders, notices, and secrets', () => {
 		assert.deepEqual(item.extraFiles, ['a.mdc', 'notes.mdc']);
 		assert.equal(item.fileCount, 3);
 		assert.deepEqual(item.fingerprint, ['a.mdc', 'make-custom-app.mdc', 'notes.mdc']);
+	});
+
+	it('buildPlan: a rules folder that is a symbolic link says so in the item and the line, and its digest differs from a real folder', () => {
+		const real = { path: PLAN_PATHS.cursorRules, names: ['make-custom-app.mdc'], fileCount: 1, sizeBytes: 800, symlink: false, linkTarget: null };
+		const link = { path: PLAN_PATHS.cursorRules, names: ['make-custom-app.mdc'], fileCount: 0, sizeBytes: 0, symlink: true, linkTarget: '/elsewhere/rules' };
+		const linkPlan = buildPlan(fullFacts({ cursorRules: link }));
+		const item = itemOf(linkPlan, 'cursor.rules-dir');
+		assert.equal(item.symlink, true);
+		assert.equal(item.status, 'ready');
+		assert.equal(item.action, 'move');
+		assert.ok(linkPlan.lines.includes('  move    ~/.cursor/rules/make-custom-app (old Cursor rule folder, a symbolic link; only the link moves)'));
+		assert.deepEqual(item.fingerprint, { symlink: true, linkTarget: '/elsewhere/rules', names: ['make-custom-app.mdc'] });
+		const realPlan = buildPlan(fullFacts({ cursorRules: real }));
+		assert.equal(itemOf(realPlan, 'cursor.rules-dir').symlink, false);
+		assert.deepEqual(itemOf(realPlan, 'cursor.rules-dir').fingerprint, ['make-custom-app.mdc']);
+		assert.ok(realPlan.lines.includes('  move    ~/.cursor/rules/make-custom-app (old Cursor rule folder, 1 files)'));
+		assert.notEqual(linkPlan.digest, realPlan.digest);
+		assert.notEqual(linkPlan.digest, buildPlan(fullFacts({ cursorRules: { ...link, linkTarget: '/other/rules' } })).digest);
+		assert.equal(itemOf(buildPlan(fullFacts({ cursorRules: { ...link, symlink: 'yes' } })), 'cursor.rules-dir').symlink, false, 'only true counts');
+		assert.deepEqual(fingerprint({ kind: 'directory', id: 'cursor.rules-dir', names: ['b.mdc', '.DS_Store', 'a.mdc'], symlink: true }), { symlink: true, linkTarget: null, names: ['a.mdc', 'b.mdc'] });
 	});
 
 	it('buildPlan: own-line and contexts notices', () => {
@@ -2164,7 +2233,7 @@ describe('planLines', () => {
 			'By hand (the cleanup does not do these):',
 			`  claude.mcp-entry: This make-custom-app entry in ~/.claude.json does not point into an old skill folder (server ${tilde(bundle)}). Fix: If it belongs to the old skill, remove the "make-custom-app" entry from ~/.claude.json by hand; the cleanup leaves it.`,
 			`  claude.sentinel: The old skill block in ~/.claude/CLAUDE.md is unclosed. Fix: Remove the lines from ${SENTINEL_OPEN} to ${SENTINEL_CLOSE} by hand.`,
-			'  cursor.mcp-entry.make-app-context: ~/.cursor/mcp.json has comments or trailing commas, which the cleanup does not rewrite. Fix: Remove the "make-app-context" entry from ~/.cursor/mcp.json by hand.',
+			'  cursor.mcp-entry.make-app-context: ~/.cursor/mcp.json has comments, trailing commas or a byte order mark, which the cleanup does not rewrite. Fix: Remove the "make-app-context" entry from ~/.cursor/mcp.json by hand.',
 		]);
 	});
 
@@ -2647,7 +2716,7 @@ describe('fix round 1: the digest, paths, keys, and formats', () => {
 		const server = { 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) };
 		const item = itemOf(buildPlan(fullFacts({ cursorMembers: { ...cursorFileFacts(server), format: 'jsonc' } })), 'cursor.mcp-entry.make-app-context');
 		assert.equal(item.status, 'manual');
-		assert.equal(item.reason, '~/.cursor/mcp.json has comments or trailing commas, which the cleanup does not rewrite.');
+		assert.equal(item.reason, '~/.cursor/mcp.json has comments, trailing commas or a byte order mark, which the cleanup does not rewrite.');
 		for (const format of ['missing', 'unreadable', undefined]) assert.equal(itemOf(buildPlan(fullFacts({ cursorMembers: { ...cursorFileFacts(server), format } })), 'cursor.mcp-entry.make-app-context').status, 'manual');
 	});
 

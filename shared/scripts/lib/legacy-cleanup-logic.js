@@ -673,7 +673,7 @@ function sortedNames(names, dropDsStore) {
  * The identity of one item, so a plan that changed can be told from the one the user saw. It holds names, hashes, and
  * links, never a value, a size, a status, a count of files, or the path of the claude binary. `item.kind` selects the
  * form: a skill folder gives `{ symlink, linkTarget, skillName, version, topNames }` (`.DS_Store` out, names sorted), the
- * rules folder (id cursor.rules-dir) its sorted names, an env-file `{ names, others, lineCount }` (the three known names,
+ * rules folder (id cursor.rules-dir) its sorted names (`{ symlink, linkTarget, names }` when it is a link), an env-file `{ names, others, lineCount }` (the three known names,
  * and a hash of the other assignment names), a registration or member the sha256 of the canonical JSON of its identity
  * (entryIdentity: option values, urls, and headers are left out; the hash is all that is printed, because an argument
  * can be a secret), a block `sha256(removedText):lineStart`. The input carries these identity fields next to the
@@ -683,7 +683,7 @@ function fingerprint(item) {
 	if (!isPlainObject(item)) throw new TypeError('fingerprint needs an item');
 	switch (item.kind) {
 		case 'directory':
-			if (item.id === RULES_ID) return sortedNames(item.names, true);
+			if (item.id === RULES_ID) return item.symlink === true ? { symlink: true, linkTarget: item.linkTarget ?? null, names: sortedNames(item.names, true) } : sortedNames(item.names, true);
 			return {
 				symlink: item.symlink === true,
 				linkTarget: item.linkTarget ?? null,
@@ -821,7 +821,24 @@ function claudeEntryItem(facts, paths) {
 
 function sentinelItem(facts, paths) {
 	const holder = facts.claudeMd;
-	if (!isPlainObject(holder) || typeof holder.file !== 'string' || typeof holder.text !== 'string') return null;
+	if (!isPlainObject(holder) || typeof holder.file !== 'string') return null;
+	if (holder.tooLarge === true) {
+		if (holder.file !== paths.claudeMd) return foreignItem('claude.sentinel', 'text-block', 'remove-block', paths.claudeMd);
+		return {
+			id: 'claude.sentinel',
+			group: 'claude',
+			kind: 'text-block',
+			path: holder.file,
+			action: 'remove-block',
+			status: 'manual',
+			reason: `${CLAUDE_MD} is too large to read, so the cleanup does not look for its old skill block.`,
+			fix: `If it holds the old skill block, remove the lines from ${SENTINEL_OPEN} to ${SENTINEL_CLOSE} by hand.`,
+			fingerprint: fingerprint({ kind: 'text-block', blockStatus: 'too-large' }),
+			lines: [],
+			edited: false,
+		};
+	}
+	if (typeof holder.text !== 'string') return null;
 	const block = findSentinelBlock(holder.text);
 	if (block.status === 'none') return null;
 	if (holder.file !== paths.claudeMd) return foreignItem('claude.sentinel', 'text-block', 'remove-block', paths.claudeMd);
@@ -865,7 +882,7 @@ function envFileItem(group, facts, skill, skillPath, env, envPath, compared) {
 	if (!isPlainObject(env) || typeof env.path !== 'string' || typeof env.text !== 'string' || env.insideSkill !== true) return null;
 	if (env.path !== envPath) return foreignItem(`${group}.env-file`, 'env-file', 'keep-in-backup', envPath);
 	const parsed = parseEnvTemplate(env.text, compared.finalValue);
-	const deletable = parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
+	const deletable = env.tooLarge !== true && parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
 	const keys = parsed.names.filter((name) => Object.hasOwn(ENV_TO_KEY, name));
 	return {
 		id: `${group}.env-file`,
@@ -918,8 +935,8 @@ function rulesDirItem(facts, rules, expectedPath) {
 		status: 'ready',
 		reason: null,
 		fix: null,
-		fingerprint: fingerprint({ kind: 'directory', id: RULES_ID, names: rules.names }),
-		symlink: false,
+		fingerprint: fingerprint({ kind: 'directory', id: RULES_ID, names: rules.names, symlink: rules.symlink === true, linkTarget: rules.linkTarget }),
+		symlink: rules.symlink === true,
 		version: null,
 		fileCount: Number.isInteger(rules.fileCount) ? rules.fileCount : 0,
 		sizeBytes: Number.isInteger(rules.sizeBytes) ? rules.sizeBytes : 0,
@@ -955,7 +972,7 @@ function cursorMemberItems(facts, paths) {
 			const canonicalFile = holder.format === 'json' ? leavesLayoutAlone(holder.text, member.key) : null;
 			if (canonicalFile === null) {
 				status = 'manual';
-				reason = `${CURSOR_JSON} has comments or trailing commas, which the cleanup does not rewrite.`;
+				reason = `${CURSOR_JSON} has comments, trailing commas or a byte order mark, which the cleanup does not rewrite.`;
 				fix = byHand;
 			} else {
 				reformats = !canonicalFile;
@@ -1024,7 +1041,9 @@ function pluginIsUsable(plugin) {
  * registration twice: `entry` (for the names of its env) and `withoutOwn` (the same entry without the plugin's own
  * parts, from dropOwnParts of ./legacy-install), and only `withoutOwn` is judged; an entry without it is never old, so
  * it is never `ready`. A file whose bytes are not UTF-8 exact (`utf8Exact` not true) is never rewritten or deleted. A
- * skill, rules, or plugin folder that is a plugin (a marker folder, or the running plugin inside it) is never planned,
+ * CLAUDE.md that gatherFacts found too large to read (`tooLarge: true`) is a manual sentinel item and such an `.env` is
+ * kept in the backup, so the plan never says "nothing there" about a file that exists. A skill, rules, or plugin
+ * folder that is a plugin (a marker folder, or the running plugin inside it) is never planned,
  * an `.env` is planned only when `insideSkill` is true, and an item whose path is not the old install location under
  * `facts.home` becomes a manual item at that location. When the plugin is not usable (see pluginIsUsable) nothing is
  * `confirmRequired`; the plan and its digest stay the same, so a plan made by check-setup without a search for `claude`
@@ -1093,7 +1112,7 @@ function readyLine(item, short) {
 		case 'env-file':
 			return item.action === 'delete' ? `  delete  ${where} (its keys are in your secrets file)` : `  keep    ${where} in the backup (it holds a value that is not in your secrets file)`;
 		default:
-			if (item.id === RULES_ID) return `  move    ${where} (old Cursor rule folder, ${item.fileCount} files)`;
+			if (item.id === RULES_ID) return item.symlink ? `  move    ${where} (old Cursor rule folder, a symbolic link; only the link moves)` : `  move    ${where} (old Cursor rule folder, ${item.fileCount} files)`;
 			if (item.symlink) return `  move    ${where} (old skill folder, a symbolic link; only the link moves)`;
 			return `  move    ${where} (old skill folder, version ${item.version === null ? 'unknown' : item.version}, ${item.fileCount} files)`;
 	}
