@@ -1164,10 +1164,11 @@ function copyThenRemove(run, from, to, isLink, flags) {
 }
 
 /**
- * Renames `from` to `to` (a link moves as a link). EXDEV falls back to a copy that is checked and then removed; EPERM and
- * EBUSY on Windows are retried 3 times, 500 ms apart. A `step` records the fallback as its method; the restore passes null.
+ * Renames `from` to `to` (a link moves as a link). EXDEV falls back to `copy` (copyThenRemove: a copy that is checked and
+ * then removed); EPERM and EBUSY on Windows are retried 3 times, 500 ms apart. A `step` records the fallback as its
+ * method; the restore passes null.
  */
-function moveFolder(run, step, from, to, isLink, flags) {
+function moveFolder(run, step, from, to, isLink, flags, copy = copyThenRemove) {
 	for (let attempt = 0; ; attempt++) {
 		try {
 			run.fs.renameSync(from, to);
@@ -1185,7 +1186,7 @@ function moveFolder(run, step, from, to, isLink, flags) {
 		step.method = 'copy';
 		writeManifest(run);
 	}
-	copyThenRemove(run, from, to, isLink, flags);
+	copy(run, from, to, isLink, flags);
 }
 
 /** The checks before a skill or rules folder is moved or its `.env` is touched: it is no plugin, and it is still the folder of the plan. Returns its fresh facts. */
@@ -1745,6 +1746,12 @@ function restoreEnvFile(run, entry) {
 	return restored();
 }
 
+/** The EXDEV fallback for a link: it is made again from its text, because a copy of a link that does not resolve from where it lies (a relative one in the backup folder) fails; then the old one is removed. */
+function relinkThenRemove(run, from, to) {
+	run.fs.symlinkSync(run.fs.readlinkSync(from), to);
+	run.fs.unlinkSync(from);
+}
+
 /** Copies into `to` every entry of `from` that `to` lacks; an entry that is there stays as it is, a folder of the copy is filled in too. */
 function copyMissing(fs, from, to) {
 	for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
@@ -1779,7 +1786,7 @@ function restoreDirectory(run, entry) {
 	const isLink = stat.isSymbolicLink();
 	if (!isLink && !stat.isDirectory()) throw new StepFailure(NO_FOLDER_TO_PUT_BACK_TEXT);
 	run.fs.mkdirSync(path.dirname(original), { recursive: true });
-	moveFolder(run, null, backup, original, isLink, { changed: false });
+	moveFolder(run, null, backup, original, isLink, { changed: false }, isLink ? relinkThenRemove : undefined);
 	return restored();
 }
 

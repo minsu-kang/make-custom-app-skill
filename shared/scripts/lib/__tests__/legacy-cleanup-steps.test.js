@@ -4748,6 +4748,8 @@ describe('findBackups', () => {
 		make('migration-backup-2026-10-25T09-00-00Z', { status: 'weird', createdAt: 5 });
 		make('migration-backup-bad', { status: 'complete' });
 		make('migration-backup-2026-10-23T09-00-00Z-x', { status: 'complete' });
+		make('old-migration-backup-2026-10-21T09-00-00Z', { status: 'complete' });
+		make('migration-backup-2026-10-20T09-00-00Z.old', { status: 'complete' });
 		make('notes');
 		put(path.join(base, 'migration-backup-2026-10-24T09-00-00Z'), '{}');
 		fs.symlinkSync(path.join(base, 'notes'), path.join(base, 'migration-backup-2026-10-22T09-00-00Z'));
@@ -4914,8 +4916,7 @@ describe('restoreSteps: the round trip', () => {
 		manifest.steps.forEach((step) => {
 			step.state = 'done';
 		});
-		manifest.status = 'complete';
-		fs.writeFileSync(path.join(backupDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+		fs.writeFileSync(path.join(backupDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 		const rewound = snapshot(h.home);
 		const third = restore(h, backupDir);
 		assert.equal(third.exitCode, 0);
@@ -4930,7 +4931,13 @@ describe('restoreSteps: the round trip', () => {
 			...skippedLines('the registration is still there', 'claude.mcp-entry'),
 		], 'with the states of the manifest wound back, the decisions come from what is on disk');
 		assert.deepEqual(diffSnapshots(rewound, snapshot(h.home)).filter((line) => !line.includes('manifest.json')), []);
-		assert.deepEqual(manifestOf(backupDir).steps.map((step) => step.state), ALL_STEPS.map(() => 'restore-skipped'));
+		assert.deepEqual(manifestOf(backupDir).steps.map((step) => step.state), ALL_STEPS.map(() => 'restore-skipped'), 'the states are written although the status stays restored');
+
+		editManifest(backupDir, (manifest) => {
+			manifest.status = 'partial';
+		});
+		assert.equal(restore(h, backupDir).exitCode, 0);
+		assert.equal(manifestOf(backupDir).status, 'restored', 'a status that changes is written although no step did');
 	});
 
 	it('the three injected throws of Task 13 (after the claude mcp remove, after the CLAUDE.md rename, after the mcp.json rename): restore gives back the snapshot', POSIX_ONLY, () => {
@@ -5193,6 +5200,26 @@ describe('restoreSteps: CLAUDE.md', () => {
 		assert.deepEqual(manifestOf(backupDir).steps.map((step) => step.state), ['restored', 'restored', 'restore-skipped', 'restore-skipped']);
 	});
 
+	it('the block goes back to its old place: in the middle of the file, at its start, and at its end', POSIX_ONLY, () => {
+		const notes = '# My notes\n';
+		const layouts = {
+			'in the middle': `${notes}\n${INSTALLER_BLOCK}\n\n# After the block\n`,
+			'at the start': `${INSTALLER_BLOCK}\n\n# After the block\n`,
+			'at the end': `${notes}\n${INSTALLER_BLOCK}\n`,
+		};
+		for (const [label, text] of Object.entries(layouts)) {
+			const h = fakeHome('restore-block-place', { editors: ['claude'] });
+			fs.writeFileSync(h.paths.claudeMd, text);
+			const before = stateOf(h);
+			const applied = apply(h, prepare(h), { groups: ['claude'] });
+			assert.equal(fs.readFileSync(h.paths.claudeMd, 'utf8').includes('<!-- make-custom-app-skill -->'), false, label);
+			const result = restore(h, applied.backupDir);
+			assert.equal(result.lines.includes('restored claude.sentinel'), true, `${label}: put back where the removal cut it, not at the end`);
+			assert.equal(fs.readFileSync(h.paths.claudeMd, 'utf8'), text, label);
+			assertBack(h, before, label);
+		}
+	});
+
 	it('a CLAUDE.md that is a link gets its block back at the target, and the link stays', POSIX_ONLY, () => {
 		const h = fakeHome('restore-md-link', { editors: ['claude'] });
 		const target = path.join(h.root, 'notes', 'CLAUDE.md');
@@ -5375,6 +5402,8 @@ describe('restoreSteps: the Claude registration', () => {
 		assert.deepEqual(result.lines, [...skippedLines('this step never ran', 'claude.skill-dir', 'claude.env-file', 'claude.sentinel'), `skipped  claude.mcp-entry: ${STILL}`, RESTART_LINE]);
 		assert.equal(mcpCalls(h).length, calls, 'add-json was not run');
 		assert.equal(hasEntry(h), true);
+		const after = stepOf(manifestOf(applied.backupDir), 'claude.mcp-entry');
+		assert.deepEqual([after.state, after.error], ['restore-skipped', null], 'a step that is skipped no longer carries the error of the run');
 	});
 
 	it('failures of the claude call: no binary, a failing add-json, a stderr line with a secret, a start error, a key that is not there afterwards, a file that stops parsing', POSIX_ONLY, () => {
@@ -5583,6 +5612,54 @@ describe('restoreSteps: the folders', () => {
 		assert.equal(stepOf(manifestOf(applied.backupDir), 'cursor.skill-dir').state, 'restored');
 	});
 
+	it('only a running step with method copy is completed from its backup; another state or method, a missing or odd backup, or an odd original is skipped', POSIX_ONLY, () => {
+		const rounds = [
+			['running with method rename', { state: 'running', method: 'rename' }, () => {}],
+			['done with method copy', { state: 'done', method: 'copy' }, () => {}],
+			['running with method copy and no backup', { state: 'running', method: 'copy' }, ({ backup }) => fs.rmSync(backup, { recursive: true })],
+			['running with method copy and a file as the backup', { state: 'running', method: 'copy' }, ({ backup }) => { fs.rmSync(backup, { recursive: true }); put(backup, 'a file\n'); }],
+			['running with method copy and a link as the backup', { state: 'running', method: 'copy' }, ({ backup, h }) => { fs.rmSync(backup, { recursive: true }); fs.symlinkSync(h.root, backup); }],
+			['running with method copy and a file as the original', { state: 'running', method: 'copy' }, ({ p }) => { fs.rmSync(p.cursorSkill, { recursive: true }); put(p.cursorSkill, 'a file\n'); }],
+		];
+		for (const [label, fields, change] of rounds) {
+			const { h, p, backupDir } = appliedHome('restore-completing', { editors: ['cursor'] }, { groups: ['cursor'] });
+			const backup = path.join(backupDir, 'cursor', 'skill-dir');
+			put(path.join(p.cursorSkill, 'USER.md'), 'a newer install\n');
+			editManifest(backupDir, (manifest) => {
+				Object.assign(stepOf(manifest, 'cursor.skill-dir'), fields);
+				stepOf(manifest, 'cursor.env-file').state = 'failed';
+			});
+			change({ h, p, backup });
+			const result = restore(h, backupDir);
+			assert.deepEqual(result.lines.filter((line) => line.includes('cursor.skill-dir')), ['skipped  cursor.skill-dir: the folder exists again'], label);
+			assert.equal(result.exitCode, 0, label);
+			assert.equal(fs.existsSync(path.join(p.cursorSkill, 'SKILL.md')), false, `${label}: nothing was copied in`);
+		}
+	});
+
+	it('a symlinked skill folder with a relative link goes back through an EXDEV copy as the same link', POSIX_ONLY, () => {
+		const h = fakeHome('restore-relative-link', { editors: ['claude'], symlinkSkill: true });
+		const p = h.paths;
+		fs.rmSync(p.claudeSkill);
+		const relative = path.relative(path.dirname(p.claudeSkill), p.skillTarget);
+		fs.symlinkSync(relative, p.claudeSkill);
+		const before = stateOf(h);
+		const applied = apply(h, prepare(h), { groups: ['claude'] });
+		assert.equal(applied.exitCode, 0);
+		const exdev = {
+			...fs,
+			renameSync(from, to) {
+				if (to === p.claudeSkill) throw errorWithCode('EXDEV');
+				return fs.renameSync(from, to);
+			},
+		};
+		const result = restore(h, applied.backupDir, { fs: exdev });
+		assert.equal(result.exitCode, 0, 'a link that does not resolve from the backup folder is made again from its text');
+		assert.equal(fs.readlinkSync(p.claudeSkill), relative);
+		assert.throws(() => fs.lstatSync(path.join(applied.backupDir, 'claude', 'skill-dir')), { code: 'ENOENT' }, 'the link in the backup is removed');
+		assertBack(h, before, 'the link is back');
+	});
+
 	it('a copy that has to be completed fills in links and folders too, and leaves a file where the user has a folder alone', POSIX_ONLY, () => {
 		const h = fakeHome('restore-copy-complete', { editors: ['cursor'] });
 		const p = h.paths;
@@ -5591,6 +5668,9 @@ describe('restoreSteps: the folders', () => {
 		fs.mkdirSync(path.join(p.cursorSkill, 'locked'));
 		put(path.join(p.cursorSkill, 'locked', 'inner.txt'), 'inner\n');
 		fs.chmodSync(path.join(p.cursorSkill, 'locked'), 0o750);
+		put(path.join(p.cursorSkill, 'linked', 'x.txt'), 'x\n');
+		const outside = path.join(h.root, 'outside-linked');
+		fs.mkdirSync(outside);
 		const prep = prepare(h);
 		const treeBefore = snapshot(p.cursorSkill);
 		const stuck = {
@@ -5601,7 +5681,8 @@ describe('restoreSteps: the folders', () => {
 			},
 			rmSync(file, options) {
 				if (file === p.cursorSkill) {
-					for (const name of ['locked', 'scripts', 'SKILL.md']) fs.rmSync(path.join(file, name), { recursive: true });
+					for (const name of ['locked', 'scripts', 'SKILL.md', 'linked']) fs.rmSync(path.join(file, name), { recursive: true });
+					fs.symlinkSync(outside, path.join(file, 'linked'));
 					fs.rmSync(path.join(file, 'mcp-server', 'node_modules', '.bin'), { recursive: true });
 					fs.rmSync(path.join(file, 'mcp-server', 'dist'), { recursive: true });
 					put(path.join(file, 'scripts'), 'a file where the old folder was\n');
@@ -5622,6 +5703,8 @@ describe('restoreSteps: the folders', () => {
 		assert.equal(after.get('scripts').type, 'file', 'a file where the user has put one stays');
 		assert.equal(fs.readFileSync(path.join(p.cursorSkill, 'scripts'), 'utf8'), 'a file where the old folder was\n');
 		assert.equal(after.has('mcp-server/dist/index.js'), true);
+		assert.equal(after.get('linked').type, 'symlink', 'a link where the old folder was stays a link');
+		assert.deepEqual(fs.readdirSync(outside), [], 'nothing is written through it');
 	});
 
 	it('a folder is renamed back; EXDEV copies it back and removes the backup; EPERM and EBUSY are retried on win32 only', POSIX_ONLY, () => {
@@ -5640,6 +5723,7 @@ describe('restoreSteps: the folders', () => {
 		assert.equal(fs.existsSync(path.join(backupDir, 'cursor', 'skill-dir')), false, 'the backup copy is removed');
 		assert.equal(snapshot(p.cursorSkill).get('mcp-server/node_modules/.bin/tool').linkTarget, '../fake/index.js');
 		assert.deepEqual(diffSnapshots(before.files, stateOf(h).files).filter((line) => !line.includes('node_modules')), []);
+		assert.equal(stepOf(manifestOf(backupDir), 'cursor.skill-dir').method, 'rename', 'the manifest keeps the method of the apply run');
 
 		const flaky = (platform, failures, code, label) => {
 			const made = appliedHome(`restore-eperm-${label}`, { editors: ['cursor'] }, { groups: ['cursor'] });
@@ -5777,6 +5861,15 @@ describe('restoreSteps: manifests that name the wrong places or have the wrong s
 			change: () => {},
 			named: (h, dir) => path.join(dir, 'claude', 'skill-dir'),
 		});
+		expectRefusal('a backup that reaches the backup folder through another link', {
+			before: (h, dir) => fs.symlinkSync(dir, path.join(h.root, 'alias')),
+			change: (m, h) => { stepOf(m, 'cursor.skill-dir').backup = path.join(h.root, 'alias', 'cursor', 'skill-dir'); },
+			named: (h) => path.join(h.root, 'alias', 'cursor', 'skill-dir'),
+		});
+		expectRefusal('a path that is very long is shown cut to 300 characters', {
+			change: (m) => { stepOf(m, 'cursor.skill-dir').backup = 'a'.repeat(1000); },
+			named: () => 'a'.repeat(300),
+		});
 		expectRefusal('a text-block file that points elsewhere', {
 			change: (m, h) => { stepOf(m, 'claude.sentinel').file = elsewhere(h, 'CLAUDE.md'); },
 			named: (h) => elsewhere(h, 'CLAUDE.md'),
@@ -5859,7 +5952,9 @@ describe('restoreSteps: manifests that name the wrong places or have the wrong s
 			['a template that names a secret of another kind', (m) => { stepOf(m, 'claude.env-file').template = [{ prefix: 'X=', $secret: 'jira-api-token' }]; }],
 			['a template item of the wrong shape', (m) => { stepOf(m, 'claude.env-file').template = [5]; }],
 			['a template item with a prefix that is no string', (m) => { stepOf(m, 'claude.env-file').template = [{ prefix: 5, $secret: 'openai-api-key' }]; }],
+			['a template item with an extra key', (m) => { stepOf(m, 'claude.env-file').template = [{ prefix: 'X=', $secret: 'openai-api-key', other: 1 }]; }],
 			['a template that is no list', (m) => { stepOf(m, 'claude.env-file').template = 'x'; }],
+			['a step that is running and has a bad mode', (m) => { Object.assign(stepOf(m, 'claude.sentinel'), { state: 'running', mode: -1 }); }],
 			['an eol that is neither', (m) => { stepOf(m, 'claude.env-file').eol = '\r'; }],
 			['a trailingNewline that is no boolean', (m) => { stepOf(m, 'claude.env-file').trailingNewline = 'yes'; }],
 			['a bom that is no boolean', (m) => { stepOf(m, 'claude.env-file').bom = 1; }],
@@ -5896,6 +5991,37 @@ describe('restoreSteps: manifests that name the wrong places or have the wrong s
 		assert.deepEqual(diffSnapshots(snap, snapshot(h.root, { exclude: ['claude-log.jsonl'] })), [], 'no refusal changed anything');
 		assert.equal(mcpCalls(h).length, calls);
 		assert.equal(restore(h, backupDir).exitCode, 0, 'the untouched manifest restores');
+	});
+});
+
+describe('restoreSteps: the limits of a manifest', () => {
+	it('a manifest of 64 steps is accepted and one of 65 is refused', POSIX_ONLY, () => {
+		const { h, backupDir } = appliedHome('restore-step-cap', { editors: ['cursor'] }, { groups: ['cursor'] });
+		const pristine = fs.readFileSync(path.join(backupDir, 'manifest.json'), 'utf8');
+		const withSteps = (count) => editManifest(backupDir, (manifest) => {
+			const member = stepOf(manifest, 'cursor.mcp-entry.make-app-context');
+			while (manifest.steps.length < count) manifest.steps.push({ ...member, state: 'pending', id: `cursor.mcp-entry.k${manifest.steps.length}`, key: `k${manifest.steps.length}` });
+		});
+		withSteps(65);
+		assert.deepEqual(restore(h, backupDir), refusal(h, backupDir, notWritten(backupDir)));
+		fs.writeFileSync(path.join(backupDir, 'manifest.json'), pristine);
+		withSteps(64);
+		const result = restore(h, backupDir);
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines.filter((line) => line.endsWith('this step never ran')).length, 60);
+	});
+
+	it('a mode of 0 and a mode of 0777 are accepted and put back', POSIX_ONLY, () => {
+		for (const mode of [0o777, 0]) {
+			const h = fakeHome('restore-mode-limits', { editors: ['claude'], envText: `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n` });
+			const applied = apply(h, prepare(h), { groups: ['claude'] });
+			editManifest(applied.backupDir, (manifest) => {
+				stepOf(manifest, 'claude.env-file').mode = mode;
+			});
+			assert.equal(restore(h, applied.backupDir).exitCode, 0, `mode ${mode.toString(8)}`);
+			assert.equal(fs.statSync(h.paths.claudeEnv).mode & 0o777, mode);
+			fs.chmodSync(h.paths.claudeEnv, 0o600);
+		}
 	});
 });
 
@@ -5943,6 +6069,10 @@ describe('restoreSteps: the manifest at the end', () => {
 		assert.equal(restore(partial.h, partial.backupDir, { fs: counting }).exitCode, 4);
 		assert.deepEqual(writes, [], 'a restore that fails the same way writes nothing either');
 		assert.equal(fs.readFileSync(path.join(partial.backupDir, 'manifest.json'), 'utf8'), first);
+		fs.mkdirSync(partial.p.cursorMcp);
+		assert.equal(restore(partial.h, partial.backupDir).exitCode, 4);
+		const member = stepOf(manifestOf(partial.backupDir), 'cursor.mcp-entry.make-app-context');
+		assert.deepEqual([member.state, member.error], ['done', '~/.cursor/mcp.json could not be read'], 'a new error is written although the state and the status are the same');
 	});
 });
 
@@ -5967,8 +6097,9 @@ describe('restoreSteps: more cases of the round trip', () => {
 		const h = fakeHome('restore-two-members', { editors: ['cursor'] });
 		const p = h.paths;
 		const json = readJson(p.cursorMcp);
-		json.mcpServers['second-old'] = { command: process.execPath, args: [path.join(p.cursorSkill, 'mcp-server', 'dist', 'index.js')] };
-		fs.writeFileSync(p.cursorMcp, `${JSON.stringify(json, null, 2)}\n`);
+		const members = { 'make-app-context': json.mcpServers['make-app-context'], 'other-cursor': json.mcpServers['other-cursor'] };
+		members['second-old'] = { command: process.execPath, args: [path.join(p.cursorSkill, 'mcp-server', 'dist', 'index.js')] };
+		fs.writeFileSync(p.cursorMcp, `${JSON.stringify({ mcpServers: members }, null, 2)}\n`);
 		const before = stateOf(h);
 		const prep = prepare(h);
 		assert.deepEqual(prep.plan.items.filter((item) => item.kind === 'json-member').map((item) => item.id), ['cursor.mcp-entry.make-app-context', 'cursor.mcp-entry.second-old']);
@@ -5978,6 +6109,32 @@ describe('restoreSteps: more cases of the round trip', () => {
 		assert.equal(result.exitCode, 0);
 		assert.deepEqual(result.lines.filter((line) => line.includes('cursor.mcp-entry')), restoredLines('cursor.mcp-entry.second-old', 'cursor.mcp-entry.make-app-context'));
 		assertBack(h, before, 'the file is byte-equal again');
+	});
+
+	it('CLAUDE.md and ~/.cursor/mcp.json come back with the mode they had', POSIX_ONLY, () => {
+		const h = fakeHome('restore-file-modes');
+		fs.chmodSync(h.paths.claudeMd, 0o640);
+		fs.chmodSync(h.paths.cursorMcp, 0o660);
+		const before = stateOf(h);
+		const applied = apply(h, prepare(h));
+		assert.equal(restore(h, applied.backupDir).exitCode, 0);
+		assert.equal(fs.statSync(h.paths.claudeMd).mode & 0o777, 0o640);
+		assert.equal(fs.statSync(h.paths.cursorMcp).mode & 0o777, 0o660);
+		assertBack(h, before, 'both files');
+	});
+
+	it('a Cursor file with tabs and CRLF, and one with four spaces and no final newline, come back byte-equal', POSIX_ONLY, () => {
+		for (const [label, indent, eol, trailing] of [['tabs and CRLF', '\t', '\r\n', true], ['four spaces, LF, no final newline', '    ', '\n', false]]) {
+			const h = fakeHome('restore-layout', { editors: ['cursor'] });
+			const text = JSON.stringify(readJson(h.paths.cursorMcp), null, indent).replace(/\n/g, eol) + (trailing ? eol : '');
+			fs.writeFileSync(h.paths.cursorMcp, text);
+			const before = stateOf(h);
+			const applied = apply(h, prepare(h), { groups: ['cursor'] });
+			assert.deepEqual(Object.keys(readJson(h.paths.cursorMcp).mcpServers), ['other-cursor'], label);
+			assert.equal(restore(h, applied.backupDir).exitCode, 0, label);
+			assert.equal(fs.readFileSync(h.paths.cursorMcp, 'utf8'), text, label);
+			assertBack(h, before, label);
+		}
 	});
 
 	it('restoreSteps takes the real fs, spawnSync, sleep, and platform when none is given', POSIX_ONLY, () => {
