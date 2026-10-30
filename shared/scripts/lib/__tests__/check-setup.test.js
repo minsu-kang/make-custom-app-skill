@@ -5,7 +5,7 @@
  * calling the real Jira. The file moves HOME and the temp folders into a temporary root first (isolate-home); the tests
  * of a declined cleanup run on a synthetic old install (buildFakeLegacyHome) and read the marker the CLI writes.
  */
-require('./isolate-home');
+const { TEST_ROOT, REAL_HOME } = require('./isolate-home');
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -23,7 +23,7 @@ process.env.USERPROFILE = home;
 const { CURSOR_SETTINGS_PATH, SECRETS_PATH } = require('../settings');
 const { PLUGIN_ROOT, setupCommand } = require('../paths');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
-const { buildFakeLegacyHome } = require('./fake-legacy-home');
+const { FAKE, buildFakeLegacyHome } = require('./fake-legacy-home');
 
 const CHECK_SETUP = path.join(__dirname, '..', '..', 'check-setup.js');
 const CLEANUP_LEGACY = path.join(__dirname, '..', '..', 'cleanup-legacy.js');
@@ -34,6 +34,7 @@ const DATE_BREAKER = path.join(aux, 'break-date-now.js');
 const EMAIL = 'dev@make.com';
 const SECRET_VALUES = ['MAKE_KEY_secret_value', 'JIRA_TOKEN_secret_value', 'PINECONE_secret_value', 'OPENAI_secret_value', 'ENV_OPENAI_secret_value'];
 const UPDATE_CACHE_FILE = path.join(tmp, 'make-custom-app-update-check.json');
+const OLD_INSTALL_SEEDS = [FAKE.pinecone, FAKE.openai, FAKE.otherToken, FAKE.cursorToken];
 
 fs.writeFileSync(
 	BLOCKER,
@@ -121,8 +122,8 @@ function save(config) {
 	}
 }
 
-function assertNoSecrets(r) {
-	for (const value of SECRET_VALUES) assert.ok(!r.stdout.includes(value) && !r.stderr.includes(value), `${value} leaked`);
+function assertNoSecrets(r, extra = []) {
+	for (const value of [...SECRET_VALUES, ...extra]) assert.ok(!r.stdout.includes(value) && !r.stderr.includes(value), `${value} leaked`);
 }
 
 describe('the test harness', () => {
@@ -132,6 +133,11 @@ describe('the test harness', () => {
 		});
 		assert.equal(r.status, 0);
 		assert.ok(connectAttempts() >= 1);
+	});
+
+	it('keeps HOME, the temp folder, and the secrets file inside the test root', () => {
+		assert.notEqual(os.homedir(), REAL_HOME);
+		for (const folder of [os.homedir(), os.tmpdir(), home, tmp, SECRETS_PATH, process.env.CLAUDE_CONFIG_DIR]) assert.ok(folder.startsWith(TEST_ROOT + path.sep), `${folder} is outside the test root`);
 	});
 });
 
@@ -509,7 +515,7 @@ describe('check-setup in a fake HOME, after the old install was declined', () =>
 		assert.equal(r.stderr, '');
 		assert.ok(r.stdout.includes(`\n${legacyLines(h, KEPT).join('\n')}\n\nSetup OK.\n`), r.stdout);
 		assert.doesNotMatch(r.stdout, /LEGACY_INSTALL/);
-		assertNoSecrets(r);
+		assertNoSecrets(r, OLD_INSTALL_SEEDS);
 		assert.equal(connectAttempts(), 0);
 	});
 
@@ -594,6 +600,7 @@ describe('check-setup in a fake HOME, after the old install was declined', () =>
 		const none = runIn(h, ['--json']);
 		assert.equal(none.status, 0, none.stdout + none.stderr);
 		assert.equal(JSON.parse(none.stdout).legacyDeclinedAt, null, 'no marker');
+		assertNoSecrets(none, OLD_INSTALL_SEEDS);
 
 		const declinedAt = Date.now() - 2 * DAY;
 		const digest = planDigestOf(h);
@@ -603,6 +610,7 @@ describe('check-setup in a fake HOME, after the old install was declined', () =>
 		const report = JSON.parse(fresh.stdout);
 		assert.equal(report.legacyDeclinedAt, new Date(declinedAt).toISOString());
 		assert.deepEqual(report.legacyInstall.map((item) => item.kind), ['skill-dir', 'sentinel', 'mcp-entry'], 'the leftovers are still listed');
+		assertNoSecrets(fresh, OLD_INSTALL_SEEDS);
 
 		writeMarker(h, { digest, declinedAt: Date.now() - 8 * DAY });
 		assert.equal(JSON.parse(runIn(h, ['--json']).stdout).legacyDeclinedAt, null, 'an expired marker');
