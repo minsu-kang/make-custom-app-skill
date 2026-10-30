@@ -1,9 +1,11 @@
 /**
- * Tests for legacy-cleanup-steps.js: the facts of an old install, finding and running `claude`, the cleanup lock, and the
- * decline marker. The file moves HOME and the temp folders into a temporary root first (isolate-home). Every case runs on
- * a home that buildFakeLegacyHome wrote under that root, with fake values only (FAKE), and passes its folders in. The
- * fake `claude` of that helper is the only binary that runs: a test that could reach a fallback folder injects
- * isExecutable and spawnSync, so no `claude` of the host is ever started.
+ * Tests for legacy-cleanup-steps.js: the facts of an old install, finding and running `claude`, the cleanup lock, the
+ * decline marker, and the apply step (preflightApply and applySteps). The file moves HOME and the temp folders into a
+ * temporary root first (isolate-home). Every case runs on a home that buildFakeLegacyHome wrote under that root, with
+ * fake values only (FAKE), and passes its folders in. The fake `claude` of that helper is the only binary that runs: a
+ * test that could reach a fallback folder injects isExecutable and spawnSync, so no `claude` of the host is ever started.
+ * A case that depends on the mode of ~/.claude.json says which one it means: the cleanup never writes that file, so the
+ * mode of Claude Code's own file (0600) and of one an installer created (0644) both stay as they are.
  */
 const { TEST_ROOT, assertIsolated } = require('./isolate-home');
 const { describe, it, before, after, afterEach } = require('node:test');
@@ -2218,6 +2220,12 @@ describe('applySteps and preflightApply: parameters', () => {
 			'an env-file action that is neither delete nor keep-in-backup': (plan) => {
 				plan.items.find((item) => item.id === 'claude.env-file').action = 'move';
 			},
+			'a group that does not match the id': (plan) => {
+				plan.items.find((item) => item.id === 'claude.sentinel').group = 'cursor';
+			},
+			'an id that is not a string': (plan) => {
+				plan.items.find((item) => item.id === 'claude.sentinel').id = 5;
+			},
 			'a Cursor key that is empty': (plan) => {
 				const item = plan.items.find((candidate) => candidate.id === 'cursor.mcp-entry.make-app-context');
 				item.id = 'cursor.mcp-entry.';
@@ -2228,6 +2236,35 @@ describe('applySteps and preflightApply: parameters', () => {
 		}
 		assert.equal(fs.existsSync(path.join(h.home, '.make-custom-app')), false, 'no folder was created');
 		assert.equal(mcpCalls(h).length, 0, 'claude was not asked to remove anything');
+	});
+
+	it('only ready items run: a manual item and a blocked item are left alone, and the key of a Cursor item comes from its id', POSIX_ONLY, () => {
+		const manual = fakeHome('apply-manual', { claudeEntry: 'unrelated', editors: ['claude'] });
+		const manualPrep = prepare(manual);
+		assert.equal(manualPrep.plan.items.find((item) => item.id === 'claude.mcp-entry').status, 'manual');
+		const never = applySpawn(manual.root);
+		const manualResult = apply(manual, manualPrep, { groups: ['claude'], spawnSync: never.spawn });
+		assert.equal(manualResult.exitCode, 0);
+		assert.deepEqual(manualResult.lines.slice(0, 3), ['done    claude.sentinel', 'done    claude.env-file', 'done    claude.skill-dir']);
+		assert.equal(never.calls.length, 0, 'claude was not asked to remove an entry that is not the old skill\'s');
+		assert.equal(hasEntry(manual), true);
+		assert.equal(manualResult.lines.includes(BACKUP_COPY_TEXT), false);
+
+		const blocked = fakeHome('apply-blocked', { editors: ['claude'] });
+		const blockedPrep = prepare(blocked, { locate: false });
+		assert.equal(blockedPrep.plan.items.find((item) => item.id === 'claude.mcp-entry').status, 'blocked');
+		const blockedResult = apply(blocked, blockedPrep, { groups: ['claude'] });
+		assert.equal(blockedResult.exitCode, 0);
+		assert.deepEqual(blockedResult.lines.slice(0, 3), ['done    claude.sentinel', 'done    claude.env-file', 'done    claude.skill-dir']);
+		assert.equal(hasEntry(blocked), true);
+
+		const hostile = fakeHome('apply-hostile-key', { editors: ['cursor'] });
+		const hostilePrep = prepare(hostile);
+		const plan = cloneOf(hostilePrep.plan);
+		plan.items.find((item) => item.id === 'cursor.mcp-entry.make-app-context').key = 'other-cursor';
+		const result = apply(hostile, { ...hostilePrep, plan }, { groups: ['cursor'] });
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(Object.keys(readJson(hostile.paths.cursorMcp).mcpServers), ['other-cursor'], 'the member that the id names was removed');
 	});
 
 	it('applySteps with no ready item in the named groups creates no backup folder and returns exit 0', POSIX_ONLY, () => {
@@ -2520,7 +2557,87 @@ describe('applySteps: the Claude group', () => {
 			assert.deepEqual(writes[2 + 2 * index].steps.map((step) => step.state), ids.map((_, i) => (i <= index ? 'done' : 'pending')), `${id} done`);
 		});
 		assert.equal(writes[writes.length - 1].status, 'complete');
+		const pending = Object.fromEntries(writes[0].steps.map((step) => [step.id, step]));
+		const p = h.paths;
+		assert.deepEqual(pending['claude.mcp-entry'], { id: 'claude.mcp-entry', type: 'claude-mcp-entry', state: 'pending', error: null, file: p.claudeJson, key: 'make-custom-app', scope: 'user', position: null, entry: null });
+		assert.deepEqual(pending['claude.sentinel'], { id: 'claude.sentinel', type: 'text-block', state: 'pending', error: null, file: p.claudeMd, realPath: p.claudeMd, mode: null, offset: null, removedText: null, sha256Before: null, sha256After: null });
+		assert.deepEqual(pending['claude.env-file'], { id: 'claude.env-file', type: 'env-file', state: 'pending', error: null, path: p.claudeEnv, mode: null, action: 'delete', eol: null, trailingNewline: null, bom: null, template: null });
+		assert.deepEqual(pending['claude.skill-dir'], { id: 'claude.skill-dir', type: 'directory', state: 'pending', error: null, original: p.claudeSkill, backup: path.join(backupOf(h), 'claude', 'skill-dir'), symlink: false, method: 'rename' });
+		assert.deepEqual(pending['cursor.mcp-entry.make-app-context'], {
+			id: 'cursor.mcp-entry.make-app-context',
+			type: 'json-member',
+			state: 'pending',
+			error: null,
+			file: p.cursorMcp,
+			realPath: p.cursorMcp,
+			key: 'make-app-context',
+			position: null,
+			indent: null,
+			eol: null,
+			trailingNewline: null,
+			mode: null,
+			entry: null,
+		});
+		assert.equal(pending['cursor.rules-dir'].backup, path.join(backupOf(h), 'cursor', 'rules-dir'));
 		assert.deepEqual(onDisk, [[ 'claude.mcp-entry:running', ...ids.slice(1).map((id) => `${id}:pending`)]], 'the manifest on disk showed the first step running before claude ran');
+	});
+
+	it('every change happens only after its step is recorded as running in the manifest on disk', POSIX_ONLY, () => {
+		const observe = (h, seen) => {
+			const p = h.paths;
+			const dir = backupOf(h);
+			const note = (id) => {
+				const step = stepOf(manifestOf(dir), id);
+				seen.push([id, step.state, step.error]);
+			};
+			return {
+				...fs,
+				renameSync(from, to) {
+					if (to === p.claudeMd) note('claude.sentinel');
+					if (to === p.cursorMcp) note('cursor.mcp-entry.make-app-context');
+					if (from === p.claudeSkill) note('claude.skill-dir');
+					if (from === p.cursorSkill) note('cursor.skill-dir');
+					if (from === p.cursorRules) note('cursor.rules-dir');
+					return fs.renameSync(from, to);
+				},
+				unlinkSync(file) {
+					if (file === p.claudeEnv) note('claude.env-file');
+					if (file === p.cursorEnv) note('cursor.env-file');
+					return fs.unlinkSync(file);
+				},
+				chmodSync(file, mode) {
+					if (file === p.claudeEnv) note('claude.env-file');
+					if (file === p.cursorEnv) note('cursor.env-file');
+					return fs.chmodSync(file, mode);
+				},
+				noteSecrets: () => note('secrets'),
+			};
+		};
+		const deleting = fakeHome('record-first-delete', { secrets: 'missing' });
+		const seenDelete = [];
+		const secretsFile = path.join(deleting.home, '.make-custom-app-skill-secrets');
+		const realRename = fs.renameSync;
+		const observed = observe(deleting, seenDelete);
+		// upsertSecretsFile writes through the fs module itself, so its rename is watched on the module
+		fs.renameSync = function renameSync(from, to) {
+			if (to === secretsFile) observed.noteSecrets();
+			return realRename.call(this, from, to);
+		};
+		try {
+			assert.equal(apply(deleting, prepare(deleting), { fs: observed }).exitCode, 0);
+		} finally {
+			fs.renameSync = realRename;
+		}
+		assert.deepEqual(
+			seenDelete.map(([id]) => id).sort(),
+			['claude.env-file', 'claude.sentinel', 'claude.skill-dir', 'cursor.env-file', 'cursor.mcp-entry.make-app-context', 'cursor.rules-dir', 'cursor.skill-dir', 'secrets'],
+		);
+		for (const [id, state, error] of seenDelete) assert.deepEqual([id, state, error], [id, 'running', null], 'the step was already running when it changed something');
+
+		const keeping = fakeHome('record-first-keep', { envText: `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n` });
+		const seenKeep = [];
+		assert.equal(apply(keeping, prepare(keeping), { fs: observe(keeping, seenKeep) }).exitCode, 0);
+		assert.deepEqual(seenKeep.filter(([id]) => id.endsWith('env-file')).map(([id, state]) => [id, state]), [['claude.env-file', 'running'], ['cursor.env-file', 'running']]);
 	});
 
 	it('the manifest records each step as running before its change', POSIX_ONLY, () => {
@@ -2568,7 +2685,7 @@ describe('applySteps: the Cursor group', () => {
 	it('apply cursor: the member removed, key order, indent, and trailing newline kept; other-cursor intact', POSIX_ONLY, () => {
 		const layouts = [
 			{ indent: '  ', eol: '\n', trailing: true, mode: 0o600 },
-			{ indent: '    ', eol: '\n', trailing: false, mode: 0o640 },
+			{ indent: '    ', eol: '\n', trailing: false, mode: 0o664 },
 			{ indent: '\t', eol: '\r\n', trailing: true, mode: 0o644 },
 		];
 		for (const layout of layouts) {
@@ -2795,6 +2912,21 @@ describe('applySteps: secrets in the backup and in the output', () => {
 	});
 });
 
+describe('applySteps: secrets that only one source knows', () => {
+	it('a failing claude line shows as <redacted> a value that only the registration, a Cursor member, a .env, or the secrets file holds', POSIX_ONLY, () => {
+		const h = fakeHome('redact-sources', { secrets: 'conflict', envText: INSTALLER_ENV_TEXT.replace(FAKE.openai, 'fake-openai-0002') });
+		const claudeJson = readJson(h.paths.claudeJson);
+		claudeJson.mcpServers['make-custom-app'].env.EXTRA_TOKEN = 'fake-registration-0004';
+		fs.writeFileSync(h.paths.claudeJson, `${JSON.stringify(claudeJson, null, 2)}\n`);
+		const prep = prepare(h);
+		const seeds = ['fake-registration-0004', FAKE.cursorToken, 'fake-openai-0002', FAKE.conflictPinecone];
+		const stub = recorder({ status: 1, stdout: '', stderr: `${seeds.join(' | ')}\n` });
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn });
+		assert.equal(result.lines[0], 'failed  claude.mcp-entry: <redacted> | <redacted> | <redacted> | <redacted>');
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').error, '<redacted> | <redacted> | <redacted> | <redacted>');
+	});
+});
+
 describe('applySteps: the secrets step', () => {
 	const SECRETS_FILE = (h) => path.join(h.home, '.make-custom-app-skill-secrets');
 
@@ -2841,6 +2973,11 @@ describe('applySteps: the secrets step', () => {
 		assert.equal(text, `editor: claude\nopenai-api-key: fake-user-value-0003\npinecone-api-key: ${FAKE.pinecone}\npinecone-index-name: ${FAKE.index}\n`);
 		assert.deepEqual(manifestOf(result.backupDir).secretsKeysAdded, ['pinecone-api-key', 'pinecone-index-name']);
 		assert.deepEqual(stepOf(manifestOf(result.backupDir), 'secrets').keys, ['pinecone-api-key', 'pinecone-index-name']);
+		assert.deepEqual(
+			stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context').entry.env,
+			{ PINECONE_API_KEY: { $secret: 'pinecone-api-key' }, OPENAI_API_KEY: FAKE.openai, PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' } },
+			'a value that equals the secrets file as it is now is a reference, and one that differs stays literal',
+		);
 		assert.equal(result.exitCode, 4, 'the .env still holds the value of the old key, which the secrets file now holds differently');
 		assert.deepEqual(
 			result.lines.slice(0, 3),
@@ -3082,6 +3219,8 @@ describe('applySteps: the claude.mcp-entry step', () => {
 			['an error without a code', { status: null, error: new Error(`secret ${FAKE.pinecone}`), stdout: '', stderr: '' }, UNEXPECTED],
 			['a control character in the line', { status: 1, stdout: '', stderr: 'bad\u0007thing\u001b[31m\n' }, 'bad?thing?[31m'],
 			['a very long line', { status: 1, stdout: '', stderr: `${'x'.repeat(500)}\n` }, 'x'.repeat(200)],
+			['a secret that straddles the length limit', { status: 1, stdout: '', stderr: `${'x'.repeat(195)}${FAKE.pinecone}\n` }, `${'x'.repeat(195)}<reda`],
+			['a command that did not fail but left a warning', { status: 0, stdout: '', stderr: 'warning: something\n' }, RESTART_TEXT],
 		];
 		for (const [label, outcome, text] of cases) {
 			const h = fakeHome('remove-fail-text', { editors: ['claude'] });
@@ -3170,7 +3309,7 @@ describe('applySteps: the claude-backup-copy notice', () => {
 describe('applySteps: a writer of ~/.claude.json', () => {
 	// ~/.claude.json at 0600, as Claude Code keeps it. The writer of the helper is an unsynchronized read-modify-write (Ruling 29): a single
 	// removal can be undone by it. These cases therefore apply again (a user would run the cleanup again) up to six times and assert after that.
-	const STEP_WAIT_MS = 120;
+	const STEP_WAIT_MS = 250;
 	const realWait = () => waitFor(STEP_WAIT_MS);
 
 	async function applyUntilGone(h, run) {
@@ -3253,17 +3392,26 @@ describe('applySteps: moving the folders', () => {
 	it('EXDEV falls back to copy and removes the source; EPERM is retried', POSIX_ONLY, () => {
 		const h = fakeHome('exdev', { editors: ['cursor'] });
 		const p = h.paths;
+		fs.mkdirSync(path.join(p.cursorSkill, 'mcp-server', 'node_modules', '.bin'), { recursive: true });
+		fs.symlinkSync('../fake/index.js', path.join(p.cursorSkill, 'mcp-server', 'node_modules', '.bin', 'tool'));
 		const prep = prepare(h);
 		const treeBefore = snapshot(p.cursorSkill);
 		treeBefore.delete('mcp-server/.env');
+		let during = null;
 		const exdev = {
 			...fs,
 			renameSync(from, to) {
 				if (from === p.cursorSkill) throw errorWithCode('EXDEV');
 				return fs.renameSync(from, to);
 			},
+			cpSync(from, to, options) {
+				during = stepOf(manifestOf(backupOf(h)), 'cursor.skill-dir');
+				return fs.cpSync(from, to, options);
+			},
 		};
 		const result = apply(h, prep, { groups: ['cursor'], fs: exdev });
+		assert.equal(during.method, 'copy', 'the manifest says copy before the copy starts');
+		assert.equal(during.state, 'running');
 		assert.equal(result.exitCode, 0);
 		assert.equal(fs.existsSync(p.cursorSkill), false, 'the source is removed');
 		const backup = path.join(result.backupDir, 'cursor', 'skill-dir');
@@ -3273,7 +3421,9 @@ describe('applySteps: moving the folders', () => {
 			assert.equal(copied.get(rel).type, info.type, rel);
 			assert.equal(copied.get(rel).sha256, info.sha256, rel);
 			assert.equal(copied.get(rel).mode, info.mode, rel);
+			assert.equal(copied.get(rel).linkTarget, info.linkTarget, `${rel}: a relative link stays relative`);
 		}
+		assert.equal(treeBefore.get('mcp-server/node_modules/.bin/tool').linkTarget, '../fake/index.js');
 		const manifest = manifestOf(result.backupDir);
 		assert.equal(stepOf(manifest, 'cursor.skill-dir').method, 'copy');
 		assert.equal(stepOf(manifest, 'cursor.skill-dir').state, 'done');
@@ -3348,6 +3498,17 @@ describe('applySteps: moving the folders', () => {
 		assert.equal(fs.existsSync(path.join(mismatch.backupDir, 'cursor', 'skill-dir')), false, 'the partial copy is removed');
 		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').state, 'failed');
 		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').method, 'copy');
+
+		const hSize = fakeHome('copy-truncated', { editors: ['cursor'] });
+		const truncating = exdevFor(hSize.paths, {
+			cpSync(from, to, options) {
+				fs.cpSync(from, to, options);
+				fs.writeFileSync(path.join(to, 'scripts', 'check-setup.js'), '');
+			},
+		});
+		const truncated = apply(hSize, prepare(hSize), { groups: ['cursor'], fs: truncating });
+		assert.equal(truncated.lines.find((line) => line.startsWith('failed')), 'failed  cursor.skill-dir: the copy of the folder does not match the original, so nothing was removed', 'the same number of files with fewer bytes is a mismatch');
+		assert.equal(fs.existsSync(hSize.paths.cursorSkill), true);
 
 		const h2 = fakeHome('copy-fails', { editors: ['cursor'] });
 		const failing = exdevFor(h2.paths, {
@@ -3668,13 +3829,13 @@ describe('applySteps: the claude.sentinel step', () => {
 		const notes = '# Notes\r\nmy own line\r\n';
 		const block = INSTALLER_BLOCK.replace(/\n/g, '\r\n');
 		const original = `${notes}\r\n${block}\r\nafter the block\r\n`;
-		put(p.claudeMd, original, 0o644);
+		put(p.claudeMd, original, 0o664);
 		const prep = prepare(h);
 		const result = apply(h, prep, { groups: ['claude'] });
 		assert.equal(result.exitCode, 0);
 		const next = fs.readFileSync(p.claudeMd, 'utf8');
 		assert.equal(next, `${notes}after the block\r\n`);
-		assert.equal(fs.statSync(p.claudeMd).mode & 0o777, 0o644);
+		assert.equal(fs.statSync(p.claudeMd).mode & 0o777, 0o664, 'the mode is the old one, not the old one minus the umask');
 		const step = stepOf(manifestOf(result.backupDir), 'claude.sentinel');
 		assert.equal(step.offset, notes.length);
 		assert.equal(step.removedText, `\r\n${block}\r\n`);

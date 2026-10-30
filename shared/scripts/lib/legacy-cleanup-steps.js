@@ -911,7 +911,6 @@ function writeManifest(run) {
 	const temp = `${run.manifestFile}.tmp`;
 	try {
 		run.fs.writeFileSync(temp, `${JSON.stringify(run.manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-		run.fs.chmodSync(temp, 0o600);
 		run.fs.renameSync(temp, run.manifestFile);
 	} catch (err) {
 		try {
@@ -1289,7 +1288,6 @@ function applySteps(params) {
 	fs.mkdirSync(base, { recursive: true, mode: 0o700 });
 	const backupDir = path.join(base, backupFolderName(nowMs, (name) => fs.existsSync(path.join(base, name))));
 	fs.mkdirSync(backupDir, { mode: 0o700 });
-	fs.chmodSync(backupDir, 0o700);
 
 	const sources = secretSources(facts);
 	const run = {
