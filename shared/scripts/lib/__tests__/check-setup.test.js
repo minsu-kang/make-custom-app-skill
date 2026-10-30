@@ -2,8 +2,10 @@
  * Spawn tests for check-setup.js. Every run is a child process with a fake HOME and TMPDIR and only the editor
  * variables the test passes. HOME is set before settings.js loads, because it computes its paths at load time.
  * The network is blocked in every child (a preload that records each connect attempt), so a test fails instead of
- * calling the real Jira.
+ * calling the real Jira. The file moves HOME and the temp folders into a temporary root first (isolate-home); the tests
+ * of a declined cleanup run on a synthetic old install (buildFakeLegacyHome) and read the marker the CLI writes.
  */
+require('./isolate-home');
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -21,11 +23,14 @@ process.env.USERPROFILE = home;
 const { CURSOR_SETTINGS_PATH, SECRETS_PATH } = require('../settings');
 const { PLUGIN_ROOT, setupCommand } = require('../paths');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
+const { buildFakeLegacyHome } = require('./fake-legacy-home');
 
 const CHECK_SETUP = path.join(__dirname, '..', '..', 'check-setup.js');
+const CLEANUP_LEGACY = path.join(__dirname, '..', '..', 'cleanup-legacy.js');
 const CACHE_FILE = path.join(tmp, 'make-custom-app-access-check.json');
 const BLOCKER = path.join(aux, 'block-network.js');
 const NET_LOG = path.join(aux, 'net.log');
+const DATE_BREAKER = path.join(aux, 'break-date-now.js');
 const EMAIL = 'dev@make.com';
 const SECRET_VALUES = ['MAKE_KEY_secret_value', 'JIRA_TOKEN_secret_value', 'PINECONE_secret_value', 'OPENAI_secret_value', 'ENV_OPENAI_secret_value'];
 const UPDATE_CACHE_FILE = path.join(tmp, 'make-custom-app-update-check.json');
@@ -38,6 +43,19 @@ fs.writeFileSync(
 		'net.Socket.prototype.connect = function connect() {',
 		`\tfs.appendFileSync(${JSON.stringify(NET_LOG)}, 'connect\\n');`,
 		"\tthrow new Error('network blocked by the test');",
+		'};',
+	].join('\n'),
+);
+
+// Makes Date.now throw for a call made directly by check-setup.js, and for no other caller.
+fs.writeFileSync(
+	DATE_BREAKER,
+	[
+		'const real = Date.now;',
+		'Date.now = function now() {',
+		"\tconst caller = new Error().stack.split('\\n')[2] || '';",
+		"\tif (caller.includes('check-setup.js')) throw new Error('Date.now broken by the test');",
+		'\treturn real();',
 		'};',
 	].join('\n'),
 );
@@ -422,6 +440,236 @@ describe('check-setup in a fake HOME, old 2.x install left behind', () => {
 		save(fullConfig());
 		const r = run(['--json'], CLAUDE);
 		assert.deepEqual(JSON.parse(r.stdout).legacyInstall, []);
+	});
+});
+
+describe('check-setup in a fake HOME, after the old install was declined', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	const KEPT = 'OLD_INSTALL_KEPT: 3 old install item(s) kept; the old skill still loads beside the plugin. Ask for make-app-setup to remove them.';
+	const LEGACY = 'LEGACY_INSTALL: 3 old install item(s) found; run the make-app-setup skill to clean up';
+	let homes = 0;
+
+	/** A synthetic 2.x install (Claude Code items) in its own root; `complete` adds the config that makes the exit code 0. */
+	function oldHome({ complete = true, ...options } = {}) {
+		const root = path.join(aux, `old-${homes++}`);
+		fs.mkdirSync(root);
+		const h = buildFakeLegacyHome({ editors: ['claude'], ...options, root, pluginRoot: PLUGIN_ROOT });
+		if (complete) {
+			const runtime = path.join(h.home, 'imt-app-runtime');
+			fs.mkdirSync(runtime);
+			const lines = [`imt-app-runtime-path: ${runtime}`, `make-api-key: ${SECRET_VALUES[0]}`, `jira-email: ${EMAIL}`, `jira-api-token: ${SECRET_VALUES[1]}`];
+			fs.appendFileSync(h.paths.secrets, `${lines.join('\n')}\n`);
+			const key = cacheKey({ baseUrl: JIRA_BASE_URL, email: EMAIL, token: SECRET_VALUES[1] });
+			fs.writeFileSync(path.join(h.paths.tmp, 'make-custom-app-access-check.json'), JSON.stringify({ key, email: EMAIL, checkedAt: Date.now() }));
+		}
+		return h;
+	}
+
+	/** check-setup with exactly the environment of the fake home, as Claude Code, without the update check. */
+	function runIn(h, args = [], env = {}) {
+		const result = spawnSync(process.execPath, [CHECK_SETUP, ...args], {
+			env: { ...h.env, CLAUDECODE: '1', NODE_OPTIONS: `--require ${JSON.stringify(BLOCKER)}`, MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK: '1', ...env },
+			encoding: 'utf8',
+		});
+		assert.equal(result.error, undefined);
+		assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fake claude:/);
+		return result;
+	}
+
+	function cleanup(h, args, env = {}) {
+		const result = spawnSync(process.execPath, [CLEANUP_LEGACY, ...args], { env: { ...h.env, ...env }, cwd: h.paths.root, encoding: 'utf8' });
+		assert.equal(result.error, undefined);
+		return result;
+	}
+
+	/** The digest of the plan now, as the CLI prints it; the fake claude log is cleared, because the plan starts that binary. */
+	function planDigestOf(h, env) {
+		const result = cleanup(h, ['--plan'], env);
+		assert.equal(result.status, 0, result.stderr);
+		fs.rmSync(h.log, { force: true });
+		return JSON.parse(result.stdout).digest;
+	}
+
+	const markerFile = (h) => path.join(h.home, '.make-custom-app', 'legacy-cleanup.json');
+
+	function writeMarker(h, { digest = planDigestOf(h), declinedAt = Date.now(), text } = {}) {
+		fs.mkdirSync(path.dirname(markerFile(h)), { recursive: true, mode: 0o700 });
+		fs.writeFileSync(markerFile(h), text ?? JSON.stringify({ schema: 1, declinedAt: new Date(declinedAt).toISOString(), digest }), { mode: 0o600 });
+	}
+
+	const legacyLines = (h, heading) => [heading, `  ${h.paths.claudeSkill} (old skill folder)`, `  ${h.paths.claudeMd} (old skill block)`, `  ${h.paths.claudeJson} (old MCP server entry "make-custom-app")`];
+	const claudeCalls = (h) => (fs.existsSync(h.log) ? fs.readFileSync(h.log, 'utf8').split('\n').filter(Boolean).length : 0);
+
+	it('a fresh decline marker with the current digest prints OLD_INSTALL_KEPT instead of LEGACY_INSTALL', () => {
+		const h = oldHome();
+		const declined = cleanup(h, ['--decline', planDigestOf(h)]);
+		assert.equal(declined.status, 0, declined.stdout + declined.stderr);
+		const r = runIn(h);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.equal(r.stderr, '');
+		assert.ok(r.stdout.includes(`\n${legacyLines(h, KEPT).join('\n')}\n\nSetup OK.\n`), r.stdout);
+		assert.doesNotMatch(r.stdout, /LEGACY_INSTALL/);
+		assertNoSecrets(r);
+		assert.equal(connectAttempts(), 0);
+	});
+
+	it('shows LEGACY_INSTALL, with the same item lines, when no marker exists', () => {
+		const h = oldHome();
+		const r = runIn(h);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.ok(r.stdout.includes(`\n${legacyLines(h, LEGACY).join('\n')}\n\nSetup OK.\n`), r.stdout);
+		assert.doesNotMatch(r.stdout, /OLD_INSTALL_KEPT/);
+	});
+
+	it('a marker that is 6 days old still counts', () => {
+		const h = oldHome();
+		writeMarker(h, { declinedAt: Date.now() - 6 * DAY });
+		const r = runIn(h);
+		assert.ok(r.stdout.includes(KEPT), r.stdout);
+		assert.doesNotMatch(r.stdout, /LEGACY_INSTALL/);
+	});
+
+	it('an 8-day-old marker brings LEGACY_INSTALL back', () => {
+		const h = oldHome();
+		writeMarker(h, { declinedAt: Date.now() - 8 * DAY });
+		const r = runIn(h);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.ok(r.stdout.includes(`\n${legacyLines(h, LEGACY).join('\n')}\n`), r.stdout);
+		assert.doesNotMatch(r.stdout, /OLD_INSTALL_KEPT/);
+	});
+
+	it('a marker dated in the future does not count', () => {
+		const h = oldHome();
+		writeMarker(h, { declinedAt: Date.now() + DAY });
+		const r = runIn(h);
+		assert.ok(r.stdout.includes(LEGACY), r.stdout);
+		assert.doesNotMatch(r.stdout, /OLD_INSTALL_KEPT/);
+	});
+
+	it('a changed old install brings LEGACY_INSTALL back', () => {
+		const h = oldHome();
+		const digest = planDigestOf(h);
+		writeMarker(h, { digest });
+		assert.ok(runIn(h).stdout.includes(KEPT), 'the marker counts before the change');
+		fs.writeFileSync(path.join(h.paths.claudeSkill, 'added-after-the-decline.txt'), 'x\n');
+		assert.notEqual(planDigestOf(h), digest, 'the change reaches the plan digest');
+		const r = runIn(h);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.ok(r.stdout.includes(`\n${legacyLines(h, LEGACY).join('\n')}\n`), r.stdout);
+		assert.doesNotMatch(r.stdout, /OLD_INSTALL_KEPT/);
+	});
+
+	it('a malformed marker is ignored', () => {
+		const h = oldHome();
+		const digest = planDigestOf(h);
+		const at = new Date().toISOString();
+		const texts = [
+			'',
+			'not json',
+			'[]',
+			'null',
+			JSON.stringify({ schema: 2, declinedAt: at, digest }),
+			JSON.stringify({ schema: 1, declinedAt: at }),
+			JSON.stringify({ schema: 1, declinedAt: 'yesterday', digest }),
+			JSON.stringify({ schema: 1, declinedAt: at, digest: digest.toUpperCase() }),
+			JSON.stringify({ schema: 1, declinedAt: at, digest: digest.slice(0, 8) }),
+		];
+		for (const text of texts) {
+			writeMarker(h, { text });
+			const r = runIn(h);
+			assert.equal(r.status, 0, text);
+			assert.equal(r.stderr, '', text);
+			assert.ok(r.stdout.includes(LEGACY), text);
+			assert.doesNotMatch(r.stdout, /OLD_INSTALL_KEPT/, text);
+		}
+		fs.rmSync(markerFile(h), { force: true });
+		fs.mkdirSync(markerFile(h));
+		const folder = runIn(h);
+		assert.equal(folder.status, 0);
+		assert.ok(folder.stdout.includes(LEGACY), 'a folder in place of the marker is ignored');
+	});
+
+	it('--json reports legacyDeclinedAt', () => {
+		const h = oldHome();
+		const none = runIn(h, ['--json']);
+		assert.equal(none.status, 0, none.stdout + none.stderr);
+		assert.equal(JSON.parse(none.stdout).legacyDeclinedAt, null, 'no marker');
+
+		const declinedAt = Date.now() - 2 * DAY;
+		const digest = planDigestOf(h);
+		writeMarker(h, { digest, declinedAt });
+		const fresh = runIn(h, ['--json']);
+		assert.equal(fresh.status, 0, fresh.stdout + fresh.stderr);
+		const report = JSON.parse(fresh.stdout);
+		assert.equal(report.legacyDeclinedAt, new Date(declinedAt).toISOString());
+		assert.deepEqual(report.legacyInstall.map((item) => item.kind), ['skill-dir', 'sentinel', 'mcp-entry'], 'the leftovers are still listed');
+
+		writeMarker(h, { digest, declinedAt: Date.now() - 8 * DAY });
+		assert.equal(JSON.parse(runIn(h, ['--json']).stdout).legacyDeclinedAt, null, 'an expired marker');
+		writeMarker(h, { digest: digest === '0123456789abcdef' ? 'fedcba9876543210' : '0123456789abcdef' });
+		assert.equal(JSON.parse(runIn(h, ['--json']).stdout).legacyDeclinedAt, null, 'another digest');
+		writeMarker(h, { text: 'not json' });
+		assert.equal(JSON.parse(runIn(h, ['--json']).stdout).legacyDeclinedAt, null, 'a malformed marker');
+	});
+
+	it('--json reports no decline when nothing of the old install is left', () => {
+		const h = oldHome();
+		fs.rmSync(h.paths.claudeSkill, { recursive: true, force: true });
+		fs.rmSync(h.paths.claudeJson);
+		fs.rmSync(h.paths.claudeMd);
+		writeMarker(h, { digest: planDigestOf(h) });
+		const r = runIn(h, ['--json']);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		const report = JSON.parse(r.stdout);
+		assert.deepEqual(report.legacyInstall, []);
+		assert.equal(report.legacyDeclinedAt, null);
+		assert.doesNotMatch(runIn(h).stdout, /OLD_INSTALL_KEPT|LEGACY_INSTALL/);
+	});
+
+	it('the exit code is the same with and without a decline', () => {
+		for (const complete of [true, false]) {
+			const h = oldHome({ complete });
+			const before = runIn(h);
+			writeMarker(h);
+			const after = runIn(h);
+			assert.ok(before.stdout.includes('LEGACY_INSTALL') && after.stdout.includes('OLD_INSTALL_KEPT'), 'the decline changed the warning');
+			assert.equal(after.status, before.status);
+			assert.equal(after.status, complete ? 0 : 1);
+			assert.equal(after.stderr, '');
+		}
+	});
+
+	it('starts no claude process while it reads the plan', () => {
+		const h = oldHome();
+		writeMarker(h);
+		assert.equal(claudeCalls(h), 0);
+		const r = runIn(h);
+		assert.ok(r.stdout.includes(KEPT), r.stdout);
+		assert.equal(claudeCalls(h), 0, 'the fake claude was not called');
+	});
+
+	it('reads the plan with the environment of the run: CLAUDE_CONFIG_DIR is part of it', () => {
+		const h = oldHome();
+		const other = { CLAUDE_CONFIG_DIR: path.join(h.paths.root, 'other-config') };
+		writeMarker(h);
+		const moved = runIn(h, [], other);
+		assert.ok(moved.stdout.includes(LEGACY), 'a marker of the default plan does not hold under another config folder');
+		assert.doesNotMatch(moved.stdout, /OLD_INSTALL_KEPT/);
+		writeMarker(h, { digest: planDigestOf(h, other) });
+		assert.ok(runIn(h, [], other).stdout.includes(KEPT), 'a marker of that plan does');
+		assert.ok(runIn(h).stdout.includes(LEGACY), 'and not under the default one');
+	});
+
+	it('an error while the marker is judged leaves the LEGACY_INSTALL warning and the exit code', () => {
+		const h = oldHome();
+		writeMarker(h);
+		const works = runIn(h);
+		assert.ok(works.stdout.includes(KEPT), works.stdout);
+		const broken = runIn(h, [], { NODE_OPTIONS: `--require ${JSON.stringify(BLOCKER)} --require ${JSON.stringify(DATE_BREAKER)}` });
+		assert.equal(broken.status, works.status);
+		assert.equal(broken.stderr, '');
+		assert.ok(broken.stdout.includes(`\n${legacyLines(h, LEGACY).join('\n')}\n\nSetup OK.\n`), broken.stdout);
+		assert.doesNotMatch(broken.stdout, /OLD_INSTALL_KEPT/);
 	});
 });
 

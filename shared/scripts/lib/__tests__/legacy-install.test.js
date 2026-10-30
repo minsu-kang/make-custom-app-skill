@@ -26,6 +26,7 @@ const {
 	dropOwnParts,
 	detectLegacyInstall,
 	legacyInstallLines,
+	keptInstallLines,
 } = require('../legacy-install');
 const { FAKE, INSTALLER_BLOCK, INSTALLER_ENV_TEXT, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots } = require('./fake-legacy-home');
 
@@ -304,6 +305,35 @@ describe('legacyInstallLines', () => {
 			'LEGACY_INSTALL: 1 old install item(s) found; run the make-app-setup skill to clean up',
 			`  ${claudeMd} (old skill block, closing marker missing)`,
 		]);
+	});
+});
+
+describe('keptInstallLines', () => {
+	const skillDir = path.join(path.sep, 'h', '.claude', 'skills', 'make-custom-app');
+	const claudeJson = path.join(path.sep, 'h', '.claude.json');
+	const rulesDir = path.join(path.sep, 'h', '.cursor', 'rules', 'make-custom-app');
+
+	it('keptInstallLines: empty, and the heading with item lines', () => {
+		assert.deepEqual(keptInstallLines([]), []);
+		const items = [
+			{ kind: 'skill-dir', path: skillDir, editor: 'claude' },
+			{ kind: 'mcp-entry', path: claudeJson, editor: 'claude', name: 'make-custom-app' },
+			{ kind: 'rules-dir', path: rulesDir, editor: 'cursor' },
+		];
+		assert.deepEqual(keptInstallLines(items), [
+			'OLD_INSTALL_KEPT: 3 old install item(s) kept; the old skill still loads beside the plugin. Ask for make-app-setup to remove them.',
+			`  ${skillDir} (old skill folder)`,
+			`  ${claudeJson} (old MCP server entry "make-custom-app")`,
+			`  ${rulesDir} (old Cursor rule folder)`,
+		]);
+		assert.deepEqual(keptInstallLines(items).slice(1), legacyInstallLines(items).slice(1), 'the item lines are the ones of the LEGACY_INSTALL warning');
+	});
+
+	it('counts one item in the heading and describes it like the LEGACY_INSTALL warning', () => {
+		const lines = keptInstallLines([{ kind: 'sentinel', path: path.join(path.sep, 'h', '.claude', 'CLAUDE.md'), editor: 'claude', closed: false }]);
+		assert.equal(lines[0], 'OLD_INSTALL_KEPT: 1 old install item(s) kept; the old skill still loads beside the plugin. Ask for make-app-setup to remove them.');
+		assert.equal(lines.length, 2);
+		assert.match(lines[1], /\(old skill block, closing marker missing\)$/);
 	});
 });
 

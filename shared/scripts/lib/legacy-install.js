@@ -258,12 +258,25 @@ function describeItem(item) {
 	return `old MCP server entry "${item.name}"`;
 }
 
+function itemLines(items) {
+	return items.map((item) => `  ${item.path} (${describeItem(item)})`);
+}
+
 /** The warning check-setup prints: one LEGACY_INSTALL line, then one line per item. Empty when nothing is left over. */
 function legacyInstallLines(items) {
 	if (items.length === 0) return [];
 	return [
 		`LEGACY_INSTALL: ${items.length} old install item(s) found; run the make-app-setup skill to clean up`,
-		...items.map((item) => `  ${item.path} (${describeItem(item)})`),
+		...itemLines(items),
+	];
+}
+
+/** The notice check-setup prints instead of the warning after the user declined the cleanup: one OLD_INSTALL_KEPT line, then the same item lines. */
+function keptInstallLines(items) {
+	if (items.length === 0) return [];
+	return [
+		`OLD_INSTALL_KEPT: ${items.length} old install item(s) kept; the old skill still loads beside the plugin. Ask for make-app-setup to remove them.`,
+		...itemLines(items),
 	];
 }
 
@@ -282,4 +295,5 @@ module.exports = {
 	dropOwnParts,
 	detectLegacyInstall,
 	legacyInstallLines,
+	keptInstallLines,
 };

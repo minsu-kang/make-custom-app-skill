@@ -13,14 +13,18 @@
  * Exit codes: 0 = every required item OK, 1 = a required item is missing or the editor cannot be told.
  * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) and a newer version on master (an UPDATE_AVAILABLE notice)
  * never change the exit code.
+ * After the user declines the cleanup, OLD_INSTALL_KEPT replaces the LEGACY_INSTALL warning for 7 days.
  */
 const fs = require('fs');
+const os = require('os');
 const { PLUGIN_ROOT, setupCommand } = require('./lib/paths');
 const { readSkillConfig, readCursorEnvironments, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
 const { checkAccess } = require('./lib/access-guard');
 const { denyMessage } = require('./lib/access-guard-logic');
-const { detectLegacyInstall, legacyInstallLines } = require('./lib/legacy-install');
+const { detectLegacyInstall, legacyInstallLines, keptInstallLines } = require('./lib/legacy-install');
+const { readDecline, gatherFacts } = require('./lib/legacy-cleanup-steps');
+const { buildPlan, declineState } = require('./lib/legacy-cleanup-logic');
 const { checkForUpdate, installedVersion } = require('./lib/update-notice');
 
 takeEditorFlagOrExit(process.argv);
@@ -168,12 +172,20 @@ if (isClaude) {
 
 const ok = items.every((i) => i.status !== 'missing');
 const legacyInstall = detectLegacyInstall();
+let declined = null;
+try {
+	const home = os.homedir();
+	const marker = legacyInstall.length ? readDecline({ home }) : null;
+	if (marker && declineState({ marker, digest: buildPlan(gatherFacts({ home, env: process.env, locate: false })).digest, now: Date.now() }) === 'fresh') declined = marker;
+} catch {
+	declined = null;
+}
 const skipUpdateCheck = argv.includes('--skip-update-check') || Boolean(process.env.MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK);
 
 async function main() {
 	const update = skipUpdateCheck ? null : await checkForUpdate({ editor, installed: installedVersion(PLUGIN_ROOT) });
 	if (argv.includes('--json')) {
-		const report = { ok, editor, pluginRoot: PLUGIN_ROOT, setupCommand: SETUP_CMD, items, legacyInstall };
+		const report = { ok, editor, pluginRoot: PLUGIN_ROOT, setupCommand: SETUP_CMD, items, legacyInstall, legacyDeclinedAt: declined ? new Date(declined.declinedAt).toISOString() : null };
 		report.update = update ? { installed: update.installed, available: update.available } : null;
 		process.stdout.write(JSON.stringify(report, null, 2) + '\n');
 	} else {
@@ -186,7 +198,7 @@ async function main() {
 			console.log(`\nInteractive wizard (your terminal, not the agent):\n  ${SETUP_CMD}`);
 			for (const i of fixes) console.log(`\n[${i.status === 'missing' ? 'REQUIRED' : 'optional'}] ${i.key}\n${i.fix}`);
 		}
-		const legacyWarning = legacyInstallLines(legacyInstall);
+		const legacyWarning = declined ? keptInstallLines(legacyInstall) : legacyInstallLines(legacyInstall);
 		if (legacyWarning.length) console.log(`\n${legacyWarning.join('\n')}`);
 		if (update) console.log(`\n${update.lines.join('\n')}`);
 		console.log(ok ? '\nSetup OK.' : '\nSetup INCOMPLETE — required items missing. Stop and apply the REQUIRED fixes above.');
