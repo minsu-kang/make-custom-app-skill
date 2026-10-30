@@ -21,7 +21,10 @@ const INSTALLER_BLOCK_BODY =
 const OWN_LINE = /(?<![\w-])make-custom-app(?![\w-])`?\s+skill/i;
 const ENV_LINE = /^(\s*)(PINECONE_API_KEY|OPENAI_API_KEY|PINECONE_INDEX_NAME)(\s*=\s*)([\s\S]*)$/;
 const ANY_ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=([\s\S]*)$/;
-const COMMENT_WITHOUT_EQUALS = /^\s*#[^=]*$/;
+const INSTALLER_COMMENTS = Object.freeze(['#', '# Pinecone', '# OpenAI (for text-embedding-3-small)']);
+const EXAMPLE_PLACEHOLDERS = Object.freeze(['your-pinecone-api-key', 'your-openai-api-key']);
+const WHOLE_REFERENCE = /^\$\{(?:env:)?(?:PINECONE_API_KEY|OPENAI_API_KEY|PINECONE_INDEX_NAME)\}$/;
+const TRAILING_SPACES = /^ *$/;
 const CR_OR_LF = /[\r\n]/;
 const BOM = '\uFEFF';
 const DEFAULT_INDENT = '  ';
@@ -169,16 +172,28 @@ function usableValue(value) {
 	return trimmed !== '' && !CR_OR_LF.test(value) && !trimmed.startsWith('${') && !isPlaceholder(trimmed);
 }
 
+/** True when a raw value of the three names can hold no secret: empty, a placeholder of `.env.example`, or one whole `${NAME}` or `${env:NAME}` reference to one of the three names. */
+function holdsNoSecret(raw) {
+	return raw === '' || EXAMPLE_PLACEHOLDERS.includes(raw) || WHOLE_REFERENCE.test(raw);
+}
+
+/** True for a bare `#` or a comment that the old installers and `.env.example` write, with trailing spaces at most. */
+function isInstallerComment(line) {
+	const text = line.trimEnd();
+	return INSTALLER_COMMENTS.includes(text) && TRAILING_SPACES.test(line.slice(text.length));
+}
+
 /**
  * Reads an old `.env` as a template (Ruling 36). A line of one of the three names whose raw value (the text after the
  * separator, without the line ending) is usable and equals `secretValue(pluginKey)` becomes `{ prefix, $secret }`; every
  * other line stays a string, byte for byte. `values` holds the trimmed usable values (the last one of a name wins).
  * `names` lists every assignment name once, `unknownAssignments` the names other than the three that have a value, and
- * `untemplatedSecretLines` the names of the three whose value is usable but differs from the secrets file or has a line
- * break inside it: the file holds something the secrets file does not. An `export NAME=value` line counts as an
- * assignment of another name, because it cannot be templated. `unknownLines` counts the lines that are not an
- * assignment, not empty, and not a comment without `=`: such a line (a commented-out key, a `NAME: value` line) may
- * hold a value.
+ * `untemplatedSecretLines` the names of the three whose raw value is not templated and is not empty, a placeholder of
+ * `.env.example`, or one whole `${NAME}` or `${env:NAME}` reference to one of the three names: the line may hold a
+ * value. An `export NAME=value` line counts as an assignment of another name, because it cannot be templated.
+ * `unknownLines` counts every other line that may hold a value: a line that is not an assignment, not whitespace only,
+ * and not a bare `#` or a comment of the old installers (trailing spaces allowed), and an assignment of another name
+ * with an empty value.
  * Line endings are CRLF when the text has one, so a text with mixed endings (`mixedEol`) does not render back to the same
  * bytes; rendersExactly tells a caller whether a render gives back the text it was read from.
  */
@@ -210,7 +225,7 @@ function parseEnvTemplate(text, secretValue) {
 					continue;
 				}
 				untemplatedSecretLines.add(name);
-			} else if (CR_OR_LF.test(raw)) {
+			} else if (!holdsNoSecret(raw)) {
 				untemplatedSecretLines.add(name);
 			}
 		} else {
@@ -218,7 +233,8 @@ function parseEnvTemplate(text, secretValue) {
 			if (other) {
 				names.add(other[1]);
 				if (other[2].trim() !== '') unknownAssignments.add(other[1]);
-			} else if (line.trim() !== '' && !COMMENT_WITHOUT_EQUALS.test(line)) {
+				else if (!Object.hasOwn(ENV_TO_KEY, other[1])) unknownLines++;
+			} else if (line.trim() !== '' && !isInstallerComment(line)) {
 				unknownLines++;
 			}
 		}
@@ -877,13 +893,14 @@ function sentinelItem(facts, paths) {
 }
 
 /**
- * The `.env` inside an old skill folder. `delete` only when the file is a template of the secrets file (Ruling 36): no
- * other assignment with a value, every usable key line equals the final secrets value, every other line is empty or a
- * comment without `=` (the template goes into the manifest, so it must hold no value), the bytes are UTF-8 exact, and a
- * render gives back the same text. Otherwise it stays in the folder, which moves into the backup. No item when the skill
- * folder is not planned, is a symbolic link (only the link moves, Ruling 38), or the `.env` does not lie inside it
- * (`insideSkill` is not true: `mcp-server` may link to a folder elsewhere, and the cleanup would unlink or change a file
- * outside the old install). A `.env` that is itself a link (`linked` true) is never deleted: unlinking the link would leave
+ * The `.env` inside an old skill folder. `delete` only when the file is a template of the secrets file (Ruling 36) and
+ * no line of it can hold a secret value, because the template goes into the manifest: no assignment of another name and
+ * no `export` line with a value, every usable key line equals the final secrets value, every other key line is empty, a
+ * placeholder of `.env.example`, or one whole reference to one of the three names, every other line is whitespace only,
+ * a bare `#`, or a comment of the old installers, the bytes are UTF-8 exact, and a render gives back the same text.
+ * Otherwise it stays in the folder, which moves into the backup. No item when the skill folder is not planned, is a
+ * symbolic link (only the link moves, Ruling 38), or the `.env` does not lie inside it (`insideSkill` is not true:
+ * `mcp-server` may link to a folder elsewhere, and the cleanup would unlink or change a file outside the old install). A `.env` that is itself a link (`linked` true) is never deleted: unlinking the link would leave
  * the file it names, with the secrets, in the backup. `keys` lists the known names; the other assignment names are only counted.
  */
 function envFileItem(group, facts, skill, skillPath, env, envPath, compared) {

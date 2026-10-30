@@ -540,7 +540,7 @@ describe('cleanup-legacy.js: --apply', () => {
 			'an unknown line': { text: `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`, kept: true },
 			'trailing spaces': { text: INSTALLER_ENV_TEXT.replace(`PINECONE_API_KEY=${FAKE.pinecone}`, `PINECONE_API_KEY=${FAKE.pinecone}  `), kept: true },
 			'a conflict': { text: INSTALLER_ENV_TEXT.replace(FAKE.pinecone, FAKE.conflictPinecone), kept: true },
-			'an empty value and a placeholder': { text: `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=\n\n# OpenAI\nOPENAI_API_KEY=your-openai-key\n`, kept: false },
+			'an empty value and a placeholder': { text: `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=\n\n# OpenAI (for text-embedding-3-small)\nOPENAI_API_KEY=your-openai-api-key\n`, kept: false },
 		};
 		for (const [label, { text, kept }] of Object.entries(cases)) {
 			const h = fakeHome('env-variants', { editors: ['claude'], envText: text });

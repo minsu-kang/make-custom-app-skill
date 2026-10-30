@@ -536,7 +536,7 @@ describe('parseEnvTemplate and renderEnvTemplate', () => {
 	});
 
 	it('a placeholder, a reference, and an empty value hold no secret and stay literal without a note', () => {
-		const text = ['PINECONE_API_KEY=your-pinecone-key', 'OPENAI_API_KEY=${env:OPENAI_API_KEY}', 'PINECONE_INDEX_NAME=   ', ''].join('\n');
+		const text = ['PINECONE_API_KEY=your-pinecone-api-key', 'OPENAI_API_KEY=${env:OPENAI_API_KEY}', 'PINECONE_INDEX_NAME=   ', ''].join('\n');
 		const parsed = parseEnvTemplate(text, secretValue);
 		assert.deepEqual(parsed.template, text.split('\n').slice(0, 3));
 		assert.deepEqual(parsed.values, {});
@@ -544,6 +544,37 @@ describe('parseEnvTemplate and renderEnvTemplate', () => {
 		assert.deepEqual(parsed.unknownAssignments, []);
 		assert.deepEqual(parsed.names, ['PINECONE_API_KEY', 'OPENAI_API_KEY', 'PINECONE_INDEX_NAME']);
 		assert.equal(renderEnvTemplate(parsed, secretValue), text);
+	});
+
+	it('a value of the three names that is not usable is listed unless it is empty, a placeholder of .env.example, or one whole reference to one of the three names', () => {
+		const listed = [
+			`${FAKE.openai} # your-org`,
+			`${FAKE.openai} # rotated <2026-10>`,
+			`\${OPENAI_API_KEY:-${FAKE.otherToken}}`,
+			'${OPENAI_API_KEY:-}',
+			'${OPENAI_API_KEY}x',
+			'${OTHER_TOKEN}',
+			'${env:OTHER_TOKEN}',
+			`<${FAKE.otherToken}>`,
+			'your-pinecone-key',
+			'your-openai-api-key ',
+			`your-openai-api-key ${FAKE.otherToken}`,
+		];
+		for (const value of listed) {
+			const line = `OPENAI_API_KEY=${value}`;
+			const parsed = parseEnvTemplate(`${INSTALLER_ENV_TEXT.replace(`OPENAI_API_KEY=${FAKE.openai}\n`, '')}${line}\n`, secretValue);
+			assert.deepEqual(parsed.untemplatedSecretLines, ['OPENAI_API_KEY'], JSON.stringify(value));
+			assert.equal(parsed.unknownLines, 0, JSON.stringify(value));
+			assert.equal(parsed.template.at(-1), line, `${JSON.stringify(value)}: the line stays literal`);
+			assert.equal(Object.hasOwn(parsed.values, 'OPENAI_API_KEY'), false, JSON.stringify(value));
+		}
+		for (const name of ['PINECONE_API_KEY', 'OPENAI_API_KEY', 'PINECONE_INDEX_NAME']) {
+			for (const value of ['', 'your-pinecone-api-key', 'your-openai-api-key', '${PINECONE_API_KEY}', '${env:OPENAI_API_KEY}', '${PINECONE_INDEX_NAME}']) {
+				const parsed = parseEnvTemplate(`# Pinecone\n${name}=${value}\n`, secretValue);
+				assert.deepEqual(parsed.untemplatedSecretLines, [], `${name}=${value}`);
+				assert.equal(parsed.unknownLines, 0, `${name}=${value}`);
+			}
+		}
 	});
 
 	it('a value that differs from the secrets file, or has no secrets file value, is listed and stays literal', () => {
@@ -589,16 +620,40 @@ describe('parseEnvTemplate and renderEnvTemplate', () => {
 		assert.equal(renderEnvTemplate(parsed, secretValue), text);
 	});
 
-	it('unknownLines counts a commented-out key, a colon form, and any other line that is not an assignment; empty lines, comments without =, and assignments are not counted', () => {
-		const counted = [`# OPENAI_API_KEY=${FAKE.otherToken}`, `  #PINECONE_API_KEY = ${FAKE.pinecone}`, `OPENAI_API_KEY: ${FAKE.otherToken}`, `PINECONE_API_KEY ${FAKE.pinecone}`, FAKE.otherToken, `1BAD=${FAKE.otherToken}`, '=x'];
+	it('unknownLines counts a commented-out key, a colon form, any other comment, any other line that is not an assignment, and an empty assignment of another name; whitespace lines, a bare #, the installer comments, and assignments are not counted', () => {
+		const counted = [
+			`# OPENAI_API_KEY=${FAKE.otherToken}`,
+			`  #PINECONE_API_KEY = ${FAKE.pinecone}`,
+			`OPENAI_API_KEY: ${FAKE.otherToken}`,
+			`PINECONE_API_KEY ${FAKE.pinecone}`,
+			FAKE.otherToken,
+			`1BAD=${FAKE.otherToken}`,
+			'=x',
+			`# OPENAI_API_KEY: ${FAKE.otherToken}`,
+			`# OPENAI_API_KEY ${FAKE.otherToken}`,
+			`#${FAKE.otherToken}`,
+			`# ${FAKE.pinecone}`,
+			'  # Pinecone',
+			'# pinecone',
+			'# OpenAI',
+			`# Pinecone\r${FAKE.otherToken}`,
+			`# Pinecone ${FAKE.otherToken}`,
+			`# Pinecone\u0001${FAKE.otherToken}`,
+			'# Pinecone\t',
+			'# Pinecone\r',
+			'# ',
+			`${FAKE.otherToken}=`,
+			'EMPTY=',
+			'export EMPTY=  ',
+		];
 		for (const line of counted) {
-			const parsed = parseEnvTemplate(`${INSTALLER_ENV_TEXT}${line}\n`, secretValue);
-			assert.equal(parsed.unknownLines, 1, line);
-			assert.deepEqual(parsed.unknownAssignments, [], line);
-			assert.deepEqual(parsed.untemplatedSecretLines, [], line);
-			assert.equal(parsed.template.at(-1), line, `${line}: the line stays literal`);
+			const parsed = parseEnvTemplate(`${INSTALLER_ENV_TEXT}${line}`, secretValue);
+			assert.equal(parsed.unknownLines, 1, JSON.stringify(line));
+			assert.deepEqual(parsed.unknownAssignments, [], JSON.stringify(line));
+			assert.deepEqual(parsed.untemplatedSecretLines, [], JSON.stringify(line));
+			assert.equal(parsed.template.at(-1), line, `${JSON.stringify(line)}: the line stays literal`);
 		}
-		const free = ['', '   ', '\t', '# Pinecone', '# OpenAI (for text-embedding-3-small)', '  # an indented comment', '#', 'EMPTY=', 'export EMPTY=  ', 'OPENAI_API_KEY=', 'PINECONE_API_KEY=your-pinecone-key', 'OPENAI_API_KEY=${env:OPENAI_API_KEY}'];
+		const free = ['', '   ', '\t', '# Pinecone', '# OpenAI (for text-embedding-3-small)', '#', '#   ', '# Pinecone  ', 'OPENAI_API_KEY=', 'export OPENAI_API_KEY=', 'PINECONE_API_KEY=your-pinecone-api-key', 'OPENAI_API_KEY=${env:OPENAI_API_KEY}'];
 		for (const line of free) assert.equal(parseEnvTemplate(`${line}\n${INSTALLER_ENV_TEXT}`, secretValue).unknownLines, 0, JSON.stringify(line));
 		assert.equal(parseEnvTemplate(INSTALLER_ENV_TEXT, secretValue).unknownLines, 0);
 		assert.equal(parseEnvTemplate(INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n'), secretValue).unknownLines, 0);
@@ -1910,14 +1965,14 @@ describe('buildPlan: the .env files', () => {
 			['no secrets file at all: the values are copied first', envFacts(INSTALLER_ENV_TEXT, { secretsText: null }), 'delete'],
 			['an unknown assignment with a value', envFacts(`${INSTALLER_ENV_TEXT}OTHER_TOKEN=${FAKE.otherToken}\n`), 'keep-in-backup'],
 			['an export line', envFacts(`${INSTALLER_ENV_TEXT}export OTHER_TOKEN=${FAKE.otherToken}\n`), 'keep-in-backup'],
-			['an unknown assignment with no value', envFacts(`${INSTALLER_ENV_TEXT}SOME_FLAG=\n`), 'delete'],
+			['an unknown assignment with no value', envFacts(`${INSTALLER_ENV_TEXT}SOME_FLAG=\n`), 'keep-in-backup'],
 			['trailing spaces', envFacts(spaced), 'keep-in-backup'],
 			['mixed line endings', envFacts(mixed), 'keep-in-backup'],
 			['CRLF only', envFacts(INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n')), 'delete'],
 			['bytes that are not UTF-8', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: false, insideSkill: true } }), 'keep-in-backup'],
 			['utf8Exact missing', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, insideSkill: true } }), 'keep-in-backup'],
 			['a value that differs from the secrets file', envFacts(INSTALLER_ENV_TEXT, { secretsText: `openai-api-key: ${FAKE.otherToken}\n` }), 'keep-in-backup'],
-			['an empty value and a placeholder', envFacts(`PINECONE_API_KEY=\nOPENAI_API_KEY=your-openai-key\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
+			['an empty value and a placeholder', envFacts(`PINECONE_API_KEY=\nOPENAI_API_KEY=your-openai-api-key\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
 			['a reference', envFacts(`OPENAI_API_KEY=\${env:OPENAI_API_KEY}\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
 			['no final newline and a byte order mark', envFacts(`\uFEFFOPENAI_API_KEY=${FAKE.openai}`), 'delete'],
 			['a link to a file inside the folder (deleting the link would leave the file it names in the backup)', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true, linked: true } }), 'keep-in-backup'],
@@ -1926,7 +1981,19 @@ describe('buildPlan: the .env files', () => {
 			['a colon form', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY: ${FAKE.otherToken}\n`), 'keep-in-backup'],
 			['a bare value on its own line', envFacts(`${INSTALLER_ENV_TEXT}${FAKE.otherToken}\n`), 'keep-in-backup'],
 			['a name that is not a valid name', envFacts(`${INSTALLER_ENV_TEXT}1BAD=${FAKE.otherToken}\n`), 'keep-in-backup'],
-			['more comments without =, an indented one, and lines of spaces', envFacts(`# keys of the old install\n  # kept by hand\n \t\n${INSTALLER_ENV_TEXT}\n`), 'delete'],
+			['a bare #, the installer comments with trailing spaces, and lines of spaces', envFacts(`#\n# Pinecone  \n \t\n${INSTALLER_ENV_TEXT}\n`), 'delete'],
+			['a comment the installers do not write', envFacts(`# keys of the old install\n${INSTALLER_ENV_TEXT}`), 'keep-in-backup'],
+			['an indented installer comment', envFacts(`  # Pinecone\n${INSTALLER_ENV_TEXT}`), 'keep-in-backup'],
+			['a commented-out key with a colon', envFacts(`${INSTALLER_ENV_TEXT}# OPENAI_API_KEY: ${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a commented-out key and value without =', envFacts(`${INSTALLER_ENV_TEXT}# OPENAI_API_KEY ${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a value behind #', envFacts(`${INSTALLER_ENV_TEXT}#${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a lone carriage return in an installer comment', envFacts(INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone\r${FAKE.otherToken}\n`)), 'keep-in-backup'],
+			['U+2028 in an installer comment', envFacts(INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone ${FAKE.otherToken}\n`)), 'keep-in-backup'],
+			['a control character in an installer comment', envFacts(INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone\u0001${FAKE.otherToken}\n`)), 'keep-in-backup'],
+			['a value with a trailing comment', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY=${FAKE.otherToken} # your-org\n`), 'keep-in-backup'],
+			['a reference with a default value', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY=\${OPENAI_API_KEY:-${FAKE.otherToken}}\n`), 'keep-in-backup'],
+			['a placeholder that is not the one of .env.example', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY=your-openai-key\n`), 'keep-in-backup'],
+			['a value that ends in = on the line after an empty key', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY=\n${FAKE.otherToken}=\n`), 'keep-in-backup'],
 		];
 		for (const [name, facts, expected] of cases) assert.equal(actionOf(facts), expected, name);
 	});

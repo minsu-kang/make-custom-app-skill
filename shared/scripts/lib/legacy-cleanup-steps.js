@@ -1145,6 +1145,7 @@ function envFileStep(run, step, item) {
 	const holder = { path: item.path, text, mode: read.mode, utf8Exact, insideSkill: true, ...(linked ? { linked: true } : {}) };
 	if (!recheck(run, item, { [`${item.group}Env`]: holder, secretsText })) throw new StepFailure(ENV_CHANGED_TEXT);
 	const parsed = parseEnvTemplate(text, (key) => secretsValue(secretsText, key));
+	if (parsed.untemplatedSecretLines.length !== 0 || parsed.unknownLines !== 0) throw new StepFailure(ENV_CHANGED_TEXT);
 	startStep(run, step, { mode: read.mode, eol: parsed.eol, trailingNewline: parsed.trailingNewline, bom: parsed.bom, template: parsed.template });
 	run.fs.unlinkSync(item.path);
 }

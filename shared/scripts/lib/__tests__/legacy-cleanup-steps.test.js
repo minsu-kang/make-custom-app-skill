@@ -4317,16 +4317,30 @@ describe('applySteps: the env-file steps', () => {
 		assert.equal(fs.readFileSync(path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env'), 'utf8'), text);
 	});
 
-	it('a .env with a commented-out old key or a colon form is kept in the backup, and manifest.json holds no fake value; the installer comments alone still give a delete', POSIX_ONLY, () => {
+	it('a .env with a commented-out old key, a colon form, another comment, or a key line that may hold a value is kept in the backup, and manifest.json holds no fake value; the installer comments and a bare # still give a delete', POSIX_ONLY, () => {
+		const literalLines = {
+			'the installer comments': ['# Pinecone', '', '# OpenAI (for text-embedding-3-small)'],
+			'a bare # and an installer comment with trailing spaces': ['#', '# Pinecone  ', '# Pinecone', '', '# OpenAI (for text-embedding-3-small)'],
+		};
 		const cases = {
 			'a commented-out old key': `${INSTALLER_ENV_TEXT}# OPENAI_API_KEY=${FAKE.otherToken}\n`,
 			'a colon form': `${INSTALLER_ENV_TEXT}OPENAI_API_KEY: ${FAKE.otherToken}\n`,
+			'a commented-out key with a colon': `${INSTALLER_ENV_TEXT}# OPENAI_API_KEY: ${FAKE.otherToken}\n`,
+			'a commented-out key and value without =': `${INSTALLER_ENV_TEXT}# OPENAI_API_KEY ${FAKE.otherToken}\n`,
+			'a value behind #': `${INSTALLER_ENV_TEXT}#${FAKE.otherToken}\n`,
+			'a lone carriage return in an installer comment': INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone\r${FAKE.otherToken}\n`),
+			'U+2028 in an installer comment': INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone ${FAKE.otherToken}\n`),
+			'a control character in an installer comment': INSTALLER_ENV_TEXT.replace('# Pinecone\n', `# Pinecone\u0001${FAKE.otherToken}\n`),
+			'a value with a trailing comment': `${INSTALLER_ENV_TEXT}OPENAI_API_KEY=${FAKE.otherToken} # your-org\n`,
+			'a reference with a default value': `${INSTALLER_ENV_TEXT}OPENAI_API_KEY=\${OPENAI_API_KEY:-${FAKE.otherToken}}\n`,
+			'a value that ends in = on the line after an empty key': `${INSTALLER_ENV_TEXT}OPENAI_API_KEY=\n${FAKE.otherToken}=\n`,
 			'the installer comments': INSTALLER_ENV_TEXT,
+			'a bare # and an installer comment with trailing spaces': `#\n# Pinecone  \n${INSTALLER_ENV_TEXT}`,
 		};
 		for (const [label, text] of Object.entries(cases)) {
 			const h = fakeHome('env-literal-lines', { editors: ['claude'], envText: text });
 			const prep = prepare(h);
-			const expected = text === INSTALLER_ENV_TEXT ? 'delete' : 'keep-in-backup';
+			const expected = Object.hasOwn(literalLines, label) ? 'delete' : 'keep-in-backup';
 			assert.equal(prep.plan.items.find((item) => item.id === 'claude.env-file').action, expected, label);
 			const result = apply(h, prep, { groups: ['claude'] });
 			assert.equal(result.exitCode, 0, label);
@@ -4335,7 +4349,7 @@ describe('applySteps: the env-file steps', () => {
 			const kept = path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env');
 			if (expected === 'delete') {
 				assert.equal(fs.existsSync(kept), false, label);
-				assert.deepEqual(step.template.filter((line) => typeof line === 'string'), ['# Pinecone', '', '# OpenAI (for text-embedding-3-small)'], label);
+				assert.deepEqual(step.template.filter((line) => typeof line === 'string'), literalLines[label], label);
 			} else {
 				assert.equal(fs.readFileSync(kept, 'utf8'), text, `${label}: the .env keeps its bytes in the backup`);
 				assert.equal(step.template, null, label);
@@ -4370,6 +4384,28 @@ describe('applySteps: the env-file steps', () => {
 			assert.equal(before.equals(fs.readFileSync(p.claudeEnv)), true, `${label}: the .env keeps its bytes`);
 			assert.equal(fs.existsSync(p.claudeSkill), true, label);
 			assert.deepEqual(states(manifestOf(result.backupDir)), ['claude.mcp-entry:done', 'claude.sentinel:done', 'claude.env-file:failed', 'claude.skill-dir:pending'], label);
+		}
+	});
+
+	it('a key that left the secrets file after the plan fails a delete with "the .env changed since the plan", and manifest.json holds no fake value', POSIX_ONLY, () => {
+		const without = `pinecone-api-key: ${FAKE.pinecone}\npinecone-index-name: ${FAKE.index}\n`;
+		for (const when of ['claude.mcp-entry', 'claude.sentinel']) {
+			const h = fakeHome('env-secret-gone', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+			const p = h.paths;
+			const prep = prepare(h);
+			assert.equal(prep.plan.items.find((item) => item.id === 'claude.env-file').action, 'delete', when);
+			const before = fs.readFileSync(p.claudeEnv);
+			const result = apply(h, prep, { groups: ['claude'], hooks: { afterChange: (id) => id === when && fs.writeFileSync(p.secrets, without) } });
+			assert.equal(fs.readFileSync(p.secrets, 'utf8'), without, `${when}: the key left the secrets file`);
+			assert.equal(result.exitCode, 4, when);
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${ENV_CHANGED}`, when);
+			assert.equal(before.equals(fs.readFileSync(p.claudeEnv)), true, `${when}: the .env keeps its bytes`);
+			assert.equal(fs.existsSync(p.claudeSkill), true, when);
+			const manifest = manifestOf(result.backupDir);
+			assert.deepEqual(states(manifest), ['claude.mcp-entry:done', 'claude.sentinel:done', 'claude.env-file:failed', 'claude.skill-dir:pending'], when);
+			assert.equal(stepOf(manifest, 'claude.env-file').template, null, when);
+			const manifestText = fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8');
+			for (const value of [FAKE.pinecone, FAKE.openai, FAKE.otherToken]) assert.equal(manifestText.includes(value), false, `${when}: manifest.json holds no fake value`);
 		}
 	});
 
@@ -5043,7 +5079,7 @@ describe('restoreSteps: the round trip', () => {
 describe('restoreSteps: the .env files', () => {
 	it('a deleted .env comes back with its old bytes and mode, also with an empty value and a placeholder in it', POSIX_ONLY, () => {
 		const texts = {
-			'an empty value and a placeholder': `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=\n\n# OpenAI\nOPENAI_API_KEY=your-openai-key\n`,
+			'an empty value and a placeholder': `# Pinecone\nPINECONE_API_KEY=${FAKE.pinecone}\nPINECONE_INDEX_NAME=\n\n# OpenAI (for text-embedding-3-small)\nOPENAI_API_KEY=your-openai-api-key\n`,
 			'CRLF, a byte order mark, and no final newline': `\uFEFFPINECONE_API_KEY=${FAKE.pinecone}\r\nOPENAI_API_KEY=${FAKE.openai}\r\nPINECONE_INDEX_NAME=${FAKE.index}`,
 			'the installer shape': INSTALLER_ENV_TEXT,
 		};
