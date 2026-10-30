@@ -3708,6 +3708,40 @@ describe('applySteps: the claude.sentinel step', () => {
 });
 
 describe('applySteps: the cursor.mcp-entry steps', () => {
+	it('a compact Cursor file with two old members: both are removed, and the file is written with the layout of the first removal', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-compact-two', { editors: ['cursor'], cursorFormat: 'compact' });
+		const p = h.paths;
+		const json = readJson(p.cursorMcp);
+		json.mcpServers['legacy-make'] = { command: process.execPath, args: [path.join(p.cursorSkill, 'mcp-server', 'dist', 'index.js'), '--legacy'] };
+		json.mcpServers['after-all'] = { command: 'node', args: ['/opt/after.js'] };
+		fs.writeFileSync(p.cursorMcp, JSON.stringify(json));
+		const prep = prepare(h);
+		const members = prep.plan.items.filter((item) => item.kind === 'json-member');
+		assert.deepEqual(members.map((item) => [item.id, item.status, item.reformats]), [
+			['cursor.mcp-entry.legacy-make', 'ready', true],
+			['cursor.mcp-entry.make-app-context', 'ready', true],
+		]);
+		const result = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(result.lines.slice(0, 2), ['done    cursor.mcp-entry.legacy-make', 'done    cursor.mcp-entry.make-app-context']);
+		assert.deepEqual(Object.keys(readJson(p.cursorMcp).mcpServers), ['other-cursor', 'after-all']);
+		assert.equal(fs.readFileSync(p.cursorMcp, 'utf8'), `${JSON.stringify({ mcpServers: { 'other-cursor': json.mcpServers['other-cursor'], 'after-all': json.mcpServers['after-all'] } }, null, 2)}`);
+		const manifest = manifestOf(result.backupDir);
+		assert.deepEqual([stepOf(manifest, 'cursor.mcp-entry.legacy-make').position, stepOf(manifest, 'cursor.mcp-entry.make-app-context').position], [2, 1]);
+		assert.deepEqual([stepOf(manifest, 'cursor.mcp-entry.legacy-make').indent, stepOf(manifest, 'cursor.mcp-entry.legacy-make').trailingNewline], ['  ', false]);
+	});
+
+	it('a Cursor file that became less tidy after the plan fails the step instead of being reformatted', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-less-tidy', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		assert.equal(prep.plan.items.find((item) => item.id === 'cursor.mcp-entry.make-app-context').reformats, false);
+		fs.writeFileSync(p.cursorMcp, JSON.stringify(readJson(p.cursorMcp)));
+		const result = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(result.lines[0], 'failed  cursor.mcp-entry.make-app-context: ~/.cursor/mcp.json changed since the plan');
+		assert.equal(Object.hasOwn(readJson(p.cursorMcp).mcpServers, 'make-app-context'), true);
+	});
+
 	it('a Cursor file that keeps changing fails after 3 tries', POSIX_ONLY, () => {
 		const h = fakeHome('cursor-keeps-changing', { editors: ['cursor'] });
 		const p = h.paths;

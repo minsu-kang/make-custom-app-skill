@@ -1152,7 +1152,7 @@ function cursorMemberStep(run, step, item, flags) {
 		if (!utf8Exact) throw notUtf8(file);
 		const members = Object.entries(serversOf(JSON.parse(text))).map(([name, entry]) => ({ key: name, ...entryFacts(entry, run.ownRoots) }));
 		const holder = { file, format: 'json', text, utf8Exact, members };
-		if (!recheck(run, item, { cursorMembers: holder, secretsText: secretsFileText(run.fs, run.secretsFile) }, (fresh) => fresh.reformats === item.reformats)) throw changedSince('~/.cursor/mcp.json');
+		if (!recheck(run, item, { cursorMembers: holder, secretsText: secretsFileText(run.fs, run.secretsFile) }, (fresh) => !fresh.reformats || item.reformats === true)) throw changedSince('~/.cursor/mcp.json');
 		const removal = removeJsonMember(text, key);
 		startStep(run, step, {
 			realPath,
