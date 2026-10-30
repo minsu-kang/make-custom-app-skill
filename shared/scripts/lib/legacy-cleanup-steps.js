@@ -213,8 +213,8 @@ function locateClaude(params) {
 
 /**
  * `{ state: 'ok', buffer, mode }`, or `missing` (no such file), `unusable` (not a regular file), `toolarge` (a regular file
- * above `limit`, with its `mode`, not read), or `error`. A caller turns `toolarge` into a fact of its own, never into
- * "nothing there".
+ * above `limit`, with its `mode`, not read), or `error` (with the `code` of the failure). A caller turns `toolarge` into a
+ * fact of its own, never into "nothing there".
  */
 function readFileRecord(fs, file, limit = MAX_READ_BYTES) {
 	try {
@@ -223,7 +223,7 @@ function readFileRecord(fs, file, limit = MAX_READ_BYTES) {
 		if (stat.size > limit) return { state: 'toolarge', mode: stat.mode & 0o777 };
 		return { state: 'ok', buffer: fs.readFileSync(file), mode: stat.mode & 0o777 };
 	} catch (err) {
-		return { state: isMissingFile(err) ? 'missing' : 'error' };
+		return isMissingFile(err) ? { state: 'missing' } : { state: 'error', code: err.code };
 	}
 }
 
@@ -399,10 +399,14 @@ function rulesFolderFacts(fs, dir) {
 	return walked === null ? null : { path: dir, names: walked.topNames, fileCount: walked.fileCount, sizeBytes: walked.sizeBytes, symlink: false, linkTarget: null };
 }
 
+/** True when a relative path (from path.relative) names something strictly inside the folder it is relative to. */
+function isInsideRelative(relative) {
+	return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
 function realPathInside(fs, child, parent) {
 	try {
-		const relative = path.relative(fs.realpathSync(parent), fs.realpathSync(child));
-		return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+		return isInsideRelative(path.relative(fs.realpathSync(parent), fs.realpathSync(child)));
 	} catch {
 		return false;
 	}
@@ -912,13 +916,16 @@ function secretsByKey(run) {
 	return Object.fromEntries(PLUGIN_KEYS.map((key) => [key, secretsValue(text, key)]));
 }
 
+/** The string values of the `env` of a registration entry; none for an entry that is no object or has no env object. */
+function envValuesOf(entry) {
+	if (!isPlainObject(entry) || !isPlainObject(entry.env)) return [];
+	return Object.values(entry.env).filter((value) => typeof value === 'string');
+}
+
 /** Every value that may be a secret and that is in memory: the env of the registrations, the values of the sources, and the secrets file. */
 function knownSecrets(run) {
 	const values = new Set();
-	const addEnv = (entry) => {
-		if (!isPlainObject(entry) || !isPlainObject(entry.env)) return;
-		for (const value of Object.values(entry.env)) if (typeof value === 'string') values.add(value);
-	};
+	const addEnv = (entry) => envValuesOf(entry).forEach((value) => values.add(value));
 	if (isPlainObject(run.facts.claudeEntry)) addEnv(run.facts.claudeEntry.entry);
 	if (isPlainObject(run.facts.cursorMembers) && Array.isArray(run.facts.cursorMembers.members)) for (const member of run.facts.cursorMembers.members) addEnv(member.entry);
 	for (const source of run.sources) for (const value of Object.values(source.values)) values.add(value);
@@ -1053,10 +1060,16 @@ function judgeClaudeEntry(run, item) {
 	return { servers, present: true, entry, old };
 }
 
-/** The error for a ~/.claude.json that cannot be used after a removal: a file that is gone (ENOENT) or one that does not parse. */
+/** A file system error for a readFileRecord that did not read: ENOENT, EISDIR (not a regular file), EFBIG (above the cap), or the code of the failure. */
+function readFailure(read) {
+	const codes = { missing: 'ENOENT', unusable: 'EISDIR', toolarge: 'EFBIG' };
+	return Object.assign(new Error('the file cannot be read'), { code: codes[read.state] ?? read.code });
+}
+
+/** The error for a ~/.claude.json that cannot be used: a file system error with its code when it cannot be read (gone, a folder, no access), else one that does not parse. */
 function unusableClaudeJson(run) {
-	if (readFileRecord(run.fs, run.paths.claudeJson, Infinity).state === 'missing') return Object.assign(new Error('~/.claude.json is gone'), { code: 'ENOENT' });
-	return new SyntaxError('~/.claude.json does not parse');
+	const read = readFileRecord(run.fs, run.paths.claudeJson, Infinity);
+	return read.state === 'ok' ? new SyntaxError('~/.claude.json does not parse') : readFailure(read);
 }
 
 function claudeEntryStep(run, step, item, flags) {
@@ -1243,19 +1256,34 @@ function cursorMemberStep(run, step, item, flags) {
 
 // The run ----------------------------------------------------------------------------------------------------------
 
+/** The kind and path of each step of the cleanup but the Cursor members and the secrets step (the skill folder is named for an `.env`): the one table of the apply and the restore. */
+function stepTable(paths) {
+	return {
+		'claude.mcp-entry': { kind: 'claude-mcp-entry', path: paths.claudeJson },
+		'claude.sentinel': { kind: 'text-block', path: paths.claudeMd },
+		'claude.env-file': { kind: 'env-file', path: paths.claudeEnv, skillDir: paths.claudeSkill },
+		'claude.skill-dir': { kind: 'directory', path: paths.claudeSkill },
+		'cursor.env-file': { kind: 'env-file', path: paths.cursorEnv, skillDir: paths.cursorSkill },
+		'cursor.skill-dir': { kind: 'directory', path: paths.cursorSkill },
+		[RULES_ID]: { kind: 'directory', path: paths.cursorRules },
+	};
+}
+
+const APPLY_STEPS = {
+	'claude.mcp-entry': { actions: ['remove-entry'], run: claudeEntryStep },
+	'claude.sentinel': { actions: ['remove-block'], run: sentinelStep },
+	'claude.env-file': { actions: ['delete', 'keep-in-backup'], run: envFileStep },
+	'claude.skill-dir': { actions: ['move'], run: directoryStep },
+	'cursor.env-file': { actions: ['delete', 'keep-in-backup'], run: envFileStep },
+	'cursor.skill-dir': { actions: ['move'], run: directoryStep },
+	[RULES_ID]: { actions: ['move'], run: directoryStep },
+};
+
 /** The kind, path, allowed actions, and runner of each plan item this version knows; anything else is a TypeError before the first change. */
 function stepSpec(item, paths) {
-	const known = {
-		'claude.mcp-entry': { kind: 'claude-mcp-entry', path: paths.claudeJson, actions: ['remove-entry'], run: claudeEntryStep },
-		'claude.sentinel': { kind: 'text-block', path: paths.claudeMd, actions: ['remove-block'], run: sentinelStep },
-		'claude.env-file': { kind: 'env-file', path: paths.claudeEnv, actions: ['delete', 'keep-in-backup'], run: envFileStep },
-		'claude.skill-dir': { kind: 'directory', path: paths.claudeSkill, actions: ['move'], run: directoryStep },
-		'cursor.env-file': { kind: 'env-file', path: paths.cursorEnv, actions: ['delete', 'keep-in-backup'], run: envFileStep },
-		'cursor.skill-dir': { kind: 'directory', path: paths.cursorSkill, actions: ['move'], run: directoryStep },
-		[RULES_ID]: { kind: 'directory', path: paths.cursorRules, actions: ['move'], run: directoryStep },
-	};
+	const known = stepTable(paths);
 	const id = item.id;
-	let spec = typeof id === 'string' && Object.hasOwn(known, id) ? known[id] : null;
+	let spec = typeof id === 'string' && Object.hasOwn(known, id) ? { ...known[id], ...APPLY_STEPS[id] } : null;
 	if (typeof id === 'string' && id.startsWith(CURSOR_PREFIX) && id.length > CURSOR_PREFIX.length) spec = { kind: 'json-member', path: paths.cursorMcp, actions: ['remove-entry'], run: cursorMemberStep };
 	if (spec === null || item.kind !== spec.kind || item.path !== spec.path || !spec.actions.includes(item.action) || item.group !== id.split('.')[0]) throw new TypeError(PLAN_ERROR);
 	return spec;
@@ -1436,6 +1464,8 @@ const REAL_PATH_TYPES = ['text-block', 'json-member'];
 const WINDOWS_RESTORE_TEXT = 'on Windows with claude.cmd the entry is not passed through cmd.exe; run the old installer again to register the old server';
 const NO_CLAUDE_RESTORE_TEXT = 'Claude Code was not found. Set CLAUDE_BIN and run --restore again.';
 const NO_FOLDER_TO_PUT_BACK_TEXT = 'the backup holds no folder to put back';
+const FOLDER_NOT_PUT_BACK_TEXT = 'the folder was not put back by this restore, so the .env was left as it is';
+const CONFIG_DIR_RESTORE_TEXT = 'CLAUDE_CONFIG_DIR is set, so claude would add the entry to another file than ~/.claude.json; register the old server by hand, or run --restore again without the variable';
 const ADD_FAILED_TEXT = 'claude did not add the registration to ~/.claude.json';
 const APPENDED_TEXT = ' (appended at the end, because the file changed)';
 const EARLIER_RESTORE_TEXT = 'handled by an earlier restore';
@@ -1482,19 +1512,6 @@ function findBackups(params) {
 	return found.map(({ item }) => item);
 }
 
-function restoreSpecs(paths) {
-	return {
-		'claude.mcp-entry': { type: 'claude-mcp-entry', place: paths.claudeJson },
-		'claude.sentinel': { type: 'text-block', place: paths.claudeMd },
-		'claude.env-file': { type: 'env-file', place: paths.claudeEnv, skillDir: paths.claudeSkill },
-		'claude.skill-dir': { type: 'directory', place: paths.claudeSkill },
-		'cursor.env-file': { type: 'env-file', place: paths.cursorEnv, skillDir: paths.cursorSkill },
-		'cursor.skill-dir': { type: 'directory', place: paths.cursorSkill },
-		[RULES_ID]: { type: 'directory', place: paths.cursorRules },
-		secrets: { type: 'secrets', place: null },
-	};
-}
-
 function isMode(value) {
 	return Number.isInteger(value) && value >= 0 && value <= 0o777;
 }
@@ -1513,7 +1530,9 @@ function isEnvTemplate(template) {
 	return Array.isArray(template) && template.every((item) => typeof item === 'string' || (isPlainObject(item) && Object.keys(item).length === 2 && typeof item.prefix === 'string' && PLUGIN_KEYS.includes(item.$secret)));
 }
 
-const NONNEGATIVE = (value) => Number.isInteger(value) && value >= 0;
+function isNonNegativeInteger(value) {
+	return Number.isInteger(value) && value >= 0;
+}
 
 /** The fields every step of a type has, in every state (the pending ones are filled in when the manifest is created). */
 const STEP_SHAPES = {
@@ -1528,12 +1547,12 @@ const STEP_SHAPES = {
 /** The fields a step has once it has run (it was recorded as `running` before its change, so these are there for `running` and `done`). */
 const RAN_SHAPES = {
 	'claude-mcp-entry': (step) => isPlainObject(step.entry) && hasKnownSecretRefs(step.entry),
-	'text-block': (step) => typeof step.realPath === 'string' && isMode(step.mode) && NONNEGATIVE(step.offset) && typeof step.removedText === 'string' && typeof step.sha256After === 'string',
+	'text-block': (step) => typeof step.realPath === 'string' && isMode(step.mode) && isNonNegativeInteger(step.offset) && typeof step.removedText === 'string' && typeof step.sha256After === 'string',
 	'env-file': (step) => isMode(step.mode) && (step.action !== 'delete' || (isEnvTemplate(step.template) && isEol(step.eol) && typeof step.trailingNewline === 'boolean' && typeof step.bom === 'boolean')),
 	'json-member': (step) =>
 		typeof step.realPath === 'string' &&
 		isMode(step.mode) &&
-		(step.position === null || NONNEGATIVE(step.position)) &&
+		(step.position === null || isNonNegativeInteger(step.position)) &&
 		typeof step.indent === 'string' &&
 		/^[ \t]*$/.test(step.indent) &&
 		isEol(step.eol) &&
@@ -1548,24 +1567,19 @@ const RAN_SHAPES = {
  */
 function checkManifest(manifest, paths) {
 	if (!isPlainObject(manifest) || manifest.schema !== SCHEMA || !Array.isArray(manifest.steps) || manifest.steps.length > MAX_RESTORE_STEPS) return null;
-	const known = restoreSpecs(paths);
+	const known = { ...stepTable(paths), secrets: { kind: 'secrets', path: null } };
 	const seen = new Set();
 	const entries = [];
 	for (const step of manifest.steps) {
 		if (!isPlainObject(step) || typeof step.id !== 'string' || seen.has(step.id) || !STEP_STATES.includes(step.state)) return null;
 		seen.add(step.id);
 		let spec = Object.hasOwn(known, step.id) ? known[step.id] : null;
-		if (step.id.startsWith(CURSOR_PREFIX) && step.id.length > CURSOR_PREFIX.length) spec = { type: 'json-member', place: paths.cursorMcp };
-		if (spec === null || step.type !== spec.type || !STEP_SHAPES[spec.type](step)) return null;
-		const ran = step.state === 'running' || step.state === 'done';
-		if (ran && Object.hasOwn(RAN_SHAPES, spec.type) && !RAN_SHAPES[spec.type](step)) return null;
+		if (step.id.startsWith(CURSOR_PREFIX) && step.id.length > CURSOR_PREFIX.length) spec = { kind: 'json-member', path: paths.cursorMcp };
+		if (spec === null || step.type !== spec.kind || !STEP_SHAPES[spec.kind](step)) return null;
+		if (mayHaveChanged(step) && Object.hasOwn(RAN_SHAPES, spec.kind) && !RAN_SHAPES[spec.kind](step)) return null;
 		entries.push({ step, spec, realPath: null });
 	}
 	return entries;
-}
-
-function isInsideRelative(relative) {
-	return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 /** The real path of the folder that holds `file` (the deepest part that exists, then the rest), joined with its name; null when it cannot be told. */
@@ -1584,11 +1598,27 @@ function realParentPath(fs, file) {
 	}
 }
 
-/** True when `backup` is a normalized absolute path that lies inside the backup folder, also after the links on the way are resolved. The last name is not resolved: a link moves as a link. */
-function backupInside(fs, backupDir, realBackupDir, backup) {
-	if (path.resolve(backup) !== backup || !isInsideRelative(path.relative(path.resolve(backupDir), backup))) return false;
-	const real = realParentPath(fs, backup);
-	return real !== null && isInsideRelative(path.relative(realBackupDir, real));
+/** True for a step that is `running` or `done`: it may have changed something, so its recorded fields are there and are used. */
+function mayHaveChanged(step) {
+	return step.state === 'running' || step.state === 'done';
+}
+
+/**
+ * True when the backup of a directory step is where applySteps puts it (`<backupDir>/<group>/<name>`), no link on the way
+ * leads out of the backup folder (the last name is not resolved: a link moves as a link), and, for a step that may have
+ * changed something, its `symlink` flag says what the backup is now (a link or a folder; a backup that is gone matches).
+ */
+function backupBelongs(fs, backupDir, realBackupDir, step) {
+	const [group, name] = step.id.split('.');
+	if (step.backup !== path.join(backupDir, group, name)) return false;
+	const real = realParentPath(fs, step.backup);
+	if (real === null || !isInsideRelative(path.relative(realBackupDir, real))) return false;
+	if (!mayHaveChanged(step)) return true;
+	try {
+		return fs.lstatSync(step.backup).isSymbolicLink() === step.symlink;
+	} catch (err) {
+		return isMissingFile(err);
+	}
 }
 
 /**
@@ -1599,10 +1629,10 @@ function backupInside(fs, backupDir, realBackupDir, backup) {
 function foreignPlace(fs, backupDir, realBackupDir, entries) {
 	for (const entry of entries) {
 		const { step, spec } = entry;
-		const named = step[PLACE_FIELD[spec.type]];
-		if (spec.place !== null && named !== spec.place) return named;
-		if (spec.type === 'directory' && !backupInside(fs, backupDir, realBackupDir, step.backup)) return step.backup;
-		if (REAL_PATH_TYPES.includes(spec.type) && (step.state === 'running' || step.state === 'done')) {
+		const named = step[PLACE_FIELD[spec.kind]];
+		if (spec.path !== null && named !== spec.path) return named;
+		if (spec.kind === 'directory' && !backupBelongs(fs, backupDir, realBackupDir, step)) return step.backup;
+		if (REAL_PATH_TYPES.includes(spec.kind) && mayHaveChanged(step)) {
 			let now = null;
 			try {
 				now = fs.realpathSync(step.file);
@@ -1627,10 +1657,7 @@ function missingFile() {
 /** What the restore may print as a secret: the values of the secrets file and every literal env value the manifest holds. */
 function manifestSecrets(run) {
 	const values = new Set(Object.values(secretsByKey(run)).filter((value) => value !== null));
-	for (const { step } of run.entries) {
-		if (!isPlainObject(step.entry) || !isPlainObject(step.entry.env)) continue;
-		for (const value of Object.values(step.entry.env)) if (typeof value === 'string') values.add(value);
-	}
+	for (const { step } of run.entries) for (const value of envValuesOf(step.entry)) values.add(value);
 	return [...values];
 }
 
@@ -1691,6 +1718,7 @@ function restoreJsonMember(run, entry) {
 
 function restoreClaudeEntry(run, entry) {
 	const { step } = entry;
+	if (typeof run.env.CLAUDE_CONFIG_DIR === 'string' && run.env.CLAUDE_CONFIG_DIR !== '') return untouched(CONFIG_DIR_RESTORE_TEXT);
 	const current = readClaudeJson(run, REGISTRATION_ATTEMPTS);
 	if (current === null && readFileRecord(run.fs, run.paths.claudeJson, Infinity).state !== 'missing') throw unusableClaudeJson(run);
 	const servers = current === null ? {} : serversOf(current.value);
@@ -1701,8 +1729,8 @@ function restoreClaudeEntry(run, entry) {
 	if (run.claudeBin === null) throw new StepFailure(NO_CLAUDE_RESTORE_TEXT);
 	if (run.platform === 'win32' && /\.cmd$/i.test(run.claudeBin)) return skipped(WINDOWS_RESTORE_TEXT);
 	const json = JSON.stringify(resolveEntry(run, step.entry));
-	run.usedAddJson = true;
 	const result = runClaude(run, ['mcp', 'add-json', CLAUDE_KEY, json, '--scope', 'user']);
+	run.usedAddJson = !(result.error && !result.pid);
 	const outcome = removalOutcome(run);
 	if (outcome === 'present') return restored();
 	if (outcome === 'unreadable') throw unusableClaudeJson(run);
@@ -1732,13 +1760,16 @@ function restoreEnvFile(run, entry) {
 	const decision = restoreDecision(step, { fileExists: pathExists(run.fs, file) });
 	if (decision === 'skip') return skipped('the .env exists again');
 	if (decision === 'missing') return untouched('the .env is not there, so there is no mode to put back');
+	if (run.fs.lstatSync(spec.skillDir).isSymbolicLink()) throw new StepFailure(ENV_OUTSIDE_TEXT);
 	if (step.action === 'keep-in-backup') {
+		const folder = run.entries.find((other) => other.step.id === step.id.replace('env-file', 'skill-dir'));
+		if (folder === undefined || folder.step.state !== 'restored') return untouched(FOLDER_NOT_PUT_BACK_TEXT);
 		if (!realPathInside(run.fs, file, spec.skillDir) || !run.fs.statSync(file).isFile()) throw new StepFailure(ENV_OUTSIDE_TEXT);
 		run.fs.chmodSync(file, step.mode);
 		return restored();
 	}
-	const folder = run.fs.realpathSync(path.dirname(file));
-	if (!isInsideRelative(path.relative(run.fs.realpathSync(spec.skillDir), folder))) throw new StepFailure(ENV_OUTSIDE_TEXT);
+	const parent = run.fs.realpathSync(path.dirname(file));
+	if (!isInsideRelative(path.relative(run.fs.realpathSync(spec.skillDir), parent))) throw new StepFailure(ENV_OUTSIDE_TEXT);
 	const text = secretsFileText(run.fs, run.secretsFile);
 	const value = (key) => secretsValue(text, key);
 	for (const item of step.template) if (typeof item !== 'string' && value(item.$secret) === null) throw new StepFailure(`the secrets file has no ${item.$secret} any more`);
@@ -1829,17 +1860,34 @@ function settleStep(step, outcome) {
 	return changed;
 }
 
+/** Removes a `manifest.json.tmp` that a crashed run left, when it is a regular file (a link is never followed); anything else there is an EEXIST that the caller names with the temp file. */
+function clearStaleTemp(run) {
+	const temp = `${run.manifestFile}.tmp`;
+	let stat;
+	try {
+		stat = run.fs.lstatSync(temp);
+	} catch (err) {
+		if (isMissingFile(err)) return;
+		throw err;
+	}
+	if (!stat.isFile()) throw Object.assign(new Error('the temp file is no regular file'), { code: 'EEXIST' });
+	run.fs.unlinkSync(temp);
+}
+
 /**
  * Puts back what applySteps moved, from `<backupDir>/manifest.json`, and returns `{ exitCode, status, lines, usedAddJson }`:
  * exit 2 and status null when it refused before any change (the manifest does not parse, is not one this version writes, or
  * names a place the cleanup does not move or a file whose real path is not the recorded one), else exit 0 and `restored`, or
  * exit 4 and `partially-restored` when a step failed. The manifest is data from disk that may be hostile: every step is
  * checked before the first change, writes go to real paths computed now, and a line holds only a fixed text, an id, or an
- * error through describeError, with every value that may be a secret cut out. The steps run in reverse order; a step is done
- * or running only when it changed something, so those go through restoreDecision and are judged by what is on disk now; a
+ * error through describeError, with every value that may be a secret cut out. The steps run in reverse order; a step that is
+ * done or running may have changed something, so those go through restoreDecision and are judged by what is on disk now; a
  * step that failed to restore keeps its state, so a second restore tries it again. The manifest is written once, at the
- * end, and only when something in it changed. `claude mcp add-json` takes the registration with its secrets on the command
- * line: `usedAddJson` is true when it was started, and the lines then carry the note about it.
+ * end, and only when something in it changed; the caller holds the cleanup lock, so a stale `manifest.json.tmp` (a regular
+ * file) is removed before that write. `claude mcp add-json` takes the registration with its secrets on the command line:
+ * `usedAddJson` is true when a process was started for it, and the lines then carry the note about it. A `claudeBin` that is
+ * not an absolute path counts as no binary (Ruling 15), and with CLAUDE_CONFIG_DIR set the registration is left alone, as
+ * the apply leaves it.
  */
 function restoreSteps(params) {
 	requireParams('restoreSteps', params, ['env', 'home']);
@@ -1853,8 +1901,9 @@ function restoreSteps(params) {
 	let manifest;
 	let realBackupDir;
 	try {
-		if (fs.statSync(manifestFile).size > MAX_READ_BYTES) throw Object.assign(new Error('the manifest is too big'), { code: 'EFBIG' });
-		manifest = parseJsonText(fs.readFileSync(manifestFile, 'utf8'));
+		const read = readFileRecord(fs, manifestFile);
+		if (read.state !== 'ok') throw readFailure(read);
+		manifest = parseJsonText(read.buffer.toString('utf8'));
 		realBackupDir = fs.realpathSync(backupDir);
 	} catch (err) {
 		return refuse(describeError(err, manifestFile));
@@ -1864,6 +1913,7 @@ function restoreSteps(params) {
 	const foreign = foreignPlace(fs, backupDir, realBackupDir, entries);
 	if (foreign !== null) return refuse(`the manifest names ${showText(foreign)}, which is not a place the cleanup moves`);
 
+	const platform = params.platform === undefined ? process.platform : params.platform;
 	const run = {
 		fs,
 		env,
@@ -1875,8 +1925,8 @@ function restoreSteps(params) {
 		secretsFile: path.join(home, '.make-custom-app-skill-secrets'),
 		spawn: params.spawnSync === undefined ? childProcess.spawnSync : params.spawnSync,
 		sleep: params.sleep === undefined ? sleepMs : params.sleep,
-		platform: params.platform === undefined ? process.platform : params.platform,
-		claudeBin: typeof params.claudeBin === 'string' && params.claudeBin !== '' ? params.claudeBin : null,
+		platform,
+		claudeBin: typeof params.claudeBin === 'string' && pathFor(platform).isAbsolute(params.claudeBin) ? params.claudeBin : null,
 		usedAddJson: false,
 		secrets: null,
 	};
@@ -1901,10 +1951,11 @@ function restoreSteps(params) {
 	}
 	if (dirty) {
 		try {
+			clearStaleTemp(run);
 			writeManifest(run);
 		} catch (err) {
 			failed = true;
-			lines.push(`failed   manifest: ${describeError(err.cause, manifestFile)}`);
+			lines.push(`failed   manifest: ${err instanceof ManifestError ? describeError(err.cause, manifestFile) : describeError(err, `${manifestFile}.tmp`)}`);
 		}
 	}
 	if (run.usedAddJson) lines.push(ADD_JSON_NOTE);

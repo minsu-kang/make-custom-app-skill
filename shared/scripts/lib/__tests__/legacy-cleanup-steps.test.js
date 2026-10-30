@@ -4826,6 +4826,9 @@ describe('restoreSteps: parameters and the manifest file', () => {
 		fs.mkdirSync(manifestFile);
 		check('a folder', `EISDIR on ${manifestFile}`);
 		fs.rmdirSync(manifestFile);
+		fs.symlinkSync('/dev/null', manifestFile);
+		check('a link to a file that is not a regular file', `EISDIR on ${manifestFile}`);
+		fs.rmSync(manifestFile);
 		fs.writeFileSync(manifestFile, good, { mode: 0o600 });
 		assert.deepEqual(diffSnapshots(snap, snapshot(h.root, { exclude: ['claude-log.jsonl'] })), [], 'every refusal left everything as it was');
 		assert.deepEqual(restore(h, path.join(h.home, '.make-custom-app', 'migration-backup-1999-01-01T00-00-00Z')), refusal(h, path.join(h.home, '.make-custom-app', 'migration-backup-1999-01-01T00-00-00Z'), `ENOENT on ${path.join(h.home, '.make-custom-app', 'migration-backup-1999-01-01T00-00-00Z', 'manifest.json')}`));
@@ -5131,6 +5134,15 @@ describe('restoreSteps: the .env files', () => {
 		assert.deepEqual(envLine(behindResult), [`failed   claude.env-file: ${OUTSIDE_TEXT}`]);
 		assert.deepEqual(fs.readdirSync(outside), [], 'nothing was written outside the skill folder');
 
+		const itself = setup('restore-env-folder-itself');
+		editManifest(itself.backupDir, (manifest) => {
+			stepOf(manifest, 'claude.skill-dir').state = 'failed';
+		});
+		fs.mkdirSync(itself.p.claudeSkill);
+		fs.symlinkSync('.', path.join(itself.p.claudeSkill, 'mcp-server'));
+		assert.deepEqual(envLine(restore(itself.h, itself.backupDir)), [`failed   claude.env-file: ${OUTSIDE_TEXT}`], 'a folder that is the skill folder itself is not inside it');
+		assert.deepEqual(fs.readdirSync(itself.p.claudeSkill), ['mcp-server'], 'nothing was written there');
+
 		const appears = setup('restore-env-appears');
 		const racing = {
 			...fs,
@@ -5433,7 +5445,17 @@ describe('restoreSteps: the Claude registration', () => {
 
 		const errored = fresh('restore-add-error');
 		const errorStub = recorder({ error: errorWithCode('ENOENT') });
-		assert.deepEqual(mcpLine(restore(errored.h, errored.backupDir, { spawnSync: errorStub.spawn })), [`failed   claude.mcp-entry: ENOENT on ${errored.p.claudeBin}`]);
+		const erroredResult = restore(errored.h, errored.backupDir, { spawnSync: errorStub.spawn });
+		assert.deepEqual(mcpLine(erroredResult), [`failed   claude.mcp-entry: ENOENT on ${errored.p.claudeBin}`]);
+		assert.equal(erroredResult.usedAddJson, false, 'no process started, so nothing held the secrets');
+		assert.equal(erroredResult.lines.includes(ADD_JSON_NOTE), false);
+
+		const timedOut = fresh('restore-add-timeout');
+		const timeoutStub = recorder({ error: errorWithCode('ETIMEDOUT'), pid: 4242 });
+		const timedOutResult = restore(timedOut.h, timedOut.backupDir, { spawnSync: timeoutStub.spawn });
+		assert.deepEqual(mcpLine(timedOutResult), [`failed   claude.mcp-entry: ETIMEDOUT on ${timedOut.p.claudeBin}`]);
+		assert.equal(timedOutResult.usedAddJson, true, 'a process that started and was killed held the secrets');
+		assert.equal(timedOutResult.lines.includes(ADD_JSON_NOTE), true);
 
 		const quiet = fresh('restore-add-quiet');
 		const waits = [];
@@ -5618,7 +5640,7 @@ describe('restoreSteps: the folders', () => {
 			['done with method copy', { state: 'done', method: 'copy' }, () => {}],
 			['running with method copy and no backup', { state: 'running', method: 'copy' }, ({ backup }) => fs.rmSync(backup, { recursive: true })],
 			['running with method copy and a file as the backup', { state: 'running', method: 'copy' }, ({ backup }) => { fs.rmSync(backup, { recursive: true }); put(backup, 'a file\n'); }],
-			['running with method copy and a link as the backup', { state: 'running', method: 'copy' }, ({ backup, h }) => { fs.rmSync(backup, { recursive: true }); fs.symlinkSync(h.root, backup); }],
+			['running with method copy and a link as the backup', { state: 'running', method: 'copy', symlink: true }, ({ backup, h }) => { fs.rmSync(backup, { recursive: true }); fs.symlinkSync(h.root, backup); }],
 			['running with method copy and a file as the original', { state: 'running', method: 'copy' }, ({ p }) => { fs.rmSync(p.cursorSkill, { recursive: true }); put(p.cursorSkill, 'a file\n'); }],
 		];
 		for (const [label, fields, change] of rounds) {
@@ -5870,6 +5892,23 @@ describe('restoreSteps: manifests that name the wrong places or have the wrong s
 			change: (m) => { stepOf(m, 'cursor.skill-dir').backup = 'a'.repeat(1000); },
 			named: () => 'a'.repeat(300),
 		});
+		expectRefusal('a backup inside the backup folder that belongs to another step (the other group)', {
+			change: (m, h, dir) => { stepOf(m, 'claude.skill-dir').backup = path.join(dir, 'cursor', 'skill-dir'); },
+			named: (h, dir) => path.join(dir, 'cursor', 'skill-dir'),
+		});
+		expectRefusal('a backup inside the backup folder that belongs to another step (the other name)', {
+			change: (m, h, dir) => { stepOf(m, 'cursor.skill-dir').backup = path.join(dir, 'cursor', 'rules-dir'); },
+			named: (h, dir) => path.join(dir, 'cursor', 'rules-dir'),
+		});
+		expectRefusal('a symlink flag that says link for a backup that is a folder', {
+			change: (m) => { stepOf(m, 'cursor.skill-dir').symlink = true; },
+			named: (h, dir) => path.join(dir, 'cursor', 'skill-dir'),
+		});
+		expectRefusal('a symlink flag that says folder for a backup that is a link', {
+			options: { editors: ['claude'], symlinkSkill: true },
+			change: (m) => { stepOf(m, 'claude.skill-dir').symlink = false; },
+			named: (h, dir) => path.join(dir, 'claude', 'skill-dir'),
+		});
 		expectRefusal('a text-block file that points elsewhere', {
 			change: (m, h) => { stepOf(m, 'claude.sentinel').file = elsewhere(h, 'CLAUDE.md'); },
 			named: (h) => elsewhere(h, 'CLAUDE.md'),
@@ -5921,6 +5960,9 @@ describe('restoreSteps: manifests that name the wrong places or have the wrong s
 		const recordedBackup = stepOf(manifestOf(backupDir), 'claude.skill-dir').backup;
 		const deniedBackup = { ...fs, realpathSync: (file, ...rest) => { if (file === path.join(backupDir, 'claude')) throw errorWithCode('EACCES'); return fs.realpathSync(file, ...rest); } };
 		assert.deepEqual(restore(h, backupDir, { fs: deniedBackup }), refusal(h, backupDir, notAPlace(recordedBackup)), 'a folder of the backup whose real path cannot be told is not inside it');
+		assert.deepEqual(diffSnapshots(snap, snapshot(h.root, { exclude: ['claude-log.jsonl'] })), []);
+		const deniedLstat = { ...fs, lstatSync: (file, ...rest) => { if (file === recordedBackup) throw errorWithCode('EACCES'); return fs.lstatSync(file, ...rest); } };
+		assert.deepEqual(restore(h, backupDir, { fs: deniedLstat }), refusal(h, backupDir, notAPlace(recordedBackup)), 'a backup of a step that ran whose kind cannot be told is refused');
 		assert.deepEqual(diffSnapshots(snap, snapshot(h.root, { exclude: ['claude-log.jsonl'] })), []);
 		fs.rmSync(p.claudeMd);
 		const gone = restore(h, backupDir);
@@ -6142,6 +6184,197 @@ describe('restoreSteps: more cases of the round trip', () => {
 		const result = steps.restoreSteps({ backupDir, env: h.env, home: h.home });
 		assert.equal(result.exitCode, 0);
 		assertBack(h, before, 'the defaults restore a Cursor group');
+	});
+});
+
+describe('restoreSteps: after the first review', () => {
+	const KEEP_NOT_BACK = 'the folder was not put back by this restore, so the .env was left as it is';
+	const CONFIG_DIR_TEXT = 'CLAUDE_CONFIG_DIR is set, so claude would add the entry to another file than ~/.claude.json; register the old server by hand, or run --restore again without the variable';
+	const NOT_FOUND = 'failed   claude.mcp-entry: Claude Code was not found. Set CLAUDE_BIN and run --restore again.';
+	const envLine = (result) => result.lines.filter((line) => line.includes('env-file'));
+	const mcpLine = (result) => result.lines.filter((line) => line.includes('claude.mcp-entry'));
+	const claudeFresh = (label, options = {}) => appliedHome(label, { editors: ['claude'], ...options }, { groups: ['claude'] });
+	const cursorFresh = (label) => appliedHome(label, { editors: ['cursor'] }, { groups: ['cursor'] });
+	const never = () =>
+		recorder(() => {
+			throw new Error('claude must not run');
+		});
+
+	it('a .env is never written or chmodded through an old skill folder that is now a link, for delete and for keep-in-backup', POSIX_ONLY, () => {
+		for (const action of ['delete', 'keep-in-backup']) {
+			const text = action === 'delete' ? INSTALLER_ENV_TEXT : `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`;
+			const { h, p, backupDir } = appliedHome('restore-env-linked', { editors: ['claude'], envText: text }, { groups: ['claude'] });
+			assert.equal(stepOf(manifestOf(backupDir), 'claude.env-file').action, action);
+			const dev = path.join(h.root, 'dev-checkout');
+			put(path.join(dev, 'mcp-server', 'marker.txt'), 'a dev checkout\n');
+			if (action === 'keep-in-backup') put(path.join(dev, 'mcp-server', '.env'), 'USER_SETTING=own\n', 0o600);
+			fs.symlinkSync(dev, p.claudeSkill);
+			const before = snapshot(dev);
+			const result = restore(h, backupDir);
+			assert.deepEqual(envLine(result).filter((line) => line.includes('claude.env-file')), [`failed   claude.env-file: ${OUTSIDE_TEXT}`], action);
+			assert.equal(result.exitCode, 4, action);
+			assert.deepEqual(diffSnapshots(before, snapshot(dev)), [], `${action}: nothing was written or changed at the target of the link`);
+			const step = stepOf(manifestOf(backupDir), 'claude.env-file');
+			assert.deepEqual([step.state, step.error], ['done', OUTSIDE_TEXT], `${action}: the step keeps its state`);
+			assert.equal(fs.lstatSync(p.claudeSkill).isSymbolicLink(), true, action);
+		}
+	});
+
+	it('a kept .env is chmodded only when this restore, or an earlier one, put its folder back; a re-created real folder keeps the mode of its own .env', POSIX_ONLY, () => {
+		const text = `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`;
+		const { h, p, backupDir } = appliedHome('restore-env-recreated', { editors: ['claude'], envText: text }, { groups: ['claude'] });
+		put(path.join(p.claudeSkill, 'SKILL.md'), 'a newer install\n');
+		put(p.claudeEnv, 'NEW_SETTING=on\n', 0o600);
+		fs.chmodSync(path.join(backupDir, 'claude', 'skill-dir', 'mcp-server', '.env'), 0o640);
+		editManifest(backupDir, (manifest) => {
+			stepOf(manifest, 'claude.env-file').mode = 0o640;
+		});
+		const result = restore(h, backupDir);
+		assert.deepEqual(envLine(result), [`skipped  claude.env-file: ${KEEP_NOT_BACK}`]);
+		assert.equal(result.exitCode, 0);
+		assert.equal(fs.statSync(p.claudeEnv).mode & 0o777, 0o600, 'the .env of the new install keeps its mode');
+		assert.equal(fs.readFileSync(p.claudeEnv, 'utf8'), 'NEW_SETTING=on\n');
+		assert.equal(stepOf(manifestOf(backupDir), 'claude.env-file').state, 'done', 'the step is left as it is');
+
+		const orphan = appliedHome('restore-env-no-folder-step', { editors: ['claude'], envText: text }, { groups: ['claude'] });
+		editManifest(orphan.backupDir, (manifest) => {
+			manifest.steps = manifest.steps.filter((step) => step.id !== 'claude.skill-dir');
+		});
+		put(path.join(orphan.p.claudeSkill, 'SKILL.md'), 'a newer install\n');
+		put(orphan.p.claudeEnv, 'NEW_SETTING=on\n', 0o600);
+		assert.deepEqual(envLine(restore(orphan.h, orphan.backupDir)), [`skipped  claude.env-file: ${KEEP_NOT_BACK}`], 'a manifest without the step of the folder cannot show that the folder was put back');
+		assert.equal(fs.statSync(orphan.p.claudeEnv).mode & 0o777, 0o600);
+
+		const again = appliedHome('restore-env-two-runs', { editors: ['claude'], envText: text }, { groups: ['claude'] });
+		fs.chmodSync(path.join(again.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env'), 0o600);
+		editManifest(again.backupDir, (manifest) => {
+			stepOf(manifest, 'claude.env-file').mode = 0o640;
+		});
+		const failing = { ...fs, chmodSync(file, ...rest) { if (file === again.p.claudeEnv) throw errorWithCode('EPERM'); return fs.chmodSync(file, ...rest); } };
+		const first = restore(again.h, again.backupDir, { fs: failing });
+		assert.deepEqual(envLine(first), [`failed   claude.env-file: EPERM on ${again.p.claudeEnv}`]);
+		assert.equal(stepOf(manifestOf(again.backupDir), 'claude.skill-dir').state, 'restored');
+		const second = restore(again.h, again.backupDir);
+		assert.deepEqual(envLine(second), ['restored claude.env-file'], 'the folder was put back by the first run, so the second run may chmod');
+		assert.equal(fs.statSync(again.p.claudeEnv).mode & 0o777, 0o640);
+	});
+
+	it('a stale manifest.json.tmp from a crashed run is removed before the manifest is written; one that is a link or a folder fails the write and is named', POSIX_ONLY, () => {
+		const tempOf = (dir) => path.join(dir, 'manifest.json.tmp');
+		const stale = cursorFresh('restore-stale-temp');
+		put(tempOf(stale.backupDir), 'half a manifest');
+		const result = restore(stale.h, stale.backupDir);
+		assert.deepEqual([result.exitCode, result.status], [0, 'restored']);
+		assert.equal(fs.existsSync(tempOf(stale.backupDir)), false, 'the stale file is gone');
+		assert.equal(manifestOf(stale.backupDir).status, 'restored');
+		assert.equal(fs.statSync(path.join(stale.backupDir, 'manifest.json')).mode & 0o777, 0o600);
+
+		const linked = cursorFresh('restore-stale-temp-link');
+		const outside = path.join(linked.h.root, 'outside.txt');
+		put(outside, 'not ours\n');
+		fs.symlinkSync(outside, tempOf(linked.backupDir));
+		const linkedResult = restore(linked.h, linked.backupDir);
+		assert.deepEqual([linkedResult.exitCode, linkedResult.status], [4, 'partially-restored']);
+		assert.deepEqual(linkedResult.lines.slice(-2), [`failed   manifest: EEXIST on ${tempOf(linked.backupDir)}`, RESTART_LINE]);
+		assert.equal(fs.lstatSync(tempOf(linked.backupDir)).isSymbolicLink(), true, 'a link is never followed or removed');
+		assert.equal(fs.readFileSync(outside, 'utf8'), 'not ours\n');
+		assert.equal(manifestOf(linked.backupDir).status, 'complete');
+
+		const folder = cursorFresh('restore-stale-temp-folder');
+		fs.mkdirSync(tempOf(folder.backupDir));
+		const folderResult = restore(folder.h, folder.backupDir);
+		assert.deepEqual(folderResult.lines.slice(-2), [`failed   manifest: EEXIST on ${tempOf(folder.backupDir)}`, RESTART_LINE]);
+		assert.equal(folderResult.exitCode, 4);
+		assert.equal(fs.statSync(tempOf(folder.backupDir)).isDirectory(), true);
+
+		const failing = cursorFresh('restore-stale-temp-unlink');
+		put(tempOf(failing.backupDir), 'half a manifest');
+		const stuck = { ...fs, unlinkSync(file) { if (file === tempOf(failing.backupDir)) throw errorWithCode('EPERM'); return fs.unlinkSync(file); } };
+		const stuckResult = restore(failing.h, failing.backupDir, { fs: stuck });
+		assert.deepEqual(stuckResult.lines.slice(-2), [`failed   manifest: EPERM on ${tempOf(failing.backupDir)}`, RESTART_LINE]);
+		assert.equal(stuckResult.exitCode, 4);
+
+		const denied = cursorFresh('restore-stale-temp-lstat');
+		const noAccess = { ...fs, lstatSync: (file, ...rest) => { if (file === tempOf(denied.backupDir)) throw errorWithCode('EACCES'); return fs.lstatSync(file, ...rest); } };
+		const deniedResult = restore(denied.h, denied.backupDir, { fs: noAccess });
+		assert.deepEqual(deniedResult.lines.slice(-2), [`failed   manifest: EACCES on ${tempOf(denied.backupDir)}`, RESTART_LINE]);
+		assert.equal(deniedResult.exitCode, 4);
+	});
+
+	it('the symlink flag of a step that failed is not compared with a backup folder that was there before the run', POSIX_ONLY, () => {
+		const h = fakeHome('restore-backup-taken', { editors: ['cursor'] });
+		const prep = prepare(h);
+		const taken = path.join(backupOf(h), 'cursor', 'skill-dir');
+		const trap = {
+			...fs,
+			mkdirSync(dir, options) {
+				const made = fs.mkdirSync(dir, options);
+				if (dir === path.join(backupOf(h), 'cursor')) fs.mkdirSync(taken);
+				return made;
+			},
+		};
+		const stopped = apply(h, prep, { groups: ['cursor'], fs: trap });
+		assert.equal(stopped.exitCode, 4);
+		assert.equal(stepOf(manifestOf(stopped.backupDir), 'cursor.skill-dir').state, 'failed');
+		editManifest(stopped.backupDir, (manifest) => {
+			stepOf(manifest, 'cursor.skill-dir').symlink = true;
+		});
+		const result = restore(h, stopped.backupDir);
+		assert.equal(result.exitCode, 0, 'a step that changed nothing is not judged by what is at its backup path');
+		assert.equal(result.lines.includes('skipped  cursor.skill-dir: this step failed, so there is nothing to undo'), true);
+		assert.deepEqual(fs.readdirSync(taken), [], 'the folder that was there is not touched');
+	});
+
+	it('with CLAUDE_CONFIG_DIR set the registration is not added: skipped without calling claude; an empty value counts as unset', POSIX_ONLY, () => {
+		const { h, before, backupDir } = claudeFresh('restore-config-dir');
+		const refuse = never();
+		const result = restore(h, backupDir, { env: { ...h.env, CLAUDE_CONFIG_DIR: path.join(h.root, 'claude-config') }, spawnSync: refuse.spawn });
+		assert.deepEqual(mcpLine(result), [`skipped  claude.mcp-entry: ${CONFIG_DIR_TEXT}`]);
+		assert.deepEqual([result.exitCode, result.status, result.usedAddJson], [0, 'restored', false]);
+		assert.equal(refuse.calls.length, 0);
+		assert.equal(hasEntry(h), false, '~/.claude.json is not touched');
+		assert.equal(stepOf(manifestOf(backupDir), 'claude.mcp-entry').state, 'done', 'the step is left as it is, so a run without the variable can add it');
+
+		const empty = restore(h, backupDir, { env: { ...h.env, CLAUDE_CONFIG_DIR: '' } });
+		assert.deepEqual(mcpLine(empty), ['restored claude.mcp-entry']);
+		assertBack(h, before, 'the second run, without the variable');
+	});
+
+	it('a claudeBin that is not an absolute path counts as no binary (Ruling 15); an absolute one of the injected platform is used', POSIX_ONLY, () => {
+		for (const bin of ['claude', './bin/claude', 'bin/claude.exe']) {
+			const { h, backupDir } = claudeFresh('restore-relative-bin');
+			const refuse = never();
+			const result = restore(h, backupDir, { claudeBin: bin, spawnSync: refuse.spawn });
+			assert.deepEqual(mcpLine(result), [NOT_FOUND], bin);
+			assert.equal(refuse.calls.length, 0, bin);
+			assert.equal(result.usedAddJson, false, bin);
+		}
+		const win = claudeFresh('restore-relative-bin-win32');
+		const winStub = recorder({ status: 0, stdout: '', stderr: '' });
+		restore(win.h, win.backupDir, { platform: 'win32', claudeBin: 'C:\\tools\\claude.exe', spawnSync: winStub.spawn });
+		assert.equal(winStub.calls.length, 1, 'a Windows absolute path is absolute on win32');
+		assert.equal(winStub.calls[0].command, 'C:\\tools\\claude.exe');
+		const posix = claudeFresh('restore-relative-bin-posix');
+		const posixStub = never();
+		assert.deepEqual(mcpLine(restore(posix.h, posix.backupDir, { platform: 'linux', claudeBin: 'C:\\tools\\claude.exe', spawnSync: posixStub.spawn })), [NOT_FOUND], 'a Windows path is not absolute on another platform');
+		const relWin = claudeFresh('restore-relative-bin-win32-relative');
+		const relStub = never();
+		assert.deepEqual(mcpLine(restore(relWin.h, relWin.backupDir, { platform: 'win32', claudeBin: 'tools\\claude.exe', spawnSync: relStub.spawn })), [NOT_FOUND]);
+	});
+
+	it('a ~/.claude.json that is a folder or cannot be read is reported with its file system code, not as invalid JSON, and claude is not run', POSIX_ONLY, () => {
+		const folder = claudeFresh('restore-claude-json-folder');
+		fs.rmSync(folder.p.claudeJson);
+		fs.mkdirSync(folder.p.claudeJson);
+		const folderStub = never();
+		assert.deepEqual(mcpLine(restore(folder.h, folder.backupDir, { spawnSync: folderStub.spawn })), [`failed   claude.mcp-entry: EISDIR on ${folder.p.claudeJson}`]);
+		assert.equal(folderStub.calls.length, 0);
+
+		const denied = claudeFresh('restore-claude-json-denied');
+		const noAccess = { ...fs, statSync: (file, ...rest) => { if (file === denied.p.claudeJson) throw errorWithCode('EACCES'); return fs.statSync(file, ...rest); } };
+		const deniedStub = never();
+		assert.deepEqual(mcpLine(restore(denied.h, denied.backupDir, { fs: noAccess, spawnSync: deniedStub.spawn })), [`failed   claude.mcp-entry: EACCES on ${denied.p.claudeJson}`]);
+		assert.equal(deniedStub.calls.length, 0);
 	});
 });
 
