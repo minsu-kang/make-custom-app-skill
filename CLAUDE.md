@@ -15,8 +15,9 @@ mcp/index.mjs     built MCP context server, committed
 mcp-server/       TypeScript source of that server (also the payload of the old installers)
 mcp.json          the three MCP servers (make-app-context, make, atlassian)
 hooks/            the Cursor sessionStart hook: hooks-cursor.json and session-start.js (Cursor only)
-tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js
+tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js, migration-test.js
 tools/trigger-test/   maintainer trigger test (spec 11 item 8): run-claude.js, run-cursor.js, jira-stub.js, prompts.json
+tools/shims/      drafts of the four installer shims (inactive until plan P6)
 .github/          workflows and the content checks (plugin-check.js, check-skill.js)
 docs/superpowers/ design spec and implementation plans (left out of the merge to master)
 skill/ rules/ install-*.sh install-*.ps1 version.json   the 2.x bridge: do not change except as named in the spec
@@ -40,6 +41,10 @@ node ../tools/build-mcp.js             # writes ../mcp/index.mjs (add --check to
 # Old tree, while it exists
 node --test "skill/scripts/lib/__tests__/*.test.js"
 node .github/scripts/check-skill.js
+node .github/scripts/old-tree-guard.js --mode=branch --base=cd8f60b   # old-tree changes only in the bridge files
+
+# Migration from a 2.x install with the real CLI (it refuses to run outside a container or CI)
+docker run --rm -v "$PWD:/src:ro" node:22 bash -c 'set -e; git config --global --add safe.directory "*"; git clone -q /src /w/repo; cd /w/repo; npm install --global --silent @anthropic-ai/claude-code@2.1.312; node tools/migration-test.js'
 
 # Load the working tree as a plugin, or check a real install
 claude --plugin-dir .
@@ -89,10 +94,11 @@ Scripts resolve the editor with `shared/scripts/lib/paths.js`: the `--editor cla
 - `mcp-server` (Node 22): `npm ci`, lint, build, test, and `node ../tools/build-mcp.js --check`.
 - `legacy-bridge`: installs the 2.x skill in a fake `HOME` from this checkout and drives its built server (`tools/legacy-bridge.js`), while the installers exist.
 - `skill-scripts` (Node 22 and 24): the script tests with coverage, for `shared/scripts` and for the old tree.
-- `skill-check`: `check-skill.js` for the old tree (it reads the newest 2.x CHANGELOG entry, so the plugin entry above it is skipped), and the guard that `skill/`, `rules/`, the installers, and `version.json` are unchanged on integration branches.
+- `skill-check`: `check-skill.js` for the old tree (it reads the newest 2.x CHANGELOG entry, so the plugin entry above it is skipped), and `old-tree-guard.js`: on pull requests into other branches the old tree may change only in the seven bridge files of spec 8.2 and its versions stay; on pull requests into master and pushes to master the same files and `version.json` may change, and only with a higher `2.4.x` version in `version.json` and `skill/SKILL.md` together.
 - `plugin-check`: the tests of the checks and tools, `plugin-check.js` (manifests, marketplace, hooks, `mcp.json`, skills, hard-rule drift, links, indexes, README script table, syntax), and the release rule (`--release-base`) for pull requests into master and for pushes to master.
 - `plugin-validate`: `claude plugin validate` with a pinned Claude Code version.
-- `lint-misc`: `shellcheck` on the two `.sh` installers and `actionlint`.
+- `migration`: `tools/migration-test.js` with Claude Code 2.1.312 from npm: the 2.x installers, phase A, and phase B in a throwaway `HOME` (real CLI, no login, no model).
+- `lint-misc`: `shellcheck` on the two `.sh` installers and the two `.sh` shim drafts in `tools/shims/`, and `actionlint`.
 
 ## Scripts in `shared/scripts`
 
@@ -106,4 +112,4 @@ Plain Node CommonJS. No `package.json`, no build, no TypeScript. Cursor loads th
 
 ## Releases
 
-See `.claude/CLAUDE.md`: after the merge to master every commit bumps `version` in both `plugin.json` files and the CHANGELOG; until then versions change only in the merge commit of the integration branch.
+See `.claude/CLAUDE.md`: after the merge to master every commit bumps `version` in both `plugin.json` files and the CHANGELOG (a `2.4.x` bridge commit that touches only the old tree is the exception); until then versions change only in the release commit, the last commit on the branch before the pull request into master.

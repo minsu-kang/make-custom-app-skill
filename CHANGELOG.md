@@ -2,12 +2,15 @@
 
 ## 3.0.0 (unreleased)
 
-The make-custom-app skill becomes one plugin for Claude Code and Cursor. This entry is completed in the merge commit.
+The make-custom-app skill becomes one plugin for Claude Code and Cursor.
 
 - **Nine task skills.** `skills/make-app-*` replace the single `make-custom-app` skill: task refinement, bug investigation, code review, feature request, task, endpoint, question, live run, and setup. Each carries the same hard rules, generated from `shared/hard-rules.md`.
 - **One shared folder.** Workflows, references, and scripts live in `shared/`. Scripts find their own folder, resolve the editor through `shared/scripts/lib/paths.js`, and keep app contexts in `~/.make-custom-app/contexts` for both editors.
 - **Three MCP servers.** `mcp.json` declares `make-app-context` (a committed bundle, `mcp/index.mjs`), the Make MCP server, and the Atlassian MCP server. The context server reads its keys from `MAKE_APP_CONTEXT_*` variables or the secrets file.
-- **Checks.** `plugin-check` guards the manifests, `mcp.json`, the skills, and the shared content; `tools/build-mcp.js --check` guards the bundle.
+- **Cursor hook.** `hooks/session-start.js`, registered for Cursor only through `.cursor-plugin/plugin.json`, adds one line that names the nine skills to each Cursor session.
+- **Update notice.** `check-setup.js` prints an `UPDATE_AVAILABLE` line, with the two update commands, when master carries a newer plugin version.
+- **Cleanup of a 2.x install.** The `make-app-setup` skill runs `cleanup-legacy.js`: it lists the old skill folders, their MCP registrations, the block in `~/.claude/CLAUDE.md`, and the old Cursor rule folder, moves them to `~/.make-custom-app/migration-backup-<time>/` only after you confirm, and puts them back with `--restore`.
+- **Checks.** `plugin-check` guards the manifests, `mcp.json`, the skills, and the shared content; `tools/build-mcp.js --check` guards the bundle; `old-tree-guard.js` limits the old tree to the 2.4.x bridge files, and `tools/migration-test.js` runs the migration from a 2.x install with the real Claude CLI.
 
 ## 2.3.13 — 2026-10-27
 

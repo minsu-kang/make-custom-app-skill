@@ -36,7 +36,7 @@ Restart Claude Code (or run `/reload-plugins`). Then:
 
 ### Cursor
 
-Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. A route for machines that have Cursor only is not documented yet.
+Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. Cursor without Claude Code is not supported yet.
 
 ## Update
 
@@ -53,7 +53,14 @@ The same two commands apply when Cursor loads the Claude install.
 
 ## Coming from a 2.x install
 
-The old skill (`~/.claude/skills/make-custom-app`, or the Cursor copy) keeps working until you move. Release 2.4.0 of the old skill asks once a day whether to install the plugin; answer yes and it installs the plugin and copies your secrets and app contexts. After the plugin has loaded, the `make-app-setup` skill lists the old install (the skill folder, its MCP registration, the block in `~/.claude/CLAUDE.md`) and removes it only after you confirm; everything it removes is moved to a backup folder first. Your own paragraph in `~/.claude/CLAUDE.md` that says to invoke the `make-custom-app` skill is never edited: replace it by hand, because that skill no longer exists after the move. Phase A is `skill/scripts/migrate-to-plugin.js`; it deletes nothing.
+The old skill (`~/.claude/skills/make-custom-app`, or the Cursor copy) keeps working until you move. On Windows its auto-update may need a manual run of the installer.
+
+1. Release 2.4.0 of the old skill checks whether the plugin is installed. While it is not, it asks at most once a day whether to install it. Answer yes, and it runs `skill/scripts/migrate-to-plugin.js`: that runs `claude plugin marketplace add` and `claude plugin install`, copies the Pinecone and OpenAI keys of the old MCP registration and `mcp-server/.env` into `~/.make-custom-app-skill-secrets` (values already there win), and copies the app context files (`{slug}-v{n}.md` and `reviews/`) into `~/.make-custom-app/contexts`. It deletes nothing. Then restart Claude Code. If you install the plugin yourself, or 2.4.0 reaches you after the plugin, the old skill runs the same script before it hands over (it then installs nothing and only copies).
+2. In a plugin session, the `make-app-setup` skill lists the old install: the skill folder, its MCP registration in `~/.claude.json`, and the block in `~/.claude/CLAUDE.md`, and with a separate question the Cursor copy, its rule folder, and its entry in `~/.cursor/mcp.json`. It removes them only after you confirm. The folders and the removed config entries move to `~/.make-custom-app/migration-backup-<time>/`, and the old `mcp-server/.env` is deleted when it holds only keys that are in your secrets file (any other `.env` stays in its folder, in the backup). `cleanup-legacy.js --restore` puts everything back. Claude Code keeps its own copy of `~/.claude.json` as a hidden file, `~/.claude/backups/.claude.json.backup.<time>`; that copy can still hold the old Pinecone and OpenAI keys and the tokens of your other MCP servers, and the cleanup does not touch it. If you say no, `check-setup.js` reminds you on every run and asks again after 7 days.
+3. Your own paragraph in `~/.claude/CLAUDE.md` that says to invoke the `make-custom-app` skill is never edited: the cleanup names the line to change. The plugin's skills trigger without it.
+4. Limits of `--restore`: when it cannot finish (a folder and its backup are both gone, or the old skill path is now a link), the backup stays `partially-restored` and a bare `--restore` picks it again, so name another one with `--restore <name>` or delete that folder. A removed `.env` is written back to its old place even when you created a new skill folder there, but never into a skill folder that is now a link. When a folder has to be copied across devices, a failed copy removes the half-copied target, so files another program wrote there at that moment are lost, and on Node 22 that copy may not keep folder permissions.
+
+On a machine without Claude Code, release 2.4.0 says once a month that installing the plugin for Cursor alone is not supported yet; the old skill keeps working there. If you used the `mcp-server-path` option or a manual clone of the context server, the plugin's server reads the `MAKE_APP_CONTEXT_*` variables or the secrets-file keys instead (see [MCP servers](#mcp-servers)). The Windows route is not verified.
 
 ## Skills
 
@@ -150,7 +157,7 @@ mcp/               index.mjs, the built context server
 mcp-server/        TypeScript source of that server
 mcp.json           the three MCP servers
 hooks/             the Cursor sessionStart hook (Cursor only)
-tools/             repo tools: hard-rules sync, MCP bundle build, install verification, trigger test
+tools/             repo tools: hard-rules sync, MCP bundle build, install verification, trigger test, migration test, installer shim drafts
 .github/           CI and the content checks
 ```
 

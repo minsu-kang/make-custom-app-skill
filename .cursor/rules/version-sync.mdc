@@ -19,8 +19,8 @@ A change to the payload (`skills/`, `shared/`, `mcp/`, `mcp.json`, `hooks/`, eit
 
 ## Integration branch and the old tree
 
-- On the branch `plugin`, versions and CHANGELOG release entries change only in the merge commit. The top CHANGELOG entry is `## 3.0.0 (unreleased)`.
-- `version.json` and `skill/SKILL.md` are for the 2.x clients: change them only in a named bridge commit, together, with equal versions. Never change them for plugin work.
+- On the branch `plugin`, versions and CHANGELOG release entries change only in the release commit, the last commit before the pull request into master. The top CHANGELOG entry is `## 3.0.0 (unreleased)` until then.
+- `version.json` and `skill/SKILL.md` are for the 2.x clients: change them only in a named bridge commit, together, with equal versions. Never change them for plugin work. A `2.4.x` bridge commit that touches only the old tree does not bump the plugin.
 
 ## CHANGELOG format
 
