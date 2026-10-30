@@ -22,6 +22,7 @@ const ANY_ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=([\s\S]*
 const CR_OR_LF = /[\r\n]/;
 const BOM = '\uFEFF';
 const DEFAULT_INDENT = '  ';
+const ERROR_CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
 
 function isPlainObject(value) {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,10 +31,6 @@ function isPlainObject(value) {
 /** Defines an own enumerable member, also for the name __proto__, which a plain assignment would take as the prototype. */
 function setOwn(target, key, value) {
 	Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
-}
-
-function addOnce(list, value) {
-	if (!list.includes(value)) list.push(value);
 }
 
 function canonical(value) {
@@ -60,12 +57,18 @@ function sha256(text) {
 
 /**
  * The only text that phase B shows for an error. The message of a JSON.parse error can quote the source text, so no
- * message is ever used: a SyntaxError gives the path, a file system error gives its code and the path, and anything else
- * gives a fixed sentence.
+ * message is ever used: a SyntaxError gives the path, an Error with a file system style code (upper-case letters,
+ * digits, and underscores, 2 to 64 characters) gives the code and the path, and anything else gives a fixed sentence.
+ * It never throws: an object with a throwing getter or trap gets the fixed sentence too.
  */
 function describeError(err, filePath) {
-	if (err instanceof SyntaxError) return `${filePath} is not valid JSON`;
-	if (err && typeof err.code === 'string') return `${err.code} on ${filePath}`;
+	try {
+		if (err instanceof SyntaxError) return `${filePath} is not valid JSON`;
+		const code = err instanceof Error ? err.code : undefined;
+		if (typeof code === 'string' && ERROR_CODE.test(code)) return `${code} on ${filePath}`;
+	} catch {
+		// a throwing getter or trap: fall through to the fixed text
+	}
 	return 'an unexpected error occurred';
 }
 
@@ -95,8 +98,9 @@ function markerLines(lines, marker) {
  * `none`; more than one open or close line is `multiple`; one open line with no close line is `unclosed`; a close line
  * before the open line is `reversed`. For `ok`, `removedText` is the exact piece removeBlock cuts: the empty line right
  * before the open marker when there is one, both marker lines with everything between them, and the line ending after
- * the close marker; `offset` is its start; `lineStart` and `lineEnd` are the 1-based lines of the markers; `edited` is
- * true when the text between the markers is not the installer's. The offset fields are null for the other statuses.
+ * the close marker; `offset` is its start in UTF-16 code units (the unit of slice, not bytes); `lineStart` and `lineEnd`
+ * are the 1-based lines of the markers; `edited` is true when the text between the markers is not the installer's.
+ * The offset fields are null for the other statuses. A byte order mark on the open line belongs to the block.
  */
 function findSentinelBlock(text) {
 	const none = (status) => ({ status, offset: null, removedText: null, lineStart: null, lineEnd: null, edited: false });
@@ -170,7 +174,8 @@ function usableValue(value) {
  * `untemplatedSecretLines` the names of the three whose value is usable but differs from the secrets file or has a line
  * break inside it: the file holds something the secrets file does not. An `export NAME=value` line counts as an
  * assignment of another name, because it cannot be templated.
- * Line endings are CRLF when the text has one, so a text with mixed endings does not render back to the same bytes.
+ * Line endings are CRLF when the text has one, so a text with mixed endings (`mixedEol`) does not render back to the same
+ * bytes; rendersExactly tells a caller whether a render gives back the text it was read from.
  */
 function parseEnvTemplate(text, secretValue) {
 	if (typeof text !== 'string' || typeof secretValue !== 'function') throw new TypeError('parseEnvTemplate needs text and secretValue');
@@ -183,14 +188,14 @@ function parseEnvTemplate(text, secretValue) {
 
 	const template = [];
 	const values = {};
-	const names = [];
-	const unknownAssignments = [];
-	const untemplatedSecretLines = [];
+	const names = new Set();
+	const unknownAssignments = new Set();
+	const untemplatedSecretLines = new Set();
 	for (const line of lines) {
 		const secretLine = ENV_LINE.exec(line);
 		if (secretLine) {
 			const [, lead, name, separator, raw] = secretLine;
-			addOnce(names, name);
+			names.add(name);
 			const key = ENV_TO_KEY[name];
 			if (usableValue(raw)) {
 				values[name] = raw.trim();
@@ -198,20 +203,31 @@ function parseEnvTemplate(text, secretValue) {
 					template.push({ prefix: lead + name + separator, $secret: key });
 					continue;
 				}
-				addOnce(untemplatedSecretLines, name);
+				untemplatedSecretLines.add(name);
 			} else if (CR_OR_LF.test(raw)) {
-				addOnce(untemplatedSecretLines, name);
+				untemplatedSecretLines.add(name);
 			}
 		} else {
 			const other = ANY_ASSIGNMENT.exec(line);
 			if (other) {
-				addOnce(names, other[1]);
-				if (other[2].trim() !== '') addOnce(unknownAssignments, other[1]);
+				names.add(other[1]);
+				if (other[2].trim() !== '') unknownAssignments.add(other[1]);
 			}
 		}
 		template.push(line);
 	}
-	return { template, values, names, unknownAssignments, eol, trailingNewline, bom, untemplatedSecretLines };
+	const mixedEol = body.includes('\r\n') && /(?<!\r)\n/.test(body);
+	return {
+		template,
+		values,
+		names: [...names],
+		unknownAssignments: [...unknownAssignments],
+		eol,
+		trailingNewline,
+		bom,
+		untemplatedSecretLines: [...untemplatedSecretLines],
+		mixedEol,
+	};
 }
 
 /** Rebuilds the text of a parsed `.env`: BOM, line endings, and final newline as read; a templated line gets `secretValue(pluginKey)`. */
@@ -227,11 +243,35 @@ function renderEnvTemplate(parsed, secretValue) {
 }
 
 /**
+ * True only when renderEnvTemplate(parsed, secretValue) gives back `original`, the text that `parsed` was read from.
+ * False for a text with mixed line endings, for a value that changed, and when the render cannot be made. A caller that
+ * deletes a `.env` and later writes it back must check this first.
+ */
+function rendersExactly(parsed, secretValue, original) {
+	if (!parsed || parsed.mixedEol) return false;
+	try {
+		return renderEnvTemplate(parsed, secretValue) === original;
+	} catch {
+		return false;
+	}
+}
+
+/** A deep copy of JSON data. Anything that is not JSON data (a circular value, a BigInt, a throwing toJSON) gives a TypeError with a fixed text, never the message of the failure. */
+function copyJson(value, name) {
+	if (value === undefined) return undefined;
+	try {
+		return JSON.parse(JSON.stringify(value));
+	} catch {
+		throw new TypeError(`${name} needs an entry that is JSON data`);
+	}
+}
+
+/**
  * A deep copy of a registration whose `env` values that equal the secrets-file value become `{ "$secret": <plugin key> }`
  * (Ruling 9). Every other value stays and its name goes to `literalKeys`.
  */
 function redactEntry(entry, secretsByKey) {
-	const copy = structuredClone(entry);
+	const copy = copyJson(entry, 'redactEntry');
 	const literalKeys = [];
 	if (isPlainObject(copy) && isPlainObject(copy.env)) {
 		const known = isPlainObject(secretsByKey) ? secretsByKey : {};
@@ -247,7 +287,7 @@ function redactEntry(entry, secretsByKey) {
 
 /** A deep copy of a registration whose `env` values are replaced by their names, so a fingerprint holds no value. */
 function nameOnlyEntry(entry) {
-	const copy = structuredClone(entry);
+	const copy = copyJson(entry, 'nameOnlyEntry');
 	if (isPlainObject(copy) && isPlainObject(copy.env)) {
 		for (const name of Object.keys(copy.env)) setOwn(copy.env, name, name);
 	}
@@ -314,19 +354,43 @@ function insertJsonMember(text, key, entry, { position, indent = DEFAULT_INDENT,
 	return serializeJson(parsed, { indent, eol, trailingNewline });
 }
 
-/** `text` with every non-empty secret (and its trimmed form) replaced by `<redacted>`, the longest first. Refuses anything but an array or a Set of secrets, so a secret is never printed by mistake. */
+/**
+ * `text` with every occurrence of every non-empty secret (and of its trimmed form) replaced by `<redacted>`. It looks for
+ * the secrets in `text` as it is, then merges the spans that overlap, so a secret that overlaps another one or occurs in
+ * the marker text is covered and the marker is never searched. Adjacent spans stay separate. Refuses anything but an array
+ * or a Set of secrets, so a secret is never printed by mistake.
+ */
 function redactOutput(text, secrets) {
 	if (!Array.isArray(secrets) && !(secrets instanceof Set)) throw new TypeError('redactOutput needs a list of secrets');
-	const candidates = [];
+	const out = String(text ?? '');
+	const candidates = new Set();
 	for (const secret of secrets) {
 		if (typeof secret !== 'string' || secret.trim() === '') continue;
-		candidates.push(secret);
-		if (secret.trim() !== secret) candidates.push(secret.trim());
+		candidates.add(secret);
+		candidates.add(secret.trim());
 	}
-	candidates.sort((a, b) => b.length - a.length);
-	let out = String(text ?? '');
-	for (const secret of candidates) out = out.split(secret).join('<redacted>');
-	return out;
+	const spans = [];
+	for (const secret of candidates) {
+		for (let at = out.indexOf(secret); at !== -1; at = out.indexOf(secret, at + 1)) spans.push([at, at + secret.length]);
+	}
+	spans.sort((a, b) => a[0] - b[0]);
+	let result = '';
+	let copied = 0;
+	let current = null;
+	const flush = () => {
+		result += `${out.slice(copied, current[0])}<redacted>`;
+		copied = current[1];
+	};
+	for (const span of spans) {
+		if (current && span[0] < current[1]) {
+			current[1] = Math.max(current[1], span[1]);
+		} else {
+			if (current) flush();
+			current = [span[0], span[1]];
+		}
+	}
+	if (current) flush();
+	return result + out.slice(copied);
 }
 
 module.exports = {
@@ -342,6 +406,7 @@ module.exports = {
 	usableValue,
 	parseEnvTemplate,
 	renderEnvTemplate,
+	rendersExactly,
 	redactEntry,
 	nameOnlyEntry,
 	removeJsonMember,

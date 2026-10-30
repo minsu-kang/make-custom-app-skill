@@ -27,11 +27,14 @@ const {
 	removeJsonMember,
 	insertJsonMember,
 	redactOutput,
+	rendersExactly,
 } = require('../legacy-cleanup-logic');
 const { SENTINEL_OPEN, SENTINEL_CLOSE } = require('../legacy-install');
 const { FAKE, INSTALLER_BLOCK, INSTALLER_ENV_TEXT } = require('./fake-legacy-home');
 
 const CRLF_BLOCK = INSTALLER_BLOCK.replace(/\n/g, '\r\n');
+/** Text with an accented letter (2 bytes in UTF-8) and an emoji (2 code units, 4 bytes), so a count in bytes differs from a count in code units. */
+const NON_ASCII_PREFIX = '\u00fcn\u00ef \uD83D\uDE00';
 const SECRETS = { 'pinecone-api-key': FAKE.pinecone, 'openai-api-key': FAKE.openai, 'pinecone-index-name': FAKE.index };
 const secretValue = (key) => (Object.hasOwn(SECRETS, key) ? SECRETS[key] : null);
 
@@ -125,6 +128,62 @@ describe('describeError', () => {
 			assert.equal(text, 'an unexpected error occurred');
 			assert.ok(!text.includes(secret));
 		}
+	});
+
+	it('describeError shows a code only for an Error with an upper-case code of 2 to 64 characters, and never throws', () => {
+		const file = '/p/f.json';
+		const fixed = 'an unexpected error occurred';
+		const withCode = (code) => Object.assign(new Error('x'), { code });
+		assert.equal(describeError(withCode('ENOENT'), file), `ENOENT on ${file}`);
+		assert.equal(describeError(withCode('ERR_INVALID_ARG_TYPE'), file), `ERR_INVALID_ARG_TYPE on ${file}`);
+		assert.equal(describeError(withCode('E2'), file), `E2 on ${file}`);
+		assert.equal(describeError(withCode(`A${'B'.repeat(63)}`), file), `A${'B'.repeat(63)} on ${file}`);
+		assert.equal(describeError(Object.assign(new TypeError('x'), { code: 'ERR_X' }), file), `ERR_X on ${file}`);
+		const long = 'A'.repeat(100000);
+		for (const code of ['E', `A${'B'.repeat(64)}`, long, 'enoent', FAKE.pinecone, 'ERR-X', '_ERR', '1ERR', 'ERR X', 'ERR\n', 'ENOENT\n', '', 'EN\u00d6']) {
+			assert.equal(describeError(withCode(code), file), fixed, code.slice(0, 12));
+		}
+		assert.equal(describeError({ code: 'ENOENT' }, file), fixed);
+		assert.equal(describeError({ code: FAKE.pinecone }, file), fixed);
+		assert.equal(describeError({ code: { toString: () => 'ENOENT' } }, file), fixed);
+		assert.equal(describeError(Object.assign(new Error('x'), { code: { toString: () => 'ENOENT' } }), file), fixed);
+	});
+
+	it('describeError does not throw for a hostile error object and does not read a getter twice', () => {
+		const file = '/p/f.json';
+		const fixed = 'an unexpected error occurred';
+		const throwing = new Error('x');
+		Object.defineProperty(throwing, 'code', {
+			get() {
+				throw new Error(FAKE.pinecone);
+			},
+		});
+		assert.equal(describeError(throwing, file), fixed);
+		const proxy = new Proxy(
+			{},
+			{
+				getPrototypeOf() {
+					throw new Error(FAKE.pinecone);
+				},
+			},
+		);
+		assert.equal(describeError(proxy, file), fixed);
+		const hostilePath = {
+			toString() {
+				throw new Error(FAKE.pinecone);
+			},
+		};
+		assert.equal(describeError(new SyntaxError('x'), hostilePath), fixed);
+		let reads = 0;
+		const changing = new Error('x');
+		Object.defineProperty(changing, 'code', {
+			get() {
+				reads++;
+				return reads === 1 ? 'ENOENT' : FAKE.pinecone;
+			},
+		});
+		assert.equal(describeError(changing, file), `ENOENT on ${file}`);
+		assert.equal(reads, 1);
 	});
 
 	it('the module never reads an error message or a stack', () => {
@@ -226,6 +285,36 @@ describe('findSentinelBlock, removeBlock, restoreBlock', () => {
 		}
 	});
 
+	it('findSentinelBlock gives the offset in UTF-16 code units, the unit of slice, not in bytes', () => {
+		const prefix = `${NON_ASCII_PREFIX}\n`;
+		assert.equal(prefix.length, 7);
+		assert.equal(Buffer.byteLength(prefix), 11);
+		for (const text of [`${prefix}\n${INSTALLER_BLOCK}\n`, `${prefix}${INSTALLER_BLOCK}\n`]) {
+			const block = findSentinelBlock(text);
+			assert.equal(block.status, 'ok');
+			assert.equal(block.offset, prefix.length);
+			assert.notEqual(block.offset, Buffer.byteLength(prefix));
+			assert.equal(text.slice(block.offset, block.offset + block.removedText.length), block.removedText);
+		}
+		const { after, block } = cut(`${prefix}\n${INSTALLER_BLOCK}\ntail \uD83D\uDE00\n`);
+		assert.equal(after, `${prefix}tail \uD83D\uDE00\n`);
+		assert.equal(block.lineStart, 3);
+	});
+
+	it('a byte order mark before the open marker is cut with the block and put back by restoreBlock; one before user text stays', () => {
+		const alone = `\uFEFF${INSTALLER_BLOCK}\n`;
+		const block = findSentinelBlock(alone);
+		assert.deepEqual(block, { status: 'ok', offset: 0, removedText: alone, lineStart: 1, lineEnd: 5, edited: false });
+		const { after, step } = cut(alone);
+		assert.equal(after, '');
+		assert.deepEqual(restoreBlock(after, step), { text: alone, how: 'spliced' });
+
+		const withUser = `\uFEFFmy rules\n\n${INSTALLER_BLOCK}\n`;
+		const second = cut(withUser);
+		assert.equal(second.after, '\uFEFFmy rules\n');
+		assert.deepEqual(restoreBlock(second.after, second.step), { text: withUser, how: 'spliced' });
+	});
+
 	it('removeBlock takes the blank line before the block and keeps every other byte', () => {
 		const user = 'My own rules\nSecond line\n';
 		assert.equal(cut(`${user}\n${INSTALLER_BLOCK}\n`).after, user);
@@ -304,6 +393,8 @@ describe('findSentinelBlock, removeBlock, restoreBlock', () => {
 			`a\n\n${INSTALLER_BLOCK}\n\n${'b'.repeat(40)}`,
 			`\n${INSTALLER_BLOCK}\n`,
 			`a\n\n${INSTALLER_BLOCK.replace('Do not answer from memory.', 'Edited.')}\n`,
+			`${NON_ASCII_PREFIX}\n${INSTALLER_BLOCK}\n`,
+			`${NON_ASCII_PREFIX}\r\n\r\n${CRLF_BLOCK}\r\n${NON_ASCII_PREFIX}\r\n`,
 		];
 		for (const text of texts) {
 			const { after, step } = cut(text);
@@ -512,12 +603,60 @@ describe('parseEnvTemplate and renderEnvTemplate', () => {
 		assert.equal(parseEnvTemplate('\uFEFF', secretValue).bom, true);
 	});
 
-	it('a file with mixed line endings is written back with CRLF, so a caller that needs the same bytes compares them', () => {
+	it('a file with mixed line endings reports mixedEol, is written back with CRLF, and is not rendered exactly', () => {
 		const text = `# a\nPINECONE_API_KEY=${FAKE.pinecone}\r\n# b\n`;
 		const parsed = parseEnvTemplate(text, secretValue);
+		assert.equal(parsed.mixedEol, true);
 		assert.equal(parsed.eol, '\r\n');
+		assert.deepEqual(parsed.untemplatedSecretLines, []);
+		assert.deepEqual(parsed.unknownAssignments, []);
 		assert.notEqual(renderEnvTemplate(parsed, secretValue), text);
 		assert.equal(renderEnvTemplate(parsed, secretValue), text.replace(/\r?\n/g, '\r\n'));
+		assert.equal(rendersExactly(parsed, secretValue, text), false);
+		assert.equal(rendersExactly(parsed, secretValue, text.replace(/\r?\n/g, '\r\n')), false);
+		const bareFirst = parseEnvTemplate(`# a\r\n# b\n${INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n')}`, secretValue);
+		assert.equal(bareFirst.mixedEol, true);
+	});
+
+	it('mixedEol is false for LF, CRLF, a bare carriage return, a missing final newline, and an empty text', () => {
+		const crlf = INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n');
+		for (const text of ['', '\n', '\r\n', INSTALLER_ENV_TEXT, crlf, crlf.slice(0, -2), `${INSTALLER_ENV_TEXT}\r`, '\uFEFF# a\r\n# b\r\n', 'a\rb\r\nc\r\n']) {
+			assert.equal(parseEnvTemplate(text, secretValue).mixedEol, false, JSON.stringify(text));
+		}
+	});
+
+	it('rendersExactly: true only when the render equals the original text', () => {
+		const crlf = INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n');
+		for (const text of [INSTALLER_ENV_TEXT, crlf, `\uFEFF${crlf}`, '', `PINECONE_API_KEY=${FAKE.pinecone}`, 'FOO=1\nOPENAI_API_KEY=your-key\n']) {
+			const parsed = parseEnvTemplate(text, secretValue);
+			assert.equal(rendersExactly(parsed, secretValue, text), true, JSON.stringify(text));
+		}
+		const parsed = parseEnvTemplate(INSTALLER_ENV_TEXT, secretValue);
+		assert.equal(rendersExactly(parsed, secretValue, `${INSTALLER_ENV_TEXT}# more\n`), false);
+		assert.equal(rendersExactly(parsed, secretValue, INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n')), false);
+		assert.equal(rendersExactly(parsed, (key) => `changed-${key}`, INSTALLER_ENV_TEXT), false);
+		assert.equal(rendersExactly(parsed, () => null, INSTALLER_ENV_TEXT), false);
+		assert.equal(
+			rendersExactly(parsed, () => {
+				throw new Error(FAKE.pinecone);
+			}, INSTALLER_ENV_TEXT),
+			false,
+		);
+		assert.equal(rendersExactly(undefined, secretValue, INSTALLER_ENV_TEXT), false);
+		assert.equal(rendersExactly(null, secretValue, ''), false);
+	});
+
+	it('parseEnvTemplate stays linear when a file has tens of thousands of distinct names', () => {
+		const count = 40000;
+		const text = `${Array.from({ length: count }, (_, i) => `NAME_${i}=value${i}`).join('\n')}\n`;
+		const started = Date.now();
+		const parsed = parseEnvTemplate(text, secretValue);
+		const elapsed = Date.now() - started;
+		assert.equal(parsed.names.length, count);
+		assert.equal(parsed.unknownAssignments.length, count);
+		assert.equal(parsed.names[count - 1], `NAME_${count - 1}`);
+		assert.ok(elapsed < 1000, `took ${elapsed} ms`);
+		assert.equal(renderEnvTemplate(parsed, secretValue), text);
 	});
 
 	it('renderEnvTemplate puts in the value that the callback gives, and refuses a missing value without naming content', () => {
@@ -614,6 +753,41 @@ describe('redactEntry and nameOnlyEntry', () => {
 		assert.deepEqual(input, entry());
 		result.args.push('changed');
 		assert.deepEqual(input, entry());
+	});
+
+	it('redactEntry and nameOnlyEntry refuse an entry that is not JSON data with a fixed TypeError', () => {
+		const circular = { env: { PINECONE_API_KEY: FAKE.pinecone } };
+		circular.self = circular;
+		const hostile = {
+			env: { PINECONE_API_KEY: FAKE.pinecone },
+			toJSON() {
+				throw new Error(`cannot copy ${FAKE.pinecone}`);
+			},
+		};
+		const bad = [circular, hostile, { env: { A: 10n } }, () => 1, Symbol('x')];
+		for (const value of bad) {
+			for (const fn of [(v) => redactEntry(v, SECRETS), nameOnlyEntry]) {
+				assert.throws(
+					() => fn(value),
+					(err) => {
+						assert.ok(err instanceof TypeError);
+						assert.match(err.message, /^(redactEntry|nameOnlyEntry) needs an entry that is JSON data$/);
+						assert.equal(err.cause, undefined);
+						return true;
+					},
+				);
+			}
+		}
+	});
+
+	it('redactEntry and nameOnlyEntry copy through JSON: dates and undefined members follow JSON rules and a member named __proto__ stays', () => {
+		const parsed = JSON.parse('{"command":"node","env":{"__proto__":"x","PINECONE_API_KEY":"' + FAKE.pinecone + '"}}');
+		const result = redactEntry(parsed, SECRETS);
+		assert.deepEqual(Object.keys(result.entry.env), ['__proto__', 'PINECONE_API_KEY']);
+		assert.deepEqual(result.literalKeys, ['__proto__']);
+		assert.deepEqual(result.entry.env.PINECONE_API_KEY, { $secret: 'pinecone-api-key' });
+		assert.deepEqual(Object.keys(nameOnlyEntry(parsed).env), ['__proto__', 'PINECONE_API_KEY']);
+		assert.deepEqual(redactEntry({ a: undefined, b: 1 }, SECRETS).entry, { b: 1 });
 	});
 
 	it('nameOnlyEntry replaces an object value too, and leaves an entry without env alone', () => {
@@ -841,6 +1015,19 @@ describe('redactOutput', () => {
 	it('redactOutput also removes the trimmed form of a secret that has spaces around it', () => {
 		assert.equal(redactOutput('x token-1,y', [' token-1 ']), 'x <redacted>,y');
 		assert.equal(redactOutput('x token-1 y', [' token-1 ']), 'x<redacted>y');
+	});
+
+	it('redactOutput works in one pass: a secret that occurs in the marker text or overlaps another one is covered', () => {
+		assert.equal(redactOutput('hunter2 red', ['hunter2', 'red']), '<redacted> <redacted>');
+		assert.equal(redactOutput('a red b', ['acted', 'red', 'redacted']), 'a <redacted> b');
+		assert.equal(redactOutput('abcdef', ['abcd', 'cdef']), '<redacted>');
+		assert.equal(redactOutput('abcdef abcd', ['cdef', 'abcd']), '<redacted> <redacted>');
+		assert.equal(redactOutput('xx', ['x']), '<redacted><redacted>');
+		assert.equal(redactOutput('aaa', ['aa']), '<redacted>');
+		assert.equal(redactOutput('abababa-ab', ['ababa']), '<redacted>-ab');
+		assert.equal(redactOutput('p@ss <redacted>', ['<redacted>', 'p@ss']), '<redacted> <redacted>');
+		const out = redactOutput(`${FAKE.pinecone}${FAKE.openai} ${FAKE.openai}`, [FAKE.openai, FAKE.pinecone]);
+		assert.equal(out, '<redacted><redacted> <redacted>');
 	});
 
 	it('redactOutput takes a Set, and refuses anything that is not a list so a secret is never printed by mistake', () => {
