@@ -78,6 +78,7 @@ Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/sh
 | Script | Description |
 |---|---|
 | `check-setup.js` | One-screen setup diagnosis: `imt-app-runtime-path`, Make API credentials, mockup path, default team id, the `@make.com` account check, MCP keys, leftovers of a 2.x install, and an update notice. Exit 1 when a required item is missing. |
+| `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back. Run by the `make-app-setup` skill. |
 | `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. Run it in your own terminal, never through the agent. |
 | `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts` |
 | `update-app.js` | Pushes code changes to Make through the SDK Admin API |

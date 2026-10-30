@@ -14,11 +14,11 @@ const SCRIPTS_DIR = path.resolve(__dirname, '..', '..');
 const LIB_DIR = path.join(SCRIPTS_DIR, 'lib');
 
 /** Files that name the old layout on purpose: they forbid it or detect it. */
-const OLD_LAYOUT_ALLOWED = new Set(['entry-scripts.test.js', 'fake-legacy-home.js', 'legacy-cleanup-logic.test.js', 'legacy-cleanup-steps.test.js', 'legacy-install.js', 'legacy-install.test.js', 'layout.test.js']);
+const OLD_LAYOUT_ALLOWED = new Set(['cleanup-legacy.test.js', 'entry-scripts.test.js', 'fake-legacy-home.js', 'legacy-cleanup-logic.test.js', 'legacy-cleanup-steps.test.js', 'legacy-install.js', 'legacy-install.test.js', 'layout.test.js']);
 const OLD_LAYOUT = /skill-root|version-guard|ensureFreshSkill|getSkillRoot|getEditorDir|\bSKILL_ROOT\b|\bCONTEXTS_DIR\b|skills\/make-custom-app|\.claude\/skills|\.cursor\/skills/;
 
 /** Scripts that must not call the account check: they report the account item themselves. */
-const NO_GUARD = new Set(['check-setup.js', 'setup-secrets.js']);
+const NO_GUARD = new Set(['check-setup.js', 'cleanup-legacy.js', 'setup-secrets.js']);
 const GUARD_CALL = /require\('\.\/lib\/access-guard'\)\.ensureInternalUser\(\)/;
 
 /** Scripts that parse --editor themselves instead of stripping it first with takeEditorFlagOrExit. */
@@ -156,7 +156,7 @@ describe('shared/scripts layout', () => {
 		assert.ok(LIB_MODULES.length >= 10, `only ${LIB_MODULES.length} lib modules found`);
 	});
 
-	it('every entry script calls the account check, except check-setup and setup-secrets', () => {
+	it('every entry script calls the account check, except check-setup, cleanup-legacy, and setup-secrets', () => {
 		assert.ok(ENTRY_SCRIPTS.length >= 14, `only ${ENTRY_SCRIPTS.length} entry scripts found`);
 		const callsGuard = (name) => hasGuardCall(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8'));
 		assert.deepEqual(ENTRY_SCRIPTS.filter((name) => !NO_GUARD.has(name) && !callsGuard(name)), []);
