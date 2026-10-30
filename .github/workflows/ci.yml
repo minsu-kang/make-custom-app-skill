@@ -155,6 +155,6 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck
-        run: shellcheck --severity=warning install-claude.sh install-cursor.sh
+        run: shellcheck --severity=warning install-claude.sh install-cursor.sh tools/shims/install-claude.sh tools/shims/install-cursor.sh
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
