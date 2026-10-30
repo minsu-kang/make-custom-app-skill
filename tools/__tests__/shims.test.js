@@ -292,7 +292,7 @@ test('a 2.4.x client (HEAD\'s skill/ with its version line set to 2.4.0 in the c
 	const skillMd = path.join(source, 'SKILL.md');
 	const original = fs.readFileSync(skillMd, 'utf8');
 	const edited = original.replace(/^version:\s*.+$/m, 'version: 2.4.0');
-	assert.notEqual(edited, original, 'the version line of skill/SKILL.md was not replaced');
+	assert.match(edited, /^version: 2\.4\.0$/m, 'the version line of skill/SKILL.md is not 2.4.0');
 	fs.writeFileSync(skillMd, edited);
 	const checkSetup = installClient(c, '.claude', source);
 	const result = run(c, process.execPath, [checkSetup]);
