@@ -1,21 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
-// End-to-end test of the move from the 2.x skill to the plugin, with the real Claude Code CLI (no login, no model call).
-//
+// End-to-end test of the move from the 2.x skill to the plugin with the real Claude Code CLI (no login, no model call).
 //   node tools/migration-test.js [--keep] [--scenario=<name>]
-//
-// Each scenario gets a fresh throwaway HOME under os.tmpdir() and builds a 2.x install there with the real installers
-// (install-claude.sh and install-cursor.sh from this checkout, with a stub npm), fake keys, a user paragraph in CLAUDE.md,
-// another MCP server in each editor, app contexts, and a secrets file. Then it runs phase A (migrate-to-plugin.js of the
-// installed old skill) and phase B (cleanup-legacy.js of the installed plugin) and checks the result. The plugin comes
-// from a bare clone of this checkout that git serves under the real GitHub address (insteadOf), so nothing leaves the machine.
-//
-// It needs Claude Code's real layout (CLAUDE_CONFIG_DIR unset), so it refuses to run outside a container or CI.
-// Docker command: see CLAUDE.md. The claude binary is $CLAUDE_BIN, or `claude` on the PATH. Keep os.tmpdir() on the disk of
-// the container: on a slow bind mount the concurrent writer of the full scenario can undo every attempt to remove the entry.
-// Output: PASS <scenario>: <check>, FAIL <scenario>: <check> (<detail>), SKIP <scenario>: <check> (<reason>), then the totals.
-// A detail never holds a fake value. Exit codes: 0 all checks passed, 1 a check failed, 2 the tool cannot run.
+// Each scenario builds a 2.x install in a throwaway HOME with the real installers (stub npm, fake keys), runs phase A
+// (migrate-to-plugin.js of the old skill) and phase B (cleanup-legacy.js of the installed plugin), and checks the result.
+// The plugin comes from a bare clone of this checkout that git serves under the GitHub address (insteadOf).
+// It needs Claude Code's real layout (CLAUDE_CONFIG_DIR unset), so it refuses to run outside a container or CI (see CLAUDE.md).
+// Keep os.tmpdir() on the disk of the container: on a slow bind mount the writer of the full scenario can undo every removal.
+// Output: PASS, FAIL, SKIP, and NOTE lines, then the totals; no detail holds a fake value. Exit: 0 all passed, 1 a check failed, 2 cannot run.
 
 const fs = require('fs');
 const os = require('os');
@@ -34,8 +27,11 @@ const PHASE_A_TIMEOUT_MS = 150000;
 const BACKUP_NAME = /^migration-backup-/;
 const ANSI = /\u001b\[[0-9;]*m/g;
 const WRITER_MIN_REWRITES = 20;
+const MIN_PLUGIN_VERSION = '3.0.0';
+const DISABLED_TEXT = 'The make-custom-app plugin is installed but disabled.';
+const BACKUP_GREP_LABEL =
+	'the migration backup holds no other-server or other-cursor token, and the pinecone key only in kept .env files and the manifest (byte-identical copies of shipped skill/ and mcp-server/ files are ignored: their tests spell the fake values)';
 
-// What install-claude.sh appends to ~/.claude/CLAUDE.md (F4), for a run where the installer did not write it.
 const SENTINEL_BLOCK =
 	'<!-- make-custom-app-skill -->\n# Make Custom App Skill\n\nWhen the conversation involves a Make.com custom app, IMLJSON, the Make Apps SDK, `make-app-contexts`, or an IEN Jira ticket about an app: invoke the `make-custom-app` skill before any other action and follow it. Do not answer from memory. Do not delegate this work to a sub-agent.\n<!-- /make-custom-app-skill -->';
 const USER_PARAGRAPH = '# My notes\n\nKeep my answers short.';
@@ -44,13 +40,12 @@ const OTHER_SERVER = { command: 'node', args: ['/opt/other.js'], env: { API_TOKE
 const OTHER_CURSOR = { command: 'node', args: ['/opt/other-cursor.js'], env: { TOKEN: FAKE.cursorToken } };
 const FAKE_NPM = ['#!/bin/bash', 'if [ "${1:-}" = run ] && [ "${2:-}" = build ]; then mkdir -p dist && printf \'process.exit(0);\\n\' >dist/index.js; fi', 'exit 0', ''].join('\n');
 
-// The paths of the old install that a run must not change (the contexts folders and the secrets file are checked on their own).
+// The contexts folders and the secrets file are checked on their own.
 const OLD_INSTALL_PATHS = ['.claude/skills/make-custom-app', '.cursor/skills/make-custom-app', '.cursor/rules/make-custom-app', '.cursor/mcp.json', '.claude/CLAUDE.md'];
 
 const OLDER = new Date('2026-01-01T00:00:00Z');
 const NEWER = new Date('2026-02-01T00:00:00Z');
-// Contexts of the old install. `copied` says whether phase A puts the file into ~/.make-custom-app/contexts (spec 8.4 item 5):
-// context files and reviews, the newer copy of a file that both editors hold, and nothing of an org downloader folder.
+// `copied`: whether phase A puts the file into ~/.make-custom-app/contexts (spec 8.4 item 5).
 const CONTEXT_SEEDS = [
 	{ editor: 'claude', rel: 'shared-v1.md', text: 'shared context, Claude Code copy\n', mtime: OLDER, copied: false },
 	{ editor: 'cursor', rel: 'shared-v1.md', text: 'shared context, Cursor copy\n', mtime: NEWER, copied: true },
@@ -68,9 +63,8 @@ const CONTEXT_SEEDS = [
 	{ editor: 'cursor', rel: 'beta-v2/reviews/review-3.md', text: 'review three\n', copied: true },
 ];
 
-// Rewrites ~/.claude.json every 5 ms through a temp file and a rename, the way a running Claude Code keeps it (the loop of
-// startWriter in shared/scripts/lib/__tests__/fake-legacy-home.js, counter mode). The read-modify-write is not synchronized,
-// so a removal that lands between its read and its rename is undone; see applyUnderWriter.
+// Rewrites ~/.claude.json like a running Claude Code (the loop of startWriter in fake-legacy-home.js, counter mode).
+// It is not synchronized, so a removal between its read and its rename is undone; see applyUnderWriter.
 const WRITER_SOURCE = `
 const fs = require('fs');
 const file = process.argv[1];
@@ -95,8 +89,6 @@ setInterval(() => {
 	} catch {}
 }, 5);
 `;
-
-// Small utilities ---------------------------------------------------------------------------------------------------
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex');
 const exists = (file) => fs.existsSync(file);
@@ -154,7 +146,34 @@ function describeThrown(err) {
 	return `unexpected ${name}${code}${frame ? ` at ${frame[0]}` : ''}`;
 }
 
-/** The last line with a letter in it from a step's error output, else from its output, free of colors and fake values, for a failure detail. */
+function atLeastVersion(version, minimum) {
+	const parse = (text) => {
+		const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(text));
+		return match === null ? null : match.slice(1).map(Number);
+	};
+	const have = parse(version);
+	const need = parse(minimum);
+	if (have === null || need === null) return false;
+	const at = have.findIndex((part, i) => part !== need[i]);
+	return at === -1 || have[at] > need[at];
+}
+
+function pluginVersionOfCheckout(root = ROOT) {
+	return readJson(path.join(root, '.claude-plugin', 'plugin.json')).version;
+}
+
+/** Null when the plugin record shows the checkout's version and that version is at least MIN_PLUGIN_VERSION. */
+function pluginVersionDetail(entry, expected) {
+	if (!atLeastVersion(expected, MIN_PLUGIN_VERSION)) return `the checkout's plugin.json has version ${expected}, below ${MIN_PLUGIN_VERSION}`;
+	return must(entry !== null && entry.version === expected, 'the plugin is not listed at that version');
+}
+
+/** Null when the apply refused with exit 2 and said that the plugin is installed but disabled (exit 2 also covers other refusals). */
+function disabledRefusalDetail(result) {
+	return expectExit(result, 2) || must(result.stdout.includes(DISABLED_TEXT), 'the output does not say that the plugin is disabled');
+}
+
+/** The last line with a letter in it (error output first), without colors and fake values, for a failure detail. */
 function lastLine(result) {
 	const wordLines = (text) => text.replace(ANSI, '').split('\n').map((line) => line.trim()).filter((line) => /[A-Za-z]/.test(line));
 	const errors = wordLines(result.stderr);
@@ -169,9 +188,7 @@ function expectExit(result, code) {
 	return `${ended}, expected ${code}${line === '' ? '' : `; last line: ${line}`}`;
 }
 
-// Processes ---------------------------------------------------------------------------------------------------------
-
-/** Runs a command with the environment of the scenario; records its output for the check that no step prints a fake value. */
+/** Records the output for the check that no step prints a fake value. */
 function exec(ctx, command, args, options = {}) {
 	const result = spawnSync(command, args, {
 		cwd: options.cwd || ctx.home,
@@ -223,7 +240,6 @@ function pluginCheckSetup(ctx, installPath) {
 	return exec(ctx, process.execPath, [path.join(installPath, 'shared', 'scripts', 'check-setup.js'), '--editor', 'claude', '--skip-update-check']);
 }
 
-/** The record of the plugin in `claude plugin list --json`, or null. */
 function pluginEntry(ctx) {
 	const result = claude(ctx, ['plugin', 'list', '--json']);
 	if (result.status !== 0) return null;
@@ -245,8 +261,6 @@ function parsePlan(result) {
 	}
 }
 
-// The concurrent writer ---------------------------------------------------------------------------------------------
-
 function startWriter(file) {
 	const child = spawn(process.execPath, ['-e', WRITER_SOURCE, file], { stdio: 'ignore' });
 	child.unref();
@@ -263,11 +277,7 @@ function writerCounter(file) {
 	return data !== null && Number.isInteger(data.writerCounter) ? data.writerCounter : 0;
 }
 
-/**
- * Runs --apply while the writer rewrites ~/.claude.json. The writer can undo a removal, and the cleanup then stops with exit 4
- * and "restart Claude Code, then run the cleanup again". A single removal is not asserted (Ruling 29): the cleanup makes up to
- * three attempts per run, and the run is repeated once, so the entry has to go in one of six attempts.
- */
+/** The writer can undo a removal (exit 4), so one removal is not asserted (Ruling 29): up to three attempts per run, and the run is repeated once. */
 function applyUnderWriter(ctx, installPath, digest) {
 	const writer = startWriter(ctx.paths.claudeJson);
 	try {
@@ -288,8 +298,6 @@ function applyUnderWriter(ctx, installPath, digest) {
 		writer.stop();
 	}
 }
-
-// Setup of a scenario -----------------------------------------------------------------------------------------------
 
 function findClaude(env) {
 	const usable = (file) => {
@@ -329,7 +337,7 @@ function gitStep(ctx, args, cwd) {
 	return (result.stdout || '').trim();
 }
 
-/** A bare clone of this checkout with refs/heads/master at HEAD and HEAD pointing at it, whatever the checkout has checked out. */
+/** refs/heads/master at HEAD and HEAD on it, whatever the checkout has checked out (a CI merge commit is detached). */
 function makeBare(ctx) {
 	const head = gitStep(ctx, ['rev-parse', 'HEAD'], ROOT);
 	gitStep(ctx, ['clone', '--quiet', '--bare', ROOT, ctx.bare], ctx.root);
@@ -391,7 +399,6 @@ function seedContexts(ctx) {
 	}
 }
 
-/** The files phase A has to put into ~/.make-custom-app/contexts: rel -> text. */
 function expectedContexts() {
 	return new Map(CONTEXT_SEEDS.filter((seed) => seed.copied).map((seed) => [seed.rel, seed.text]));
 }
@@ -423,7 +430,6 @@ function setupScenario(name, claudeBin) {
 	return { name, root, home, bare, env, claudeBin, paths, outputs: [], note: () => {} };
 }
 
-/** The 2.x install of the scenario, built with the real installers. */
 function buildOldInstall(ctx) {
 	const { paths } = ctx;
 	makeBare(ctx);
@@ -450,9 +456,7 @@ function buildOldInstall(ctx) {
 	writeFile(paths.secrets, `pinecone-api-key: ${FAKE.conflictPinecone}\n`, 0o600);
 }
 
-// Snapshots and reads -----------------------------------------------------------------------------------------------
-
-/** The old install paths of the home, and the mcpServers of ~/.claude.json as parsed JSON (claude writes the rest of that file). */
+/** ~/.claude.json is compared by its mcpServers only: claude writes the rest of that file. */
 function oldInstallSnapshot(ctx) {
 	const snapshot = snapshotPaths(ctx.home, OLD_INSTALL_PATHS);
 	const servers = serversOf(ctx.paths.claudeJson);
@@ -502,7 +506,7 @@ function contextsDetail(ctx) {
 	return [missing.length > 0 ? `missing ${missing.join(', ')}` : '', extra.length > 0 ? `unexpected ${extra.join(', ')}` : '', different.length > 0 ? `different content ${different.join(', ')}` : ''].filter(Boolean).join('; ');
 }
 
-/** True for a file in a moved skill folder that is byte-identical to the file this repo ships: the old skill carries its own tests, and they spell the same fake values. */
+/** The moved old skill carries the tests of this repo, which spell the fake values, so its byte-identical copies are not a leak. */
 function isShippedCopy(rel, file) {
 	const match = /^(?:claude|cursor)\/skill-dir\/(.+)$/.exec(rel);
 	if (match === null) return false;
@@ -519,8 +523,6 @@ function noFakeInOutput(ctx) {
 	const names = fakeNamesIn(ctx.outputs.join('\n'));
 	return names.length === 0 ? null : `the output of a step holds the fake value(s) ${names.join(', ')}`;
 }
-
-// Reporting ---------------------------------------------------------------------------------------------------------
 
 function makeReporter(name, totals) {
 	const say = (line) => process.stdout.write(`${line}\n`);
@@ -551,16 +553,13 @@ function makeReporter(name, totals) {
 	};
 }
 
-// Shared steps of the scenarios -------------------------------------------------------------------------------------
-
-/** Runs phase A from the Claude install and checks the exit code, the plugin record, and that the old install stayed as it was. Returns the plugin record or null. */
 function migrateStep(ctx) {
 	const before = oldInstallSnapshot(ctx);
 	const contextsBefore = contextsSnapshot(ctx);
 	const run = phaseA(ctx);
 	if (!ctx.check('migrate-to-plugin.js --skip-version exits 0', () => expectExit(run, 0))) return null;
 	const entry = pluginEntry(ctx);
-	ctx.check(`claude plugin list --json shows make-custom-app ${ctx.pluginVersion}`, () => must(entry !== null && entry.version === ctx.pluginVersion, 'the plugin is not listed at that version'));
+	ctx.check(`claude plugin list --json shows make-custom-app ${ctx.pluginVersion}, the version of plugin.json, at least ${MIN_PLUGIN_VERSION}`, () => pluginVersionDetail(entry, ctx.pluginVersion));
 	ctx.check('phase A leaves the old install as it was', () => unchanged(before, oldInstallSnapshot(ctx)));
 	ctx.check('phase A leaves both old contexts folders as they were', () => unchanged(contextsBefore, contextsSnapshot(ctx)));
 	return { entry, run };
@@ -585,14 +584,11 @@ function contextsChecks(ctx, run) {
 	}
 }
 
-/** The install folder of the plugin record, after a check that it holds the cleanup script; null when the record names none. */
 function installPathOf(ctx, entry) {
 	const installPath = entry !== null && typeof entry.installPath === 'string' && entry.installPath !== '' ? entry.installPath : null;
 	ctx.check('the plugin record names an install folder with cleanup-legacy.js', () => must(installPath !== null && exists(path.join(installPath, 'shared', 'scripts', 'cleanup-legacy.js')), 'no cleanup-legacy.js in it'));
 	return installPath;
 }
-
-// Scenarios ---------------------------------------------------------------------------------------------------------
 
 function scenarioFull(ctx) {
 	const { paths } = ctx;
@@ -649,7 +645,7 @@ function scenarioFull(ctx) {
 	ctx.check('the backup folder is 0700 and its manifest is 0600', () =>
 		must(backups.length > 0 && backups.every((dir) => modeOf(dir) === 0o700 && exists(path.join(dir, 'manifest.json')) && modeOf(path.join(dir, 'manifest.json')) === 0o600), `${backups.length} backup folder(s) or a mode differs`),
 	);
-	ctx.check('the migration backup holds no other-server or other-cursor token, and the pinecone key only in kept .env files and the manifest', () => {
+	ctx.check(BACKUP_GREP_LABEL, () => {
 		const hits = backups.flatMap((dir) => grepTree(dir, [FAKE.otherToken, FAKE.cursorToken, FAKE.pinecone]).filter((hit) => !isShippedCopy(hit.rel, path.join(dir, hit.rel))));
 		const names = new Map(Object.entries(FAKE).map(([name, value]) => [value, name]));
 		const wrong = hits.filter((hit) => hit.needle !== FAKE.pinecone || (hit.rel !== 'manifest.json' && path.posix.basename(hit.rel) !== '.env'));
@@ -701,7 +697,7 @@ function scenarioDisabled(ctx) {
 	if (!ctx.check('cleanup-legacy.js --plan prints a digest', () => must(plan !== null, 'no digest'))) return;
 	const before = oldInstallSnapshot(ctx);
 	const applied = cleanup(ctx, installPath, ['--apply', plan.digest, '--groups', 'claude,cursor']);
-	ctx.check('cleanup-legacy.js --apply exits 2 for a disabled plugin', () => expectExit(applied, 2));
+	ctx.check('cleanup-legacy.js --apply exits 2 and says the plugin is installed but disabled', () => disabledRefusalDetail(applied));
 	ctx.check('the old install is unchanged and no backup folder exists', () => unchanged(before, oldInstallSnapshot(ctx)) || must(backupDirs(ctx).length === 0, 'a backup folder exists'));
 }
 
@@ -714,9 +710,8 @@ function scenarioNoClaude(ctx) {
 	}
 	ctx.check('nothing in the home changed', () => unchanged(before, homeSnapshot(ctx)));
 
-	// With CLAUDE_BIN set the script names the variable. The texts for a machine without claude need a search that finds nothing,
-	// which is only so when no usual install folder holds one. Where one does, --dry-run reaches that claude, which keeps state
-	// files of its own in the home (~/.claude.json), so the home is compared only when no search reached it.
+	// With CLAUDE_BIN set the script names the variable, so these texts need a search that finds nothing. Where a usual install
+	// folder holds a claude, --dry-run reaches it and it writes its own state files into the home: no home check then.
 	const env = { ...ctx.env, PATH: [path.join(ctx.root, 'fakebin'), '/usr/bin', '/bin'].join(path.delimiter) };
 	const texts = {
 		claude: [`  /plugin marketplace add ${MARKETPLACE_URL}`, `  /plugin install ${PLUGIN_ID}`],
@@ -786,12 +781,6 @@ const RUNNERS = {
 	'rerun-a': scenarioRerunA,
 };
 
-// Main --------------------------------------------------------------------------------------------------------------
-
-function pluginVersionOfCheckout() {
-	return readJson(path.join(ROOT, '.claude-plugin', 'plugin.json')).version;
-}
-
 function runScenario(name, { claudeBin, keep, totals }) {
 	const reporter = makeReporter(name, totals);
 	let ctx = null;
@@ -800,7 +789,7 @@ function runScenario(name, { claudeBin, keep, totals }) {
 		Object.assign(ctx, reporter, { pluginVersion: pluginVersionOfCheckout() });
 		buildOldInstall(ctx);
 	} catch (err) {
-		reporter.check('setup', () => `${describeThrown(err)}: ${redactFakes(String((err && err.message) || ''))}`.slice(0, 300));
+		reporter.check('setup', () => describeThrown(err));
 		return cleanScenario(ctx, keep, reporter);
 	}
 	try {
@@ -841,11 +830,11 @@ function main(argv, env) {
 	return exitCodeFor(totals);
 }
 
-/** 0 when checks ran and none failed; a run that checked nothing is no success. */
+/** A run that checked nothing is no success. */
 function exitCodeFor(totals) {
 	return totals.failed === 0 && totals.passed > 0 ? 0 : 1;
 }
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2), process.env);
 
-module.exports = { parseArgs, findClaude, exitCodeFor };
+module.exports = { parseArgs, findClaude, exitCodeFor, atLeastVersion, pluginVersionOfCheckout, pluginVersionDetail, disabledRefusalDetail, isShippedCopy, BACKUP_GREP_LABEL, DISABLED_TEXT, MIN_PLUGIN_VERSION };
