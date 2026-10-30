@@ -19,7 +19,7 @@ tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-brid
 tools/trigger-test/   maintainer trigger test (spec 11 item 8): run-claude.js, run-cursor.js, jira-stub.js, prompts.json
 tools/shims/      drafts of the four installer shims (inactive until plan P6)
 .github/          workflows and the content checks (plugin-check.js, check-skill.js, old-tree-guard.js)
-docs/superpowers/ design spec and implementation plans (left out of the merge to master)
+docs/superpowers/ design spec and implementation plans (local files, git-ignored)
 skill/ rules/ install-*.sh install-*.ps1 version.json   the 2.x bridge: do not change except as named in the spec
 ```
 

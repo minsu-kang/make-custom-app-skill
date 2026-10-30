@@ -13,7 +13,7 @@ CI (`plugin-check`) fails a pull request or push to master that changes the payl
 
 ## The integration branch
 
-Until the plugin is merged to master, work happens on the branch `plugin`. Versions and CHANGELOG release entries change only in the release commit, the last commit on the branch before the pull request into master opens; until then the CHANGELOG keeps the top entry `## 3.0.0 (unreleased)`. Spec and plans are in `docs/superpowers/`; they are left out of the merge. The branch stays local until the user says otherwise.
+Until the plugin is merged to master, work happens on the branch `plugin`. Versions and CHANGELOG release entries change only in the release commit, the last commit on the branch before the pull request into master opens; until then the CHANGELOG keeps the top entry `## 3.0.0 (unreleased)`. Spec and plans are in `docs/superpowers/` (local files, git-ignored). The branch stays local until the user says otherwise.
 
 ## `version.json` and the old tree
 
