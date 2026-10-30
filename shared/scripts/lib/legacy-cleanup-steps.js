@@ -1718,7 +1718,7 @@ function restoreJsonMember(run, entry) {
 
 function restoreClaudeEntry(run, entry) {
 	const { step } = entry;
-	if (typeof run.env.CLAUDE_CONFIG_DIR === 'string' && run.env.CLAUDE_CONFIG_DIR !== '') return untouched(CONFIG_DIR_RESTORE_TEXT);
+	if (typeof run.env.CLAUDE_CONFIG_DIR === 'string' && run.env.CLAUDE_CONFIG_DIR !== '') throw new StepFailure(CONFIG_DIR_RESTORE_TEXT);
 	const current = readClaudeJson(run, REGISTRATION_ATTEMPTS);
 	if (current === null && readFileRecord(run.fs, run.paths.claudeJson, Infinity).state !== 'missing') throw unusableClaudeJson(run);
 	const servers = current === null ? {} : serversOf(current.value);
@@ -1886,8 +1886,8 @@ function clearStaleTemp(run) {
  * end, and only when something in it changed; the caller holds the cleanup lock, so a stale `manifest.json.tmp` (a regular
  * file) is removed before that write. `claude mcp add-json` takes the registration with its secrets on the command line:
  * `usedAddJson` is true when a process was started for it, and the lines then carry the note about it. A `claudeBin` that is
- * not an absolute path counts as no binary (Ruling 15), and with CLAUDE_CONFIG_DIR set the registration is left alone, as
- * the apply leaves it.
+ * not an absolute path counts as no binary (Ruling 15), and with CLAUDE_CONFIG_DIR set the registration is not added (the
+ * apply leaves it alone too), which fails that step so the restore is partial and a rerun without the variable adds it.
  */
 function restoreSteps(params) {
 	requireParams('restoreSteps', params, ['env', 'home']);

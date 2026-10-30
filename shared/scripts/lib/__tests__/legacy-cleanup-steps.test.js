@@ -6325,19 +6325,25 @@ describe('restoreSteps: after the first review', () => {
 		assert.deepEqual(fs.readdirSync(taken), [], 'the folder that was there is not touched');
 	});
 
-	it('with CLAUDE_CONFIG_DIR set the registration is not added: skipped without calling claude; an empty value counts as unset', POSIX_ONLY, () => {
+	it('with CLAUDE_CONFIG_DIR set the registration is not added and the restore is partial: a failed step, claude not called; an empty value counts as unset and a rerun without the variable adds it', POSIX_ONLY, () => {
 		const { h, before, backupDir } = claudeFresh('restore-config-dir');
 		const refuse = never();
 		const result = restore(h, backupDir, { env: { ...h.env, CLAUDE_CONFIG_DIR: path.join(h.root, 'claude-config') }, spawnSync: refuse.spawn });
-		assert.deepEqual(mcpLine(result), [`skipped  claude.mcp-entry: ${CONFIG_DIR_TEXT}`]);
-		assert.deepEqual([result.exitCode, result.status, result.usedAddJson], [0, 'restored', false]);
+		assert.deepEqual(mcpLine(result), [`failed   claude.mcp-entry: ${CONFIG_DIR_TEXT}`]);
+		assert.deepEqual([result.exitCode, result.status, result.usedAddJson], [4, 'partially-restored', false]);
+		assert.equal(result.lines.includes(ADD_JSON_NOTE), false);
 		assert.equal(refuse.calls.length, 0);
 		assert.equal(hasEntry(h), false, '~/.claude.json is not touched');
-		assert.equal(stepOf(manifestOf(backupDir), 'claude.mcp-entry').state, 'done', 'the step is left as it is, so a run without the variable can add it');
+		const manifest = manifestOf(backupDir);
+		const step = stepOf(manifest, 'claude.mcp-entry');
+		assert.deepEqual([step.state, step.error, manifest.status], ['done', CONFIG_DIR_TEXT, 'partially-restored'], 'the step keeps its state and records the text, so a rerun tries it again');
 
 		const empty = restore(h, backupDir, { env: { ...h.env, CLAUDE_CONFIG_DIR: '' } });
 		assert.deepEqual(mcpLine(empty), ['restored claude.mcp-entry']);
+		assert.deepEqual([empty.exitCode, empty.status], [0, 'restored']);
 		assertBack(h, before, 'the second run, without the variable');
+		const after = manifestOf(backupDir);
+		assert.deepEqual([stepOf(after, 'claude.mcp-entry').state, stepOf(after, 'claude.mcp-entry').error, after.status], ['restored', null, 'restored']);
 	});
 
 	it('a claudeBin that is not an absolute path counts as no binary (Ruling 15); an absolute one of the injected platform is used', POSIX_ONLY, () => {
