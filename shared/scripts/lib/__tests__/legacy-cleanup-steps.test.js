@@ -13,9 +13,9 @@ const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
 const steps = require('../legacy-cleanup-steps');
-const { buildPlan, DIGEST_PATTERN, DECLINE_TTL_MS, declineState } = require('../legacy-cleanup-logic');
+const { buildPlan, DIGEST_PATTERN, DECLINE_TTL_MS, declineState, restoreDecision, parseEnvTemplate, sha256 } = require('../legacy-cleanup-logic');
 const { oldInstallPaths } = require('../legacy-install');
-const { FAKE, INSTALLER_ENV_TEXT, buildFakeLegacyHome, snapshot, diffSnapshots } = require('./fake-legacy-home');
+const { FAKE, INSTALLER_BLOCK, INSTALLER_ENV_TEXT, buildFakeLegacyHome, startWriter, snapshot, diffSnapshots } = require('./fake-legacy-home');
 
 const { spawnSync } = childProcess;
 const POSIX_ONLY = { skip: process.platform === 'win32' };
@@ -2066,6 +2066,1973 @@ describe('writeDecline and readDecline', () => {
 		steps.writeDecline({ home: h.home, digest: DIGEST, now: NOW });
 		steps.readDecline({ home: h.home });
 		assert.deepEqual(diffSnapshots(untouched, snapshot(h.root, outside)), []);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// preflightApply and applySteps
+// ---------------------------------------------------------------------------------------------------------------
+
+const NOW = Date.UTC(2026, 9, 30, 12, 0, 0);
+const BACKUP_NAME = 'migration-backup-2026-10-30T12-00-00Z';
+const BACKUP_COPY_TEXT = 'Claude Code keeps its own copy of ~/.claude.json at ~/.claude/backups/ that still holds the removed registration; this cleanup does not touch it.';
+const REMOVE_ARGS = ['mcp', 'remove', 'make-custom-app', '--scope', 'user'];
+const RESTART_TEXT = 'the entry came back after removal; restart Claude Code, then run the cleanup again';
+const PARTIAL_LINE = 'Stopped after a failure. Run --plan to see what is left, or --restore to undo what was done.';
+const UNEXPECTED = 'an unexpected error occurred';
+const ENV_CHANGED = 'the .env changed since the plan';
+const DIR_PLUGIN = 'the folder is a plugin or holds the running plugin, so the cleanup does not move it';
+const noSleep = () => {};
+const waitFor = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+const backupOf = (h, name = BACKUP_NAME) => path.join(h.home, '.make-custom-app', name);
+const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const manifestOf = (dir) => readJson(path.join(dir, 'manifest.json'));
+const stepOf = (manifest, id) => manifest.steps.find((step) => step.id === id);
+const states = (manifest) => manifest.steps.map((step) => `${step.id}:${step.state}`);
+const shortOf = (h, file) => file.replace(h.home, '~');
+const mcpCalls = (h) => readLog(h).filter((entry) => entry.argv[0] === 'mcp');
+const hasEntry = (h) => Object.hasOwn(readJson(h.paths.claudeJson).mcpServers, 'make-custom-app');
+const tempFilesIn = (dir) => fs.readdirSync(dir).filter((name) => name.endsWith('.tmp'));
+
+function prepare(h, extra = {}) {
+	const facts = gather(h, { locate: true, ...extra });
+	return { facts, plan: buildPlan(facts) };
+}
+
+function apply(h, prep, extra = {}) {
+	return steps.applySteps({
+		plan: prep.plan,
+		facts: prep.facts,
+		groups: ['claude', 'cursor'],
+		env: h.env,
+		home: h.home,
+		spawnSync: spawnUnder(h.root),
+		now: NOW,
+		sleep: noSleep,
+		claudeBin: h.paths.claudeBin,
+		pluginRoot: h.pluginRoot,
+		...extra,
+	});
+}
+
+/** A `spawnSync` for apply: runs only programs under the case root, and records command, arguments, options, and status. */
+function applySpawn(root) {
+	const calls = [];
+	const spawn = (command, args, options) => {
+		const given = { ...options, env: { ...options.env } };
+		const result = spawnUnder(root)(command, args, options);
+		calls.push({ command, args, options: given, status: result.status });
+		return result;
+	};
+	return { calls, spawn };
+}
+
+function filesHolding(dir, seed) {
+	const found = [];
+	for (const [rel, info] of snapshot(dir)) {
+		if (info.type === 'file' && fs.readFileSync(path.join(dir, rel)).includes(seed)) found.push(rel);
+	}
+	return found.sort();
+}
+
+function cloneOf(value) {
+	return JSON.parse(JSON.stringify(value));
+}
+
+describe('applySteps and preflightApply: parameters', () => {
+	it('applySteps throws a TypeError without env or home', POSIX_ONLY, () => {
+		const h = fakeHome('apply-params');
+		const base = { ...prepare(h), groups: ['claude'], env: h.env, home: h.home };
+		const here = process.cwd();
+		const cwd = caseRoot('apply-params-cwd');
+		process.chdir(cwd);
+		try {
+			const fail = (params, label) => assert.throws(() => steps.applySteps(params), { name: 'TypeError', message: 'applySteps needs env and home' }, label);
+			fail(undefined, 'no argument');
+			fail({}, 'empty object');
+			fail(null, 'null');
+			for (const key of ['env', 'home']) {
+				const partial = { ...base };
+				delete partial[key];
+				fail(partial, `without ${key}`);
+			}
+			for (const bad of [null, [], 'env', 5, undefined]) fail({ ...base, env: bad }, `env ${JSON.stringify(bad)}`);
+			for (const bad of ['', null, 5, {}, undefined]) fail({ ...base, home: bad }, `home ${JSON.stringify(bad)}`);
+			assert.deepEqual(fs.readdirSync(cwd), [], 'nothing was created in the current folder');
+		} finally {
+			process.chdir(here);
+		}
+		assert.equal(fs.existsSync(path.join(h.home, '.make-custom-app')), false);
+	});
+
+	it('applySteps and preflightApply throw a TypeError without plan, facts, groups, or digest', POSIX_ONLY, () => {
+		const h = fakeHome('apply-params-more');
+		const prep = prepare(h);
+		const base = { ...prep, groups: ['claude'], env: h.env, home: h.home };
+		for (const key of ['plan', 'facts', 'groups']) {
+			assert.throws(() => steps.applySteps({ ...base, [key]: undefined }), { name: 'TypeError', message: 'applySteps needs plan, facts, and groups' }, key);
+		}
+		assert.throws(() => steps.applySteps({ ...base, plan: { items: 'x' } }), { message: 'applySteps needs plan, facts, and groups' });
+		assert.throws(() => steps.applySteps({ ...base, plan: { ...prep.plan, digest: undefined } }), { message: 'applySteps needs plan, facts, and groups' });
+		assert.throws(() => steps.applySteps({ ...base, groups: 'claude' }), { message: 'applySteps needs plan, facts, and groups' });
+		const elsewhere = path.join(h.root, 'another-home');
+		assert.throws(() => steps.applySteps({ ...base, home: elsewhere }), { name: 'TypeError', message: 'applySteps needs a plan and facts of the given home' });
+		assert.throws(() => steps.applySteps({ ...base, plan: { ...prep.plan, home: elsewhere } }), { message: 'applySteps needs a plan and facts of the given home' });
+		assert.throws(() => steps.applySteps({ ...base, facts: { ...prep.facts, home: elsewhere } }), { message: 'applySteps needs a plan and facts of the given home' });
+		assert.throws(() => steps.applySteps({ ...base, pluginRoot: undefined, facts: { ...prep.facts, pluginRoot: '' } }), { name: 'TypeError', message: 'applySteps needs pluginRoot' });
+		assert.throws(() => steps.applySteps({ ...base, pluginRoot: '', facts: { ...prep.facts, pluginRoot: undefined } }), { message: 'applySteps needs pluginRoot' });
+		const pre = { digest: prep.plan.digest, groups: ['claude'], plan: prep.plan, facts: prep.facts };
+		for (const key of ['digest', 'groups', 'plan', 'facts']) {
+			const partial = { ...pre };
+			delete partial[key];
+			assert.throws(() => steps.preflightApply(partial), { name: 'TypeError', message: 'preflightApply needs digest, groups, plan, and facts' }, key);
+		}
+		assert.throws(() => steps.preflightApply(undefined), { message: 'preflightApply needs digest, groups, plan, and facts' });
+		assert.throws(() => steps.preflightApply({ ...pre, groups: 'claude' }), { message: 'preflightApply needs digest, groups, plan, and facts' });
+		assert.throws(() => steps.preflightApply({ ...pre, plan: { items: 'x' } }), { message: 'preflightApply needs digest, groups, plan, and facts' });
+		assert.equal(fs.existsSync(path.join(h.home, '.make-custom-app')), false);
+	});
+
+	it('applySteps rejects a plan item of an unknown id, kind, path, or action before it creates anything', POSIX_ONLY, () => {
+		const h = fakeHome('apply-bad-plan');
+		const prep = prepare(h);
+		const tamper = (change) => {
+			const plan = cloneOf(prep.plan);
+			change(plan);
+			return plan;
+		};
+		const cases = {
+			'an unknown id': (plan) => {
+				plan.items.find((item) => item.id === 'claude.sentinel').id = 'claude.something';
+			},
+			'a foreign path': (plan) => {
+				plan.items.find((item) => item.id === 'claude.sentinel').path = path.join(h.root, 'elsewhere', 'CLAUDE.md');
+			},
+			'another kind': (plan) => {
+				plan.items.find((item) => item.id === 'claude.sentinel').kind = 'directory';
+			},
+			'an unknown action': (plan) => {
+				plan.items.find((item) => item.id === 'claude.skill-dir').action = 'delete';
+			},
+			'an env-file action that is neither delete nor keep-in-backup': (plan) => {
+				plan.items.find((item) => item.id === 'claude.env-file').action = 'move';
+			},
+			'a Cursor key that is empty': (plan) => {
+				const item = plan.items.find((candidate) => candidate.id === 'cursor.mcp-entry.make-app-context');
+				item.id = 'cursor.mcp-entry.';
+			},
+		};
+		for (const [label, change] of Object.entries(cases)) {
+			assert.throws(() => apply(h, { ...prep, plan: tamper(change) }), { name: 'TypeError', message: 'applySteps needs a plan of the items this version knows' }, label);
+		}
+		assert.equal(fs.existsSync(path.join(h.home, '.make-custom-app')), false, 'no folder was created');
+		assert.equal(mcpCalls(h).length, 0, 'claude was not asked to remove anything');
+	});
+
+	it('applySteps with no ready item in the named groups creates no backup folder and returns exit 0', POSIX_ONLY, () => {
+		const h = fakeHome('apply-nothing', { editors: ['cursor'] });
+		const result = apply(h, prepare(h), { groups: ['claude'] });
+		assert.deepEqual(result, { exitCode: 0, status: 'complete', backupDir: null, lines: ['Nothing to remove in claude.'] });
+		assert.equal(fs.existsSync(path.join(h.home, '.make-custom-app')), false);
+	});
+});
+
+describe('applySteps: the plugin root', () => {
+	it('the plugin root of the facts is used when none is given, and it names the undo command', POSIX_ONLY, () => {
+		const h = fakeHome('apply-plugin-root', { editors: ['cursor'] });
+		const result = steps.applySteps({ ...prepare(h), groups: ['cursor'], env: h.env, home: h.home, now: NOW, sleep: noSleep });
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines.at(-2), `To undo: node "${h.pluginRoot}/shared/scripts/cleanup-legacy.js" --restore`);
+		const odd = fakeHome('apply-plugin-root-odd', { editors: ['cursor'] });
+		const other = path.join(odd.root, 'odd\nplugin');
+		makePluginRoot(other);
+		const shown = apply(odd, prepare(odd), { groups: ['cursor'], pluginRoot: other });
+		assert.equal(shown.lines.at(-2), `To undo: node "${other.replace('\n', '?')}/shared/scripts/cleanup-legacy.js" --restore`, 'a control character in the path is shown as a question mark');
+	});
+});
+
+describe('preflightApply', () => {
+	it('preflightApply: nothing to remove comes before a stale digest; then a stale digest, each guard refusal, a blocked item', POSIX_ONLY, () => {
+		const h = fakeHome('preflight');
+		const { facts, plan } = prepare(h);
+		const ok = { digest: plan.digest, groups: ['claude', 'cursor'], plan, facts };
+		const stale = '0'.repeat(16);
+		assert.equal(steps.preflightApply(ok), null);
+		assert.equal(steps.preflightApply({ ...ok, groups: ['claude'] }), null);
+		assert.equal(steps.preflightApply({ ...ok, groups: ['cursor'] }), null);
+
+		const cursorOnly = prepare(fakeHome('preflight-cursor-only', { editors: ['cursor'] }));
+		assert.deepEqual(steps.preflightApply({ digest: stale, groups: ['claude'], plan: cursorOnly.plan, facts: cursorOnly.facts }), { exitCode: 0, lines: ['Nothing to remove in claude.'] });
+		const claudeOnly = prepare(fakeHome('preflight-claude-only', { editors: ['claude'] }));
+		assert.deepEqual(steps.preflightApply({ digest: stale, groups: ['cursor'], plan: claudeOnly.plan, facts: claudeOnly.facts }), { exitCode: 0, lines: ['Nothing to remove in cursor.'] });
+		const disabled = prepare(fakeHome('preflight-all-manual', { pluginState: 'disabled' }));
+		const manual = { ...disabled.plan, items: disabled.plan.items.map((item) => ({ ...item, status: 'manual' })) };
+		assert.deepEqual(steps.preflightApply({ digest: stale, groups: ['claude', 'cursor'], plan: manual, facts: disabled.facts }), { exitCode: 0, lines: ['Nothing to remove in claude and cursor.'] });
+		const onlyBlocked = { ...plan, items: plan.items.map((item) => ({ ...item, status: item.id === 'claude.mcp-entry' ? 'blocked' : 'manual' })) };
+		assert.equal(steps.preflightApply({ ...ok, plan: onlyBlocked }).exitCode, 0, 'a blocked item is not a ready one: check (1) fires first');
+
+		assert.deepEqual(steps.preflightApply({ ...ok, digest: stale }), {
+			exitCode: 3,
+			lines: [`The old install changed since the plan (digest ${stale}, now ${plan.digest}). Nothing was changed. Run --plan again.`],
+		});
+		const staleAndDisabled = steps.preflightApply({ digest: stale, groups: ['claude', 'cursor'], plan: disabled.plan, facts: disabled.facts });
+		assert.equal(staleAndDisabled.exitCode, 3, 'the digest is checked before the plugin guard');
+
+		const refusal = (guard) => ({ exitCode: 2, lines: [`Refused: ${guard.reason} Nothing was changed. Fix: ${guard.fix}`] });
+		const absent = prepare(fakeHome('preflight-absent', { pluginState: 'absent' }));
+		assert.deepEqual(steps.preflightApply({ digest: absent.plan.digest, groups: ['claude', 'cursor'], plan: absent.plan, facts: absent.facts }), {
+			exitCode: 2,
+			lines: ['Refused: The make-custom-app plugin is not installed for your user account. Nothing was changed. Fix: claude plugin install make-custom-app@make-custom-app'],
+		});
+		assert.deepEqual(steps.preflightApply({ digest: disabled.plan.digest, groups: ['claude', 'cursor'], plan: disabled.plan, facts: disabled.facts }), {
+			exitCode: 2,
+			lines: ['Refused: The make-custom-app plugin is installed but disabled. Nothing was changed. Fix: claude plugin enable make-custom-app@make-custom-app'],
+		});
+		const projectOnly = prepare(fakeHome('preflight-project', { pluginState: 'project-only' }));
+		assert.deepEqual(steps.preflightApply({ digest: projectOnly.plan.digest, groups: ['claude'], plan: projectOnly.plan, facts: projectOnly.facts }), refusal(steps.pluginGuard(projectOnly.facts)));
+		const elsewhereHome = fakeHome('preflight-elsewhere');
+		const elsewhere = prepare(elsewhereHome, { pluginRoot: makePluginRoot(path.join(elsewhereHome.root, 'another-plugin')) });
+		const guard = steps.pluginGuard(elsewhere.facts);
+		assert.match(guard.reason, /^This script does not run from the installed plugin/);
+		assert.deepEqual(steps.preflightApply({ digest: elsewhere.plan.digest, groups: ['claude'], plan: elsewhere.plan, facts: elsewhere.facts }), refusal(guard));
+
+		const unlocated = prepare(h, { locate: false });
+		const blockedItem = unlocated.plan.items.find((item) => item.id === 'claude.mcp-entry');
+		assert.equal(blockedItem.status, 'blocked');
+		assert.deepEqual(steps.preflightApply({ digest: unlocated.plan.digest, groups: ['claude', 'cursor'], plan: unlocated.plan, facts: unlocated.facts }), {
+			exitCode: 2,
+			lines: ['Refused: claude.mcp-entry is blocked: Claude Code was not found, so the old MCP registration cannot be removed. Nothing was changed. Fix: Set CLAUDE_BIN to the claude binary and run the plan again.'],
+		});
+		assert.equal(steps.preflightApply({ digest: unlocated.plan.digest, groups: ['cursor'], plan: unlocated.plan, facts: unlocated.facts }), null, 'a blocked item of another group does not count');
+
+		const bothWrong = prepare(fakeHome('preflight-guard-first', { pluginState: 'disabled' }), { locate: false });
+		assert.equal(bothWrong.plan.items.find((item) => item.id === 'claude.mcp-entry').status, 'blocked');
+		assert.match(steps.preflightApply({ digest: bothWrong.plan.digest, groups: ['claude'], plan: bothWrong.plan, facts: bothWrong.facts }).lines[0], /^Refused: The make-custom-app plugin is installed but disabled\./);
+	});
+});
+
+describe('applySteps: the Claude group', () => {
+	it('apply claude: order of the fake claude calls and file changes; the user paragraph byte-equal; the backup folder 0700 and the manifest 0600 (not on win32); every fake claude call ran inside FAKE_CLAUDE_ROOT (no exit 97)', POSIX_ONLY, () => {
+		// ~/.claude.json at 0600 is Claude Code's own file, at 0644 one that an installer created: the cleanup never writes it, and the mode stays either way
+		for (const claudeJsonMode of [0o600, 0o644]) {
+			const h = fakeHome(`apply-claude-${claudeJsonMode.toString(8)}`, { editors: ['claude'], claudeJsonMode });
+			const p = h.paths;
+			const prep = prepare(h);
+			const before = snapshot(h.home);
+			const seen = [];
+			const hooks = {
+				afterChange: (id) =>
+					seen.push({
+						id,
+						entryGone: !hasEntry(h),
+						blockGone: !fs.readFileSync(p.claudeMd, 'utf8').includes('<!-- make-custom-app-skill -->'),
+						envExists: fs.existsSync(p.claudeEnv),
+						skillExists: fs.existsSync(p.claudeSkill),
+						backedUp: fs.existsSync(path.join(backupOf(h), 'claude', 'skill-dir', 'SKILL.md')),
+					}),
+			};
+			const spawned = applySpawn(h.root);
+			const result = apply(h, prep, { groups: ['claude'], spawnSync: spawned.spawn, hooks });
+
+			assert.equal(result.exitCode, 0);
+			assert.equal(result.status, 'complete');
+			assert.equal(result.backupDir, backupOf(h));
+			assert.deepEqual(result.lines, [
+				'done    claude.mcp-entry',
+				'done    claude.sentinel',
+				'done    claude.env-file',
+				'done    claude.skill-dir',
+				`Backup: ${shortOf(h, backupOf(h))}`,
+				BACKUP_COPY_TEXT,
+				`To undo: node "${h.pluginRoot}/shared/scripts/cleanup-legacy.js" --restore`,
+				'Restart Claude Code and Cursor.',
+			]);
+			assert.equal(shortOf(h, backupOf(h)), `~/.make-custom-app/${BACKUP_NAME}`);
+			assert.deepEqual(
+				seen.map(({ id, entryGone, blockGone, envExists, skillExists, backedUp }) => [id, entryGone, blockGone, envExists, skillExists, backedUp]),
+				[
+					['claude.mcp-entry', true, false, true, true, false],
+					['claude.sentinel', true, true, true, true, false],
+					['claude.env-file', true, true, false, true, false],
+					['claude.skill-dir', true, true, false, false, true],
+				],
+			);
+			assert.equal(spawned.calls.length, 1, 'one claude call');
+			assert.deepEqual(spawned.calls.map((call) => [call.command, call.args, call.status]), [[p.claudeBin, REMOVE_ARGS, 0]], 'the fake accepted it: no exit 97');
+			assert.deepEqual(readLog(h), [
+				{ argv: ['--version'], claudecode: false },
+				{ argv: REMOVE_ARGS, claudecode: false },
+			]);
+
+			const after = snapshot(h.home, { exclude: ['.make-custom-app'] });
+			assert.deepEqual(
+				diffSnapshots(before, after).filter((line) => !line.startsWith('removed .claude/skills/make-custom-app')),
+				['changed .claude.json: content', 'changed .claude/CLAUDE.md: content'],
+				`the cleanup changed nothing else (the mode of ~/.claude.json stays ${claudeJsonMode.toString(8)})`,
+			);
+			const json = readJson(p.claudeJson);
+			assert.equal(json.numStartups, 7);
+			assert.deepEqual(json.projects, { '/work': { mcpServers: {} } });
+			assert.deepEqual(Object.keys(json.mcpServers), ['other-server']);
+			assert.deepEqual(json.mcpServers['other-server'], { command: 'node', args: ['/opt/other.js'], env: { API_TOKEN: FAKE.otherToken } });
+			assert.equal(fs.readFileSync(p.claudeMd, 'utf8'), '# My notes\n\nAlways invoke the `make-custom-app` skill for Make apps.\n', 'the user paragraph is byte-equal');
+			assert.equal(fs.existsSync(path.join(backupOf(h), 'claude', 'skill-dir', 'mcp-server', '.env')), false, 'a deleted .env is not in the backup');
+			assert.equal(fs.readFileSync(path.join(backupOf(h), 'claude', 'skill-dir', 'scripts', 'check-setup.js'), 'utf8'), "'use strict';\nprocess.exit(0);\n");
+
+			if (process.platform !== 'win32') {
+				const mode = (file) => fs.statSync(file).mode & 0o777;
+				assert.equal(mode(backupOf(h)), 0o700);
+				assert.equal(mode(path.join(h.home, '.make-custom-app')), 0o700);
+				assert.equal(mode(path.join(backupOf(h), 'claude')), 0o700);
+				assert.equal(mode(path.join(backupOf(h), 'manifest.json')), 0o600);
+				assert.equal(mode(p.claudeJson), claudeJsonMode);
+			}
+			assert.deepEqual(fs.readdirSync(backupOf(h)).sort(), ['claude', 'manifest.json'], 'no temp file is left');
+		}
+	});
+
+	it('the manifest of a complete Claude run holds every step with its recorded fields', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-claude', { editors: ['claude'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const originalMd = fs.readFileSync(p.claudeMd, 'utf8');
+		const result = apply(h, prep, { groups: ['claude'] });
+		const manifest = manifestOf(result.backupDir);
+		const next = fs.readFileSync(p.claudeMd, 'utf8');
+		const notes = '# My notes\n\nAlways invoke the `make-custom-app` skill for Make apps.';
+		assert.deepEqual(Object.keys(manifest), ['schema', 'createdAt', 'pluginVersion', 'home', 'digest', 'groups', 'status', 'secretsKeysAdded', 'steps']);
+		assert.equal(manifest.schema, 1);
+		assert.equal(manifest.createdAt, '2026-10-30T12:00:00.000Z');
+		assert.equal(manifest.pluginVersion, '3.0.0');
+		assert.equal(manifest.home, h.home);
+		assert.equal(manifest.digest, prep.plan.digest);
+		assert.deepEqual(manifest.groups, ['claude']);
+		assert.equal(manifest.status, 'complete');
+		assert.deepEqual(manifest.secretsKeysAdded, []);
+		assert.deepEqual(
+			manifest.steps.map((step) => [step.id, step.type, step.state, step.error]),
+			[
+				['claude.mcp-entry', 'claude-mcp-entry', 'done', null],
+				['claude.sentinel', 'text-block', 'done', null],
+				['claude.env-file', 'env-file', 'done', null],
+				['claude.skill-dir', 'directory', 'done', null],
+			],
+		);
+		assert.deepEqual(stepOf(manifest, 'claude.mcp-entry'), {
+			id: 'claude.mcp-entry',
+			type: 'claude-mcp-entry',
+			state: 'done',
+			error: null,
+			file: p.claudeJson,
+			key: 'make-custom-app',
+			scope: 'user',
+			position: 1,
+			entry: {
+				command: process.execPath,
+				args: [path.join(p.claudeSkill, 'mcp-server', 'dist', 'index.js')],
+				env: { PINECONE_API_KEY: { $secret: 'pinecone-api-key' }, OPENAI_API_KEY: { $secret: 'openai-api-key' }, PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' } },
+			},
+		});
+		assert.deepEqual(stepOf(manifest, 'claude.sentinel'), {
+			id: 'claude.sentinel',
+			type: 'text-block',
+			state: 'done',
+			error: null,
+			file: p.claudeMd,
+			realPath: p.claudeMd,
+			mode: 0o600,
+			offset: notes.length + 1,
+			removedText: `\n${INSTALLER_BLOCK}\n`,
+			sha256Before: sha256(originalMd),
+			sha256After: sha256(next),
+		});
+		assert.equal(originalMd, `${notes}\n\n${INSTALLER_BLOCK}\n`);
+		assert.deepEqual(stepOf(manifest, 'claude.env-file'), {
+			id: 'claude.env-file',
+			type: 'env-file',
+			state: 'done',
+			error: null,
+			path: p.claudeEnv,
+			mode: 0o644,
+			action: 'delete',
+			eol: '\n',
+			trailingNewline: true,
+			bom: false,
+			template: [
+				'# Pinecone',
+				{ prefix: 'PINECONE_API_KEY=', $secret: 'pinecone-api-key' },
+				{ prefix: 'PINECONE_INDEX_NAME=', $secret: 'pinecone-index-name' },
+				'',
+				'# OpenAI (for text-embedding-3-small)',
+				{ prefix: 'OPENAI_API_KEY=', $secret: 'openai-api-key' },
+			],
+		});
+		assert.deepEqual(stepOf(manifest, 'claude.skill-dir'), {
+			id: 'claude.skill-dir',
+			type: 'directory',
+			state: 'done',
+			error: null,
+			original: p.claudeSkill,
+			backup: path.join(result.backupDir, 'claude', 'skill-dir'),
+			symlink: false,
+			method: 'rename',
+		});
+		for (const step of manifest.steps) assert.doesNotThrow(() => restoreDecision(step, {}), step.id);
+		assert.deepEqual(leaks(fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8')), []);
+	});
+
+	it('the manifest holds pluginVersion null when the plan names no version', POSIX_ONLY, () => {
+		for (const plugin of [{ recorded: true, version: null }, { recorded: true, version: 3 }, undefined]) {
+			const h = fakeHome('manifest-no-version', { editors: ['cursor'] });
+			const prep = prepare(h);
+			const result = apply(h, { ...prep, plan: { ...prep.plan, plugin } }, { groups: ['cursor'] });
+			assert.equal(manifestOf(result.backupDir).pluginVersion, null, JSON.stringify(plugin));
+		}
+	});
+
+	it('the manifest is written with every step pending before the first change, and each step goes pending, running, done in order', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-sequence');
+		const prep = prepare(h);
+		const writes = [];
+		const tracking = {
+			...fs,
+			writeFileSync(file, data, options) {
+				if (String(file).endsWith('manifest.json.tmp')) writes.push(JSON.parse(data));
+				return fs.writeFileSync(file, data, options);
+			},
+		};
+		const onDisk = [];
+		const spawn = (command, args, options) => {
+			onDisk.push(states(manifestOf(backupOf(h))));
+			return spawnUnder(h.root)(command, args, options);
+		};
+		const result = apply(h, prep, { fs: tracking, spawnSync: spawn });
+		assert.equal(result.exitCode, 0);
+		const ids = prep.plan.items.map((item) => item.id);
+		assert.equal(ids.length, 8);
+		assert.deepEqual(writes[0].steps.map((step) => step.state), ids.map(() => 'pending'));
+		assert.equal(writes[0].status, 'in-progress');
+		assert.deepEqual(writes[0].steps.map((step) => step.id), ids);
+		assert.equal(writes.length, 1 + 2 * ids.length + 1);
+		ids.forEach((id, index) => {
+			assert.deepEqual(writes[1 + 2 * index].steps.map((step) => step.state), ids.map((_, i) => (i < index ? 'done' : i === index ? 'running' : 'pending')), `${id} running`);
+			assert.deepEqual(writes[2 + 2 * index].steps.map((step) => step.state), ids.map((_, i) => (i <= index ? 'done' : 'pending')), `${id} done`);
+		});
+		assert.equal(writes[writes.length - 1].status, 'complete');
+		assert.deepEqual(onDisk, [[ 'claude.mcp-entry:running', ...ids.slice(1).map((id) => `${id}:pending`)]], 'the manifest on disk showed the first step running before claude ran');
+	});
+
+	it('the manifest records each step as running before its change', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-running');
+		const prep = prepare(h);
+		const dir = backupOf(h);
+		const seen = [];
+		const hooks = {
+			afterChange(id) {
+				const manifest = manifestOf(dir);
+				seen.push({ id, states: states(manifest), step: stepOf(manifest, id) });
+			},
+		};
+		const result = apply(h, prep, { hooks });
+		assert.equal(result.exitCode, 0);
+		const ids = prep.plan.items.map((item) => item.id);
+		assert.deepEqual(seen.map((entry) => entry.id), ids);
+		seen.forEach((entry, index) => {
+			assert.equal(entry.step.state, 'running', entry.id);
+			assert.equal(entry.step.error, null, entry.id);
+			assert.deepEqual(entry.states, ids.map((id, i) => `${id}:${i < index ? 'done' : i === index ? 'running' : 'pending'}`), entry.id);
+		});
+		const field = (id, name) => seen.find((entry) => entry.id === id).step[name];
+		assert.equal(field('claude.mcp-entry', 'position'), 1);
+		assert.equal(typeof field('claude.mcp-entry', 'entry'), 'object');
+		assert.equal(Number.isInteger(field('claude.sentinel', 'offset')), true);
+		assert.equal(typeof field('claude.sentinel', 'removedText'), 'string');
+		assert.match(field('claude.sentinel', 'sha256Before'), /^[0-9a-f]{64}$/);
+		assert.match(field('claude.sentinel', 'sha256After'), /^[0-9a-f]{64}$/);
+		assert.equal(field('claude.env-file', 'mode'), 0o644);
+		assert.equal(Array.isArray(field('claude.env-file', 'template')), true);
+		assert.equal(field('claude.skill-dir', 'backup'), path.join(dir, 'claude', 'skill-dir'));
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'position'), 1);
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'indent'), '  ');
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'eol'), '\n');
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'trailingNewline'), true);
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'mode'), 0o600);
+		assert.equal(field('cursor.mcp-entry.make-app-context', 'realPath'), h.paths.cursorMcp);
+		assert.equal(field('cursor.rules-dir', 'backup'), path.join(dir, 'cursor', 'rules-dir'));
+		assert.equal(manifestOf(dir).status, 'complete');
+	});
+});
+
+describe('applySteps: the Cursor group', () => {
+	it('apply cursor: the member removed, key order, indent, and trailing newline kept; other-cursor intact', POSIX_ONLY, () => {
+		const layouts = [
+			{ indent: '  ', eol: '\n', trailing: true, mode: 0o600 },
+			{ indent: '    ', eol: '\n', trailing: false, mode: 0o640 },
+			{ indent: '\t', eol: '\r\n', trailing: true, mode: 0o644 },
+		];
+		for (const layout of layouts) {
+			const h = fakeHome('apply-cursor', { editors: ['cursor'] });
+			const p = h.paths;
+			const original = readJson(p.cursorMcp).mcpServers;
+			const servers = {
+				first: { command: 'node', args: ['/opt/first.js'] },
+				'other-cursor': original['other-cursor'],
+				'make-app-context': original['make-app-context'],
+				last: { command: 'node', args: ['/opt/last.js'], env: { TOKEN: FAKE.cursorToken } },
+			};
+			const render = (value) => {
+				const text = JSON.stringify(value, null, layout.indent).replace(/\n/g, layout.eol);
+				return layout.trailing ? text + layout.eol : text;
+			};
+			put(p.cursorMcp, render({ version: 1, mcpServers: servers }), layout.mode);
+			const prep = prepare(h);
+			assert.equal(prep.plan.items.find((item) => item.id === 'cursor.mcp-entry.make-app-context').reformats, false);
+			const result = apply(h, prep, { groups: ['cursor'] });
+
+			const { 'make-app-context': removed, ...rest } = servers;
+			assert.equal(result.exitCode, 0);
+			assert.equal(fs.readFileSync(p.cursorMcp, 'utf8'), render({ version: 1, mcpServers: rest }), JSON.stringify(layout));
+			assert.deepEqual(Object.keys(readJson(p.cursorMcp).mcpServers), ['first', 'other-cursor', 'last']);
+			assert.deepEqual(readJson(p.cursorMcp).mcpServers['other-cursor'], original['other-cursor']);
+			assert.equal(fs.statSync(p.cursorMcp).mode & 0o777, layout.mode);
+			assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), []);
+			const member = stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context');
+			assert.deepEqual(member, {
+				id: 'cursor.mcp-entry.make-app-context',
+				type: 'json-member',
+				state: 'done',
+				error: null,
+				file: p.cursorMcp,
+				realPath: p.cursorMcp,
+				key: 'make-app-context',
+				position: 2,
+				indent: layout.indent,
+				eol: layout.eol,
+				trailingNewline: layout.trailing,
+				mode: layout.mode,
+				entry: { ...removed, env: { PINECONE_API_KEY: { $secret: 'pinecone-api-key' }, OPENAI_API_KEY: { $secret: 'openai-api-key' }, PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' } } },
+			});
+			assert.deepEqual(result.lines, [
+				'done    cursor.mcp-entry.make-app-context',
+				'done    cursor.env-file',
+				'done    cursor.skill-dir',
+				'done    cursor.rules-dir',
+				`Backup: ${shortOf(h, backupOf(h))}`,
+				`To undo: node "${h.pluginRoot}/shared/scripts/cleanup-legacy.js" --restore`,
+				'Restart Claude Code and Cursor.',
+			]);
+			assert.equal(fs.existsSync(p.cursorEnv), false);
+			assert.equal(fs.existsSync(p.cursorSkill), false);
+			assert.equal(fs.existsSync(path.join(result.backupDir, 'cursor', 'skill-dir', 'SKILL.md')), true);
+			assert.equal(fs.existsSync(path.join(result.backupDir, 'cursor', 'rules-dir', 'make-custom-app.mdc')), true);
+			assert.equal(fs.existsSync(p.cursorRules), false);
+			assert.equal(mcpCalls(h).length, 0, 'a Cursor-only run never starts claude');
+		}
+	});
+
+	it('a Cursor mcp.json that is a symbolic link is edited at its target and the link stays', POSIX_ONLY, () => {
+		const h = fakeHome('apply-cursor-link', { editors: ['cursor'] });
+		const p = h.paths;
+		const target = path.join(h.root, 'dotfiles', 'mcp.json');
+		fs.mkdirSync(path.dirname(target), { recursive: true });
+		fs.renameSync(p.cursorMcp, target);
+		fs.chmodSync(target, 0o640);
+		fs.symlinkSync(target, p.cursorMcp);
+		const prep = prepare(h);
+		const result = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(result.exitCode, 0);
+		assert.equal(fs.lstatSync(p.cursorMcp).isSymbolicLink(), true);
+		assert.equal(fs.readlinkSync(p.cursorMcp), target);
+		assert.deepEqual(Object.keys(readJson(target).mcpServers), ['other-cursor']);
+		assert.equal(fs.statSync(target).mode & 0o777, 0o640);
+		const member = stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context');
+		assert.equal(member.file, p.cursorMcp);
+		assert.equal(member.realPath, target);
+		assert.deepEqual(tempFilesIn(path.dirname(target)), []);
+	});
+});
+
+describe('applySteps: injected failures', () => {
+	it('an injected throw right after the claude mcp remove, after the CLAUDE.md rename, and after the mcp.json rename: exit 4, partial, the step running or failed in the manifest', POSIX_ONLY, () => {
+		const cases = [
+			{
+				id: 'claude.mcp-entry',
+				check: (h) => {
+					assert.equal(hasEntry(h), false, 'the removal happened');
+					assert.equal(fs.readFileSync(h.paths.claudeMd, 'utf8').includes('<!-- make-custom-app-skill -->'), true, 'the block is still there');
+					assert.equal(fs.existsSync(h.paths.claudeEnv), true);
+				},
+				done: [],
+			},
+			{
+				id: 'claude.sentinel',
+				check: (h) => {
+					assert.equal(fs.readFileSync(h.paths.claudeMd, 'utf8').includes('<!-- make-custom-app-skill -->'), false, 'the block is gone');
+					assert.equal(fs.existsSync(h.paths.claudeEnv), true);
+				},
+				done: ['claude.mcp-entry'],
+			},
+			{
+				id: 'cursor.mcp-entry.make-app-context',
+				check: (h) => {
+					assert.deepEqual(Object.keys(readJson(h.paths.cursorMcp).mcpServers), ['other-cursor'], 'the member is gone');
+					assert.equal(fs.existsSync(h.paths.cursorEnv), true);
+				},
+				done: ['claude.mcp-entry', 'claude.sentinel', 'claude.env-file', 'claude.skill-dir'],
+			},
+		];
+		for (const { id, check, done } of cases) {
+			const h = fakeHome('injected-throw');
+			const prep = prepare(h);
+			const ids = prep.plan.items.map((item) => item.id);
+			const result = apply(h, prep, {
+				hooks: {
+					afterChange(stepId) {
+						if (stepId === id) throw new Error('injected');
+					},
+				},
+			});
+			assert.equal(result.exitCode, 4, id);
+			assert.equal(result.status, 'partial', id);
+			check(h);
+			const manifest = manifestOf(result.backupDir);
+			assert.equal(manifest.status, 'partial');
+			const expected = ids.map((stepId) => (done.includes(stepId) ? 'done' : stepId === id ? 'running' : 'pending'));
+			assert.deepEqual(manifest.steps.map((step) => step.state), expected, `${id}: a step that changed something stays running, so the restore still routes it`);
+			assert.equal(stepOf(manifest, id).error, UNEXPECTED);
+			assert.equal(result.lines[done.length], `failed  ${id}: ${UNEXPECTED}`);
+			assert.equal(result.lines.length, done.length + 4 + (done.includes('claude.mcp-entry') ? 1 : 0));
+			assert.equal(result.lines.at(-1), PARTIAL_LINE);
+			assert.equal(result.lines.includes('Restart Claude Code and Cursor.'), false);
+			assert.equal(result.lines.includes(BACKUP_COPY_TEXT), done.includes('claude.mcp-entry'), 'the notice follows a done claude.mcp-entry step only');
+			for (const step of manifest.steps) assert.doesNotThrow(() => restoreDecision(step, {}), step.id);
+		}
+	});
+
+	it('a hook that throws an error with a code gives the code and the file of the step', POSIX_ONLY, () => {
+		const h = fakeHome('injected-code', { editors: ['claude'] });
+		const result = apply(h, prepare(h), {
+			groups: ['claude'],
+			hooks: {
+				afterChange(id) {
+					if (id === 'claude.sentinel') throw errorWithCode('EIO');
+				},
+			},
+		});
+		assert.equal(result.lines[1], `failed  claude.sentinel: EIO on ${h.paths.claudeMd}`);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.sentinel').error, `EIO on ${h.paths.claudeMd}`);
+	});
+});
+
+describe('applySteps: secrets in the backup and in the output', () => {
+	it('the migration backup folder (~/.make-custom-app/migration-backup-<time>/) holds no fake secret with secrets same; with conflict only the kept .env files and manifest.json hold FAKE.pinecone, and FAKE.otherToken and FAKE.cursorToken occur nowhere', POSIX_ONLY, () => {
+		const same = fakeHome('backup-same');
+		const sameResult = apply(same, prepare(same));
+		assert.equal(sameResult.exitCode, 0);
+		for (const seed of SECRET_SEEDS) assert.deepEqual(filesHolding(sameResult.backupDir, seed), [], `${seed} with secrets same`);
+
+		const conflict = fakeHome('backup-conflict', { secrets: 'conflict' });
+		const prep = prepare(conflict);
+		assert.deepEqual(prep.plan.items.filter((item) => item.kind === 'env-file').map((item) => item.action), ['keep-in-backup', 'keep-in-backup']);
+		const result = apply(conflict, prep);
+		assert.equal(result.exitCode, 0);
+		const kept = ['claude/skill-dir/mcp-server/.env', 'cursor/skill-dir/mcp-server/.env'];
+		assert.deepEqual(filesHolding(result.backupDir, FAKE.pinecone), [...kept, 'manifest.json']);
+		assert.deepEqual(filesHolding(result.backupDir, FAKE.openai), kept, 'an equal value is a reference in the manifest, and a literal only in the kept .env files');
+		for (const seed of [FAKE.otherToken, FAKE.cursorToken, FAKE.conflictPinecone]) assert.deepEqual(filesHolding(result.backupDir, seed), [], seed);
+		const manifest = manifestOf(result.backupDir);
+		assert.deepEqual(stepOf(manifest, 'claude.mcp-entry').entry.env, { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: { $secret: 'openai-api-key' }, PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' } });
+		assert.deepEqual(leaks(result.lines), []);
+		assert.equal(fs.readFileSync(path.join(conflict.home, '.make-custom-app-skill-secrets'), 'utf8').includes(FAKE.conflictPinecone), true, 'the secrets file keeps its own value');
+	});
+
+	it('a malformed ~/.cursor/mcp.json read inside the step (injected fs returning a text that is cut right after FAKE.cursorToken): failed with "<path> is not valid JSON"; no FAKE value in the lines or in any manifest error', POSIX_ONLY, () => {
+		const h = fakeHome('malformed-cursor', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const original = fs.readFileSync(p.cursorMcp);
+		const text = original.toString('utf8');
+		const cut = text.slice(0, text.indexOf(FAKE.cursorToken) + FAKE.cursorToken.length);
+		const injected = { ...fs, readFileSync: (file, ...rest) => (file === p.cursorMcp ? Buffer.from(cut) : fs.readFileSync(file, ...rest)) };
+		const result = apply(h, prep, { groups: ['cursor'], fs: injected });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  cursor.mcp-entry.make-app-context: ${p.cursorMcp} is not valid JSON`);
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(stepOf(manifest, 'cursor.mcp-entry.make-app-context').error, `${p.cursorMcp} is not valid JSON`);
+		assert.deepEqual(manifest.steps.map((step) => step.state), ['failed', 'pending', 'pending', 'pending']);
+		assert.deepEqual(leaks(result.lines), []);
+		assert.deepEqual(leaks(fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8')), []);
+		assert.equal(original.equals(fs.readFileSync(p.cursorMcp)), true, 'the file keeps its bytes');
+		assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), []);
+	});
+
+	it('echo-secrets: no fake value in the returned lines', POSIX_ONLY, () => {
+		const h = fakeHome('echo-secrets', { claudeMode: 'echo-secrets' });
+		const spawned = applySpawn(h.root);
+		const result = apply(h, prepare(h), { spawnSync: spawned.spawn });
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(leaks(result.lines), []);
+		assert.deepEqual(leaks(fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8')), []);
+		assert.equal(spawned.calls.length, 1);
+	});
+
+	it('a failing claude that prints a secret on its first stderr line: the line shows it as <redacted>, in the output and in the manifest', POSIX_ONLY, () => {
+		const h = fakeHome('failing-secret');
+		const json = readJson(h.paths.cursorMcp);
+		json.mcpServers.bare = { command: 'node' };
+		json.mcpServers.odd = 5;
+		fs.writeFileSync(h.paths.cursorMcp, `${JSON.stringify(json, null, 2)}\n`);
+		const prep = prepare(h);
+		const leaking = recorder({ status: 1, stdout: '', stderr: `bad entry {"PINECONE_API_KEY":"${FAKE.pinecone}"} key ${FAKE.openai}\nsecond line ${FAKE.otherToken}\n` });
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: leaking.spawn });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], 'failed  claude.mcp-entry: bad entry {"PINECONE_API_KEY":"<redacted>"} key <redacted>');
+		assert.deepEqual(leaks(result.lines), [], 'only the first line, and the known secrets are gone');
+		assert.equal(leaking.calls.length, 3, 'three attempts');
+		assert.deepEqual(leaks(fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8')), []);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').error, 'bad entry {"PINECONE_API_KEY":"<redacted>"} key <redacted>');
+	});
+});
+
+describe('applySteps: the secrets step', () => {
+	const SECRETS_FILE = (h) => path.join(h.home, '.make-custom-app-skill-secrets');
+
+	it('secrets: the missing keys are copied before anything is removed, and the manifest lists them', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-missing', { secrets: 'missing', editors: ['claude'] });
+		const prep = prepare(h);
+		assert.deepEqual(prep.plan.secrets.copy, ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name']);
+		const seen = [];
+		const result = apply(h, prep, {
+			groups: ['claude'],
+			hooks: { afterChange: (id) => seen.push([id, fs.readFileSync(SECRETS_FILE(h), 'utf8').includes(`openai-api-key: ${FAKE.openai}`), hasEntry(h)]) },
+		});
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(result.lines.slice(0, 5), ['done    secrets', 'done    claude.mcp-entry', 'done    claude.sentinel', 'done    claude.env-file', 'done    claude.skill-dir']);
+		assert.deepEqual(seen, [['secrets', true, true], ['claude.mcp-entry', true, false], ['claude.sentinel', true, false], ['claude.env-file', true, false], ['claude.skill-dir', true, false]]);
+		assert.equal(fs.readFileSync(SECRETS_FILE(h), 'utf8'), `editor: claude\npinecone-api-key: ${FAKE.pinecone}\nopenai-api-key: ${FAKE.openai}\npinecone-index-name: ${FAKE.index}\n`);
+		if (process.platform !== 'win32') assert.equal(fs.statSync(SECRETS_FILE(h)).mode & 0o777, 0o600);
+		const manifest = manifestOf(result.backupDir);
+		assert.deepEqual(manifest.secretsKeysAdded, ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name']);
+		assert.deepEqual(stepOf(manifest, 'secrets'), { id: 'secrets', type: 'secrets', state: 'done', error: null, keys: ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name'] });
+		assert.deepEqual(manifest.steps.map((step) => step.id), ['secrets', 'claude.mcp-entry', 'claude.sentinel', 'claude.env-file', 'claude.skill-dir']);
+		assert.deepEqual(stepOf(manifest, 'claude.mcp-entry').entry.env, { PINECONE_API_KEY: { $secret: 'pinecone-api-key' }, OPENAI_API_KEY: { $secret: 'openai-api-key' }, PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' } });
+		for (const seed of SECRET_SEEDS) assert.deepEqual(filesHolding(result.backupDir, seed), [], seed);
+	});
+
+	it('secrets: a secrets file that does not exist yet is created with mode 0600 and the keys of the old install', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-absent', { editors: ['claude'] });
+		fs.rmSync(SECRETS_FILE(h));
+		const prep = prepare(h);
+		assert.equal(prep.facts.secretsText, null);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		assert.equal(fs.readFileSync(SECRETS_FILE(h), 'utf8'), `pinecone-api-key: ${FAKE.pinecone}\nopenai-api-key: ${FAKE.openai}\npinecone-index-name: ${FAKE.index}\n`);
+		if (process.platform !== 'win32') assert.equal(fs.statSync(SECRETS_FILE(h)).mode & 0o777, 0o600);
+		assert.deepEqual(manifestOf(result.backupDir).secretsKeysAdded, ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name']);
+	});
+
+	it('secrets: the step runs for a Cursor-only run too, and a value that the user added after the plan is kept and not overwritten', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-cursor', { secrets: 'missing' });
+		const prep = prepare(h);
+		fs.appendFileSync(SECRETS_FILE(h), 'openai-api-key: fake-user-value-0003\n');
+		const result = apply(h, prep, { groups: ['cursor'] });
+		const text = fs.readFileSync(SECRETS_FILE(h), 'utf8');
+		assert.equal(text, `editor: claude\nopenai-api-key: fake-user-value-0003\npinecone-api-key: ${FAKE.pinecone}\npinecone-index-name: ${FAKE.index}\n`);
+		assert.deepEqual(manifestOf(result.backupDir).secretsKeysAdded, ['pinecone-api-key', 'pinecone-index-name']);
+		assert.deepEqual(stepOf(manifestOf(result.backupDir), 'secrets').keys, ['pinecone-api-key', 'pinecone-index-name']);
+		assert.equal(result.exitCode, 4, 'the .env still holds the value of the old key, which the secrets file now holds differently');
+		assert.deepEqual(
+			result.lines.slice(0, 3),
+			['done    secrets', 'done    cursor.mcp-entry.make-app-context', `failed  cursor.env-file: ${ENV_CHANGED}`],
+		);
+		assert.equal(fs.existsSync(h.paths.cursorEnv), true);
+	});
+
+	it('secrets: nothing left to copy at the time of the step is an empty step that is done', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-late', { secrets: 'missing', editors: ['claude'] });
+		const prep = prepare(h);
+		fs.appendFileSync(SECRETS_FILE(h), `pinecone-api-key: ${FAKE.pinecone}\nopenai-api-key: ${FAKE.openai}\npinecone-index-name: ${FAKE.index}\n`);
+		const before = fs.readFileSync(SECRETS_FILE(h));
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines[0], 'done    secrets');
+		assert.equal(before.equals(fs.readFileSync(SECRETS_FILE(h))), true, 'the file was not written');
+		assert.deepEqual(manifestOf(result.backupDir).secretsKeysAdded, []);
+		assert.deepEqual(stepOf(manifestOf(result.backupDir), 'secrets').keys, []);
+	});
+
+	it('secrets: a read-back that does not show the key fails the step with the fixed text and stops the run', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-readback', { secrets: 'missing', editors: ['claude'] });
+		const prep = prepare(h);
+		const stale = Buffer.from('editor: claude\n');
+		const injected = { ...fs, readFileSync: (file, ...rest) => (file === SECRETS_FILE(h) ? stale : fs.readFileSync(file, ...rest)) };
+		const spawned = applySpawn(h.root);
+		const result = apply(h, prep, { groups: ['claude'], fs: injected, spawnSync: spawned.spawn });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], 'failed  secrets: the secrets file did not read back');
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(stepOf(manifest, 'secrets').error, 'the secrets file did not read back');
+		assert.equal(stepOf(manifest, 'secrets').state, 'running', 'the file did change, so the step is not marked as one that changed nothing');
+		assert.deepEqual(manifest.secretsKeysAdded, ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name']);
+		assert.equal(spawned.calls.length, 0, 'nothing else ran');
+		assert.equal(hasEntry(h), true);
+	});
+
+	it('secrets: an error of the secrets file is shown with its code and path', POSIX_ONLY, () => {
+		const h = fakeHome('secrets-error', { secrets: 'missing', editors: ['claude'] });
+		const prep = prepare(h);
+		fs.chmodSync(SECRETS_FILE(h), 0o000);
+		try {
+			if (process.getuid && process.getuid() === 0) return;
+			const result = apply(h, prep, { groups: ['claude'] });
+			assert.equal(result.exitCode, 4);
+			assert.equal(result.lines[0], `failed  secrets: EACCES on ${SECRETS_FILE(h)}`);
+			assert.equal(stepOf(manifestOf(result.backupDir), 'secrets').state, 'failed');
+		} finally {
+			fs.chmodSync(SECRETS_FILE(h), 0o600);
+		}
+	});
+});
+
+describe('applySteps: the claude.mcp-entry step', () => {
+	const CLAUDE_FAILED = (line) => `failed  claude.mcp-entry: ${line}`;
+
+	it('a failing claude stops the run before any folder moves: exit 4, partial', POSIX_ONLY, () => {
+		const h = fakeHome('failing-claude', { claudeMode: 'fail' });
+		const prep = prepare(h);
+		const before = snapshot(h.home);
+		const spawned = applySpawn(h.root);
+		const waits = [];
+		const result = apply(h, prep, { spawnSync: spawned.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.status, 'partial');
+		assert.deepEqual(result.lines, [
+			CLAUDE_FAILED('simulated failure'),
+			`Backup: ${shortOf(h, backupOf(h))}`,
+			`To undo: node "${h.pluginRoot}/shared/scripts/cleanup-legacy.js" --restore`,
+			PARTIAL_LINE,
+		]);
+		assert.deepEqual(spawned.calls.map((call) => [call.args, call.status]), [[REMOVE_ARGS, 1], [REMOVE_ARGS, 1], [REMOVE_ARGS, 1]], 'three attempts in all');
+		assert.deepEqual(waits, [500, 500, 500], 'each attempt waits 500 ms before it reads the file');
+		assert.deepEqual(diffSnapshots(before, snapshot(h.home, { exclude: ['.make-custom-app'] })), [], 'nothing moved and nothing changed');
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(manifest.status, 'partial');
+		assert.deepEqual(states(manifest), prep.plan.items.map((item, index) => `${item.id}:${index === 0 ? 'failed' : 'pending'}`));
+		assert.equal(stepOf(manifest, 'claude.mcp-entry').error, 'simulated failure');
+		assert.deepEqual(fs.readdirSync(result.backupDir), ['manifest.json']);
+	});
+
+	it('claude runs as <claudeBin> mcp remove make-custom-app --scope user with the given home, no CLAUDECODE, a 30 s timeout, and SIGKILL', POSIX_ONLY, () => {
+		const h = fakeHome('remove-call', { editors: ['claude'] });
+		const prep = prepare(h);
+		const spawned = applySpawn(h.root);
+		const env = { ...h.env, CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'abc' };
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], env, spawnSync: spawned.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.exitCode, 0);
+		assert.equal(spawned.calls.length, 1);
+		const [call] = spawned.calls;
+		assert.equal(call.command, h.paths.claudeBin);
+		assert.deepEqual(call.args, REMOVE_ARGS);
+		assert.deepEqual(call.options, { ...steps.spawnSpec({ bin: h.paths.claudeBin, args: REMOVE_ARGS, platform: process.platform, env, home: h.home, timeoutMs: 30000 }).options, killSignal: 'SIGKILL' });
+		assert.equal(call.options.cwd, h.home);
+		assert.equal(call.options.timeout, 30000);
+		assert.equal(call.options.env.HOME, h.home);
+		assert.equal(Object.hasOwn(call.options.env, 'CLAUDECODE'), false);
+		assert.equal(call.options.env.CLAUDE_CODE_SESSION_ID, 'abc');
+		assert.deepEqual(waits, [500], 'one wait of 500 ms before the reread');
+	});
+
+	it('without an injected sleep the step waits 500 ms before it rereads ~/.claude.json', POSIX_ONLY, () => {
+		const h = fakeHome('remove-default-sleep', { editors: ['claude'] });
+		const prep = prepare(h);
+		const started = Date.now();
+		const result = steps.applySteps({ ...prep, groups: ['claude'], env: h.env, home: h.home, spawnSync: spawnUnder(h.root), now: NOW, claudeBin: h.paths.claudeBin, pluginRoot: h.pluginRoot });
+		assert.equal(result.exitCode, 0);
+		assert.ok(Date.now() - started >= 450, 'one wait of 500 ms');
+	});
+
+	it('a claude.cmd on an injected win32 platform runs through cmd.exe, as Ruling 15 says', () => {
+		const h = fakeHome('remove-cmd', { editors: ['claude'] });
+		const prep = prepare(h, { locate: false });
+		const bin = 'C:\\Users\\a\\AppData\\Roaming\\npm\\claude.cmd';
+		const stub = recorder((command, args) => {
+			const json = readJson(h.paths.claudeJson);
+			delete json.mcpServers['make-custom-app'];
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(json));
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const forced = { ...prep, plan: buildPlan({ ...prep.facts, claude: { binary: bin } }) };
+		const result = apply(h, forced, { groups: ['claude'], platform: 'win32', claudeBin: bin, spawnSync: stub.spawn });
+		assert.equal(result.exitCode, 0);
+		assert.equal(stub.calls[0].command, 'cmd.exe');
+		assert.deepEqual(stub.calls[0].args, ['/d', '/s', '/c', `""${bin}" mcp remove make-custom-app --scope user"`]);
+		assert.equal(stub.calls[0].options.windowsVerbatimArguments, true);
+
+		const unsafe = 'C:\\100%\\npm\\claude.cmd';
+		const h2 = fakeHome('remove-cmd-unsafe', { editors: ['claude'] });
+		const prep2 = prepare(h2, { locate: false });
+		const forced2 = { ...prep2, plan: buildPlan({ ...prep2.facts, claude: { binary: unsafe } }) };
+		const never = recorder(() => assert.fail('claude must not start'));
+		const refused = apply(h2, forced2, { groups: ['claude'], platform: 'win32', claudeBin: unsafe, spawnSync: never.spawn });
+		assert.equal(refused.exitCode, 4);
+		assert.equal(refused.lines[0], CLAUDE_FAILED(UNEXPECTED));
+		assert.equal(never.calls.length, 0);
+		assert.equal(stepOf(manifestOf(refused.backupDir), 'claude.mcp-entry').state, 'failed', 'nothing was changed');
+	});
+
+	it('a run without a claude binary fails the step before it records or runs anything', POSIX_ONLY, () => {
+		const h = fakeHome('remove-no-binary', { editors: ['claude'] });
+		const prep = prepare(h);
+		const noBinary = { ...prep, facts: { ...prep.facts, claude: { binary: null } } };
+		const never = recorder(() => assert.fail('claude must not start'));
+		const result = apply(h, noBinary, { groups: ['claude'], claudeBin: undefined, spawnSync: never.spawn });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], CLAUDE_FAILED('Claude Code was not found, so the old MCP registration cannot be removed.'));
+		assert.equal(hasEntry(h), true);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').position, null, 'nothing was recorded');
+		const fromFacts = fakeHome('remove-binary-from-facts', { editors: ['claude'] });
+		const done = apply(fromFacts, prepare(fromFacts), { groups: ['claude'], claudeBin: undefined });
+		assert.equal(done.exitCode, 0, 'the binary of the facts is used when none is given');
+		assert.equal(mcpCalls(fromFacts).length, 1);
+	});
+
+	it('the registration is rechecked right before the removal: a changed, moved, or vanished entry fails the step and claude is not run', POSIX_ONLY, () => {
+		const cases = {
+			'an entry that now points at the plugin bundle': (h, json) => {
+				json.mcpServers['make-custom-app'] = { command: 'node', args: [path.join(h.pluginRoot, 'mcp', 'index.mjs')] };
+			},
+			'an entry whose arguments changed': (h, json) => {
+				json.mcpServers['make-custom-app'].args = [...json.mcpServers['make-custom-app'].args, '--extra'];
+			},
+			'an entry with another env name': (h, json) => {
+				json.mcpServers['make-custom-app'].env.EXTRA_NAME = 'x';
+			},
+			'an entry that was removed meanwhile': (h, json) => {
+				delete json.mcpServers['make-custom-app'];
+			},
+			'a file without mcpServers': (h, json) => {
+				delete json.mcpServers;
+			},
+		};
+		for (const [label, change] of Object.entries(cases)) {
+			const h = fakeHome('remove-recheck', { editors: ['claude'] });
+			const prep = prepare(h);
+			const json = readJson(h.paths.claudeJson);
+			change(h, json);
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(json));
+			const bytes = fs.readFileSync(h.paths.claudeJson);
+			const spawned = applySpawn(h.root);
+			const result = apply(h, prep, { groups: ['claude'], spawnSync: spawned.spawn });
+			assert.equal(result.exitCode, 4, label);
+			assert.equal(result.lines[0], CLAUDE_FAILED('~/.claude.json changed since the plan'), label);
+			assert.equal(spawned.calls.length, 0, label);
+			assert.equal(bytes.equals(fs.readFileSync(h.paths.claudeJson)), true, label);
+			assert.deepEqual(states(manifestOf(result.backupDir)), prep.plan.items.map((item, index) => `${item.id}:${index === 0 ? 'failed' : 'pending'}`), label);
+		}
+	});
+
+	it('a ~/.claude.json that cannot be read before the removal fails the step and claude is not run', POSIX_ONLY, () => {
+		const h = fakeHome('remove-unreadable', { editors: ['claude'] });
+		const prep = prepare(h);
+		fs.writeFileSync(h.paths.claudeJson, '{"mcpServers": ');
+		const spawned = applySpawn(h.root);
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: spawned.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.lines[0], CLAUDE_FAILED('~/.claude.json changed since the plan'));
+		assert.equal(spawned.calls.length, 0);
+		assert.deepEqual(waits, [100, 100], 'the file is read three times, 100 ms apart, as gatherFacts reads it');
+	});
+
+	it('the key is gone whatever the exit code, so an exit 1 with the key removed is done', POSIX_ONLY, () => {
+		const h = fakeHome('remove-exit-one', { editors: ['claude'] });
+		const prep = prepare(h);
+		const stub = recorder(() => {
+			const json = readJson(h.paths.claudeJson);
+			delete json.mcpServers['make-custom-app'];
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(json));
+			return { status: 1, stdout: '', stderr: 'warning\n' };
+		});
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn });
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines[0], 'done    claude.mcp-entry');
+		assert.equal(stub.calls.length, 1);
+	});
+
+	it('the key that is still there after a command that did not fail is removed again, and the text is the restart text', POSIX_ONLY, () => {
+		const h = fakeHome('remove-quiet', { editors: ['claude'] });
+		const prep = prepare(h);
+		const quiet = recorder({ status: 0, stdout: '', stderr: '' });
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: quiet.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(quiet.calls.length, 3);
+		assert.deepEqual(waits, [500, 500, 500]);
+		assert.equal(result.lines[0], CLAUDE_FAILED(RESTART_TEXT));
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'failed', 'the key is there, so nothing needs a restore');
+		assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false);
+	});
+
+	it('a command that fails without a stderr line, with a start error, or with a code gives a safe text', POSIX_ONLY, () => {
+		const cases = [
+			['no stderr', { status: 1, stdout: '', stderr: '' }, RESTART_TEXT],
+			['only blank lines', { status: 1, stdout: '', stderr: '\n  \n' }, RESTART_TEXT],
+			['no stderr at all', { status: 1, stdout: '', stderr: null }, RESTART_TEXT],
+			['a timeout', { status: null, error: errorWithCode('ETIMEDOUT'), stdout: '', stderr: '' }, null],
+			['an error without a code', { status: null, error: new Error(`secret ${FAKE.pinecone}`), stdout: '', stderr: '' }, UNEXPECTED],
+			['a control character in the line', { status: 1, stdout: '', stderr: 'bad\u0007thing\u001b[31m\n' }, 'bad?thing?[31m'],
+			['a very long line', { status: 1, stdout: '', stderr: `${'x'.repeat(500)}\n` }, 'x'.repeat(200)],
+		];
+		for (const [label, outcome, text] of cases) {
+			const h = fakeHome('remove-fail-text', { editors: ['claude'] });
+			const prep = prepare(h);
+			const stub = recorder(outcome);
+			const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn });
+			const expected = text === null ? `ETIMEDOUT on ${h.paths.claudeBin}` : text;
+			assert.equal(result.lines[0], CLAUDE_FAILED(expected), label);
+			assert.deepEqual(leaks(result.lines), [], label);
+		}
+	});
+
+	it('a ~/.claude.json that does not parse after the removal fails the step and the step stays running, because the removal may have happened', POSIX_ONLY, () => {
+		const h = fakeHome('remove-garbled', { editors: ['claude'] });
+		const prep = prepare(h);
+		const stub = recorder(() => {
+			fs.writeFileSync(h.paths.claudeJson, `{"mcpServers": {"x": "${FAKE.otherToken}`);
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], CLAUDE_FAILED(`${h.paths.claudeJson} is not valid JSON`));
+		assert.equal(stub.calls.length, 1, 'a file that does not parse is not removed from again');
+		assert.deepEqual(waits, [500, 500, 500], 'three rereads, 500 ms apart');
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'running');
+		assert.deepEqual(leaks(result.lines), []);
+		assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false);
+	});
+
+	it('a ~/.claude.json that parses only on the second reread is accepted', POSIX_ONLY, () => {
+		const h = fakeHome('remove-torn', { editors: ['claude'] });
+		const prep = prepare(h);
+		let reads = 0;
+		const real = readJson(h.paths.claudeJson);
+		delete real.mcpServers['make-custom-app'];
+		const stub = recorder(() => {
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(real));
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const injected = {
+			...fs,
+			readFileSync: (file, ...rest) => {
+				if (file === h.paths.claudeJson && stub.calls.length > 0 && reads++ === 0) return Buffer.from('{"mcpServers": ');
+				return fs.readFileSync(file, ...rest);
+			},
+		};
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], fs: injected, spawnSync: stub.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.exitCode, 0);
+		assert.equal(stub.calls.length, 1);
+		assert.deepEqual(waits, [500, 500]);
+	});
+});
+
+describe('applySteps: the claude-backup-copy notice', () => {
+	it('the returned lines carry the claude-backup-copy text after a done claude.mcp-entry step, and not for a Cursor-only run or when that step failed', POSIX_ONLY, () => {
+		const both = fakeHome('notice-both');
+		const done = apply(both, prepare(both));
+		const at = done.lines.indexOf(`Backup: ${shortOf(both, done.backupDir)}`);
+		assert.equal(done.lines[at + 1], BACKUP_COPY_TEXT, 'right after the Backup line');
+		assert.equal(done.lines.filter((line) => line === BACKUP_COPY_TEXT).length, 1);
+		assert.equal(done.lines[at + 2].startsWith('To undo: '), true);
+
+		const cursorOnly = fakeHome('notice-cursor');
+		const cursorRun = apply(cursorOnly, prepare(cursorOnly), { groups: ['cursor'] });
+		assert.equal(cursorRun.exitCode, 0);
+		assert.equal(cursorRun.lines.includes(BACKUP_COPY_TEXT), false, 'a Cursor-only run did not touch ~/.claude.json');
+
+		const failing = fakeHome('notice-failing', { claudeMode: 'fail' });
+		const failed = apply(failing, prepare(failing));
+		assert.equal(failed.lines.includes(BACKUP_COPY_TEXT), false);
+
+		const noNotice = fakeHome('notice-missing', { editors: ['claude'] });
+		const prep = prepare(noNotice);
+		const withoutText = { ...prep, plan: { ...prep.plan, notices: prep.plan.notices.filter((notice) => notice.kind !== 'claude-backup-copy') } };
+		const quiet = apply(noNotice, withoutText, { groups: ['claude'] });
+		assert.equal(quiet.exitCode, 0);
+		assert.equal(quiet.lines.length, 7, 'a plan without the notice prints none');
+		const noList = fakeHome('notice-no-list', { editors: ['claude'] });
+		const noListPrep = prepare(noList);
+		assert.equal(apply(noList, { ...noListPrep, plan: { ...noListPrep.plan, notices: undefined } }, { groups: ['claude'] }).lines.length, 7, 'and so does a plan with no list of notices');
+	});
+});
+
+describe('applySteps: a writer of ~/.claude.json', () => {
+	// ~/.claude.json at 0600, as Claude Code keeps it. The writer of the helper is an unsynchronized read-modify-write (Ruling 29): a single
+	// removal can be undone by it. These cases therefore apply again (a user would run the cleanup again) up to six times and assert after that.
+	const STEP_WAIT_MS = 120;
+	const realWait = () => waitFor(STEP_WAIT_MS);
+
+	async function applyUntilGone(h, run) {
+		let last = null;
+		let attempts = 0;
+		while (attempts < 6) {
+			const prep = prepare(h);
+			if (!prep.plan.items.some((item) => item.id === 'claude.mcp-entry')) break;
+			attempts += 1;
+			last = run(prep);
+			if (last.exitCode === 0) break;
+		}
+		return { last, attempts };
+	}
+
+	it('a writer rewriting ~/.claude.json every 5 ms: the file parses, other-server intact, the entry gone', POSIX_ONLY, async () => {
+		const h = fakeHome('writer-counter', { editors: ['claude'] });
+		const writer = startWriter({ file: h.paths.claudeJson, mode: 'counter' });
+		let outcome;
+		let stats;
+		try {
+			outcome = await applyUntilGone(h, (prep) => apply(h, prep, { groups: ['claude'], sleep: realWait }));
+		} finally {
+			stats = await writer.stop();
+		}
+		assert.ok(outcome.attempts >= 1 && outcome.attempts <= 6);
+		assert.equal(outcome.last.exitCode, 0, `done after ${outcome.attempts} applies`);
+		const json = readJson(h.paths.claudeJson);
+		assert.equal(Object.hasOwn(json.mcpServers, 'make-custom-app'), false);
+		assert.deepEqual(json.mcpServers['other-server'], { command: 'node', args: ['/opt/other.js'], env: { API_TOKEN: FAKE.otherToken } });
+		assert.equal(json.numStartups, 7);
+		assert.ok(stats.writes >= 1 && json.writerCounter >= 1, 'the writer ran while the cleanup did');
+		assert.equal(fs.statSync(h.paths.claudeJson).mode & 0o777, 0o600);
+		assert.equal(fs.existsSync(h.paths.claudeSkill), false, 'the rest of the group ran');
+	});
+
+	it('resurrect-once is caught by the reread; resurrect-always fails with the restart text', POSIX_ONLY, async () => {
+		const once = fakeHome('writer-once', { editors: ['claude'] });
+		const entry = readJson(once.paths.claudeJson).mcpServers['make-custom-app'];
+		const writer = startWriter({ file: once.paths.claudeJson, mode: 'resurrect-once', entry });
+		let outcome;
+		try {
+			outcome = await applyUntilGone(once, (prep) => apply(once, prep, { groups: ['claude'], sleep: realWait }));
+		} finally {
+			await writer.stop();
+		}
+		assert.equal(outcome.last.exitCode, 0, `done after ${outcome.attempts} applies`);
+		assert.equal(Object.hasOwn(readJson(once.paths.claudeJson).mcpServers, 'make-custom-app'), false);
+		assert.ok(mcpCalls(once).length >= 2, 'the writer put the entry back, the reread saw it, and claude removed it again');
+
+		const always = fakeHome('writer-always', { editors: ['claude'] });
+		const entryAlways = readJson(always.paths.claudeJson).mcpServers['make-custom-app'];
+		const alwaysWriter = startWriter({ file: always.paths.claudeJson, mode: 'resurrect-always', entry: entryAlways });
+		const before = fs.readFileSync(always.paths.claudeMd);
+		let result;
+		const waits = [];
+		try {
+			result = apply(always, prepare(always), {
+				groups: ['claude'],
+				sleep: (ms) => {
+					waits.push(ms);
+					realWait();
+				},
+			});
+		} finally {
+			await alwaysWriter.stop();
+		}
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  claude.mcp-entry: ${RESTART_TEXT}`);
+		assert.equal(mcpCalls(always).length, 3, 'three removals in all');
+		assert.deepEqual(waits, [500, 500, 500]);
+		assert.equal(before.equals(fs.readFileSync(always.paths.claudeMd)), true, 'nothing after the entry ran');
+		assert.equal(fs.existsSync(always.paths.claudeSkill), true);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'failed');
+		assert.equal(result.lines.at(-1), PARTIAL_LINE);
+	});
+});
+
+describe('applySteps: moving the folders', () => {
+	it('EXDEV falls back to copy and removes the source; EPERM is retried', POSIX_ONLY, () => {
+		const h = fakeHome('exdev', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const treeBefore = snapshot(p.cursorSkill);
+		treeBefore.delete('mcp-server/.env');
+		const exdev = {
+			...fs,
+			renameSync(from, to) {
+				if (from === p.cursorSkill) throw errorWithCode('EXDEV');
+				return fs.renameSync(from, to);
+			},
+		};
+		const result = apply(h, prep, { groups: ['cursor'], fs: exdev });
+		assert.equal(result.exitCode, 0);
+		assert.equal(fs.existsSync(p.cursorSkill), false, 'the source is removed');
+		const backup = path.join(result.backupDir, 'cursor', 'skill-dir');
+		const copied = snapshot(backup);
+		assert.deepEqual([...copied.keys()], [...treeBefore.keys()]);
+		for (const [rel, info] of treeBefore) {
+			assert.equal(copied.get(rel).type, info.type, rel);
+			assert.equal(copied.get(rel).sha256, info.sha256, rel);
+			assert.equal(copied.get(rel).mode, info.mode, rel);
+		}
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(stepOf(manifest, 'cursor.skill-dir').method, 'copy');
+		assert.equal(stepOf(manifest, 'cursor.skill-dir').state, 'done');
+		assert.equal(stepOf(manifest, 'cursor.rules-dir').method, 'rename');
+
+		const renames = (platform, failures, code, label) => {
+			const home = fakeHome(`eperm-${label}`, { editors: ['cursor'] });
+			const waits = [];
+			const calls = [];
+			let left = failures;
+			const flaky = {
+				...fs,
+				renameSync(from, to) {
+					if (from === home.paths.cursorSkill) {
+						calls.push(from);
+						if (left-- > 0) throw errorWithCode(code);
+					}
+					return fs.renameSync(from, to);
+				},
+			};
+			const outcome = apply(home, prepare(home), { groups: ['cursor'], fs: flaky, platform, sleep: (ms) => waits.push(ms) });
+			return { home, outcome, calls, waits };
+		};
+		const twice = renames('win32', 2, 'EPERM', 'twice');
+		assert.equal(twice.outcome.exitCode, 0);
+		assert.equal(twice.calls.length, 3);
+		assert.deepEqual(twice.waits, [500, 500]);
+		assert.equal(fs.existsSync(twice.home.paths.cursorSkill), false);
+		assert.equal(stepOf(manifestOf(twice.outcome.backupDir), 'cursor.skill-dir').method, 'rename');
+		const busy = renames('win32', 3, 'EBUSY', 'busy');
+		assert.equal(busy.outcome.exitCode, 0, 'three retries are allowed');
+		assert.equal(busy.calls.length, 4);
+		assert.deepEqual(busy.waits, [500, 500, 500]);
+		const always = renames('win32', 99, 'EPERM', 'always');
+		assert.equal(always.outcome.exitCode, 4);
+		assert.equal(always.calls.length, 4, 'the first try and three retries');
+		assert.deepEqual(always.waits, [500, 500, 500]);
+		assert.equal(always.outcome.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: EPERM on ${always.home.paths.cursorSkill}`);
+		assert.equal(fs.existsSync(always.home.paths.cursorSkill), true);
+		assert.equal(stepOf(manifestOf(always.outcome.backupDir), 'cursor.skill-dir').state, 'failed', 'nothing moved');
+		assert.equal(stepOf(manifestOf(always.outcome.backupDir), 'cursor.rules-dir').state, 'pending');
+		const posix = renames('linux', 99, 'EPERM', 'posix');
+		assert.equal(posix.calls.length, 1, 'EPERM is retried on Windows only');
+		assert.deepEqual(posix.waits, []);
+		assert.equal(posix.outcome.exitCode, 4);
+		const other = renames('win32', 99, 'EACCES', 'access');
+		assert.equal(other.calls.length, 1, 'only EPERM and EBUSY are retried');
+		assert.equal(other.outcome.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: EACCES on ${other.home.paths.cursorSkill}`);
+	});
+
+	it('a copy that does not match the original, a copy that fails, and a source that cannot be removed leave the right state', POSIX_ONLY, () => {
+		const exdevFor = (p, extra) => ({
+			...fs,
+			renameSync(from, to) {
+				if (from === p.cursorSkill) throw errorWithCode('EXDEV');
+				return fs.renameSync(from, to);
+			},
+			...extra,
+		});
+		const h = fakeHome('copy-mismatch', { editors: ['cursor'] });
+		const p = h.paths;
+		const partial = exdevFor(p, {
+			cpSync(from, to, options) {
+				fs.cpSync(from, to, options);
+				fs.rmSync(path.join(to, 'scripts', 'check-setup.js'));
+			},
+		});
+		const mismatch = apply(h, prepare(h), { groups: ['cursor'], fs: partial });
+		assert.equal(mismatch.exitCode, 4);
+		assert.equal(mismatch.lines.find((line) => line.startsWith('failed')), 'failed  cursor.skill-dir: the copy of the folder does not match the original, so nothing was removed');
+		assert.equal(fs.existsSync(path.join(p.cursorSkill, 'scripts', 'check-setup.js')), true, 'the source is intact');
+		assert.equal(fs.existsSync(path.join(mismatch.backupDir, 'cursor', 'skill-dir')), false, 'the partial copy is removed');
+		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').state, 'failed');
+		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').method, 'copy');
+
+		const h2 = fakeHome('copy-fails', { editors: ['cursor'] });
+		const failing = exdevFor(h2.paths, {
+			cpSync(from, to, options) {
+				fs.cpSync(from, to, options);
+				throw errorWithCode('ENOSPC');
+			},
+		});
+		const brokenCopy = apply(h2, prepare(h2), { groups: ['cursor'], fs: failing });
+		assert.equal(brokenCopy.exitCode, 4);
+		assert.equal(brokenCopy.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: ENOSPC on ${h2.paths.cursorSkill}`);
+		assert.equal(fs.existsSync(path.join(brokenCopy.backupDir, 'cursor', 'skill-dir')), false);
+		assert.equal(fs.existsSync(h2.paths.cursorSkill), true);
+		assert.equal(stepOf(manifestOf(brokenCopy.backupDir), 'cursor.skill-dir').state, 'failed');
+
+		const h4 = fakeHome('copy-partial-stays', { editors: ['cursor'] });
+		const sticky = exdevFor(h4.paths, {
+			cpSync(from, to, options) {
+				fs.cpSync(from, to, options);
+				throw errorWithCode('ENOSPC');
+			},
+			rmSync(file, options) {
+				if (String(file).includes(BACKUP_NAME)) throw errorWithCode('EBUSY');
+				return fs.rmSync(file, options);
+			},
+		});
+		const stays = apply(h4, prepare(h4), { groups: ['cursor'], fs: sticky });
+		assert.equal(stays.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: ENOSPC on ${h4.paths.cursorSkill}`, 'the first error is the one shown');
+		assert.equal(fs.existsSync(path.join(stays.backupDir, 'cursor', 'skill-dir', 'SKILL.md')), true, 'a partial copy that cannot be removed stays in the backup');
+		assert.equal(fs.existsSync(h4.paths.cursorSkill), true);
+
+		const h3 = fakeHome('copy-remove-fails', { editors: ['cursor'] });
+		const stuck = exdevFor(h3.paths, {
+			rmSync(file, options) {
+				if (file === h3.paths.cursorSkill) throw errorWithCode('EBUSY');
+				return fs.rmSync(file, options);
+			},
+		});
+		const kept = apply(h3, prepare(h3), { groups: ['cursor'], fs: stuck });
+		assert.equal(kept.exitCode, 4);
+		assert.equal(kept.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: EBUSY on ${h3.paths.cursorSkill}`);
+		assert.equal(stepOf(manifestOf(kept.backupDir), 'cursor.skill-dir').state, 'running', 'the copy exists and the source may be half removed, so the restore still looks at it');
+		assert.equal(fs.existsSync(path.join(kept.backupDir, 'cursor', 'skill-dir', 'SKILL.md')), true);
+	});
+
+	it('a symlinked skill folder: only the link moves, and the target\'s mcp-server/.env keeps its bytes and mode', POSIX_ONLY, () => {
+		const h = fakeHome('symlink-skill', { editors: ['claude'], symlinkSkill: true });
+		const p = h.paths;
+		const prep = prepare(h);
+		assert.deepEqual(prep.plan.items.map((item) => item.id), ['claude.mcp-entry', 'claude.sentinel', 'claude.skill-dir'], 'no env-file item for a link');
+		const targetEnv = path.join(p.skillTarget, 'mcp-server', '.env');
+		const envBefore = fs.readFileSync(targetEnv);
+		const envMode = fs.statSync(targetEnv).mode & 0o777;
+		const targetBefore = snapshot(p.skillTarget);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		const backup = path.join(result.backupDir, 'claude', 'skill-dir');
+		assert.equal(fs.lstatSync(backup).isSymbolicLink(), true);
+		assert.equal(fs.readlinkSync(backup), p.skillTarget);
+		assert.equal(fs.existsSync(p.claudeSkill), false);
+		assert.equal(fs.lstatSync(p.skillTarget).isDirectory(), true);
+		assert.deepEqual(diffSnapshots(targetBefore, snapshot(p.skillTarget)), []);
+		assert.equal(envBefore.equals(fs.readFileSync(targetEnv)), true);
+		assert.equal(fs.statSync(targetEnv).mode & 0o777, envMode);
+		const step = stepOf(manifestOf(result.backupDir), 'claude.skill-dir');
+		assert.equal(step.symlink, true);
+		assert.equal(step.method, 'rename');
+		assert.deepEqual(result.lines.slice(0, 3), ['done    claude.mcp-entry', 'done    claude.sentinel', 'done    claude.skill-dir']);
+	});
+
+	it('a symlinked skill folder that EXDEV copies: the link is recreated and removed, and the target stays', POSIX_ONLY, () => {
+		const h = fakeHome('symlink-exdev', { editors: ['claude'], symlinkSkill: true });
+		const p = h.paths;
+		const prep = prepare(h);
+		const targetBefore = snapshot(p.skillTarget);
+		const exdev = {
+			...fs,
+			renameSync(from, to) {
+				if (from === p.claudeSkill) throw errorWithCode('EXDEV');
+				return fs.renameSync(from, to);
+			},
+		};
+		const result = apply(h, prep, { groups: ['claude'], fs: exdev });
+		assert.equal(result.exitCode, 0);
+		const backup = path.join(result.backupDir, 'claude', 'skill-dir');
+		assert.equal(fs.lstatSync(backup).isSymbolicLink(), true);
+		assert.equal(fs.readlinkSync(backup), p.skillTarget);
+		assert.throws(() => fs.lstatSync(p.claudeSkill), { code: 'ENOENT' });
+		assert.deepEqual(diffSnapshots(targetBefore, snapshot(p.skillTarget)), [], 'the target was not walked, copied, or removed');
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.skill-dir').method, 'copy');
+
+		const h2 = fakeHome('symlink-exdev-mismatch', { editors: ['claude'], symlinkSkill: true });
+		const wrong = {
+			...fs,
+			renameSync(from, to) {
+				if (from === h2.paths.claudeSkill) throw errorWithCode('EXDEV');
+				return fs.renameSync(from, to);
+			},
+			cpSync(from, to) {
+				fs.symlinkSync(path.join(h2.root, 'somewhere-else'), to);
+			},
+		};
+		const bad = apply(h2, prepare(h2), { groups: ['claude'], fs: wrong });
+		assert.equal(bad.exitCode, 4);
+		assert.equal(fs.lstatSync(h2.paths.claudeSkill).isSymbolicLink(), true, 'the link is still there');
+		assert.throws(() => fs.lstatSync(path.join(bad.backupDir, 'claude', 'skill-dir')), { code: 'ENOENT' });
+	});
+
+	it('a symlinked Cursor rules folder moves as a link, and a backup name that is taken fails the step', POSIX_ONLY, () => {
+		const h = fakeHome('symlink-rules', { editors: ['cursor'] });
+		const p = h.paths;
+		const target = path.join(h.root, 'rules-target');
+		fs.renameSync(p.cursorRules, target);
+		fs.symlinkSync(target, p.cursorRules);
+		const prep = prepare(h);
+		assert.equal(prep.plan.items.find((item) => item.id === 'cursor.rules-dir').symlink, true);
+		const result = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(result.exitCode, 0);
+		const backup = path.join(result.backupDir, 'cursor', 'rules-dir');
+		assert.equal(fs.lstatSync(backup).isSymbolicLink(), true);
+		assert.equal(fs.existsSync(path.join(target, 'make-custom-app.mdc')), true);
+
+		const h2 = fakeHome('backup-taken', { editors: ['cursor'] });
+		const prep2 = prepare(h2);
+		const taken = path.join(backupOf(h2), 'cursor', 'skill-dir');
+		const trap = {
+			...fs,
+			mkdirSync(dir, options) {
+				const made = fs.mkdirSync(dir, options);
+				if (dir === path.join(backupOf(h2), 'cursor')) fs.mkdirSync(taken);
+				return made;
+			},
+		};
+		const refused = apply(h2, prep2, { groups: ['cursor'], fs: trap });
+		assert.equal(refused.exitCode, 4);
+		assert.equal(refused.lines.find((line) => line.startsWith('failed')), 'failed  cursor.skill-dir: the backup folder already holds a folder of that name');
+		assert.equal(fs.existsSync(path.join(h2.paths.cursorSkill, 'SKILL.md')), true);
+		assert.deepEqual(fs.readdirSync(taken), [], 'the folder that was there is not touched');
+	});
+
+	it('a folder that changed, grew a top-level name, or became a plugin after the plan is not moved', POSIX_ONLY, () => {
+		const cases = {
+			'a new top-level file': (p) => put(path.join(p.cursorSkill, 'NEW.md'), 'x'),
+			'a changed version': (p) => put(path.join(p.cursorSkill, 'SKILL.md'), '---\nname: make-custom-app\nversion: 9.9.9\n---\n'),
+			'a link instead of a folder': (p, h) => {
+				fs.rmSync(p.cursorSkill, { recursive: true });
+				fs.mkdirSync(path.join(h.root, 'new-target'));
+				fs.symlinkSync(path.join(h.root, 'new-target'), p.cursorSkill);
+			},
+			'the folder vanished': (p) => fs.rmSync(p.cursorSkill, { recursive: true }),
+		};
+		for (const [label, change] of Object.entries(cases)) {
+			const h = fakeHome('folder-changed', { editors: ['cursor'] });
+			const p = h.paths;
+			const prep = prepare(h);
+			// the .env step comes first and is not what this case is about
+			const plan = { ...prep.plan, items: prep.plan.items.filter((item) => item.id !== 'cursor.env-file') };
+			change(p, h);
+			const result = apply(h, { ...prep, plan }, { groups: ['cursor'] });
+			assert.equal(result.exitCode, 4, label);
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), 'failed  cursor.skill-dir: the old folder changed since the plan', label);
+			assert.equal(fs.existsSync(path.join(result.backupDir, 'cursor', 'skill-dir')), false, label);
+			assert.equal(stepOf(manifestOf(result.backupDir), 'cursor.rules-dir').state, 'pending', label);
+		}
+		const rules = fakeHome('rules-changed', { editors: ['cursor'] });
+		const prep = prepare(rules);
+		put(path.join(rules.paths.cursorRules, 'extra.mdc'), 'x');
+		const result = apply(rules, prep, { groups: ['cursor'] });
+		assert.equal(result.lines.find((line) => line.startsWith('failed')), 'failed  cursor.rules-dir: the old folder changed since the plan');
+		assert.equal(fs.existsSync(path.join(rules.paths.cursorRules, 'make-custom-app.mdc')), true);
+	});
+
+	it('a folder that became a plugin or holds the running plugin is never moved, and a registration that points into it is no longer the old skill\'s', POSIX_ONLY, () => {
+		const only = (prep, id) => ({ ...prep, plan: { ...prep.plan, items: prep.plan.items.filter((item) => item.id === id) } });
+		const h = fakeHome('folder-plugin', { editors: ['claude'] });
+		const prep = prepare(h);
+		fs.mkdirSync(path.join(h.paths.claudeSkill, '.claude-plugin'));
+		const result = apply(h, only(prep, 'claude.skill-dir'), { groups: ['claude'] });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.skill-dir: ${DIR_PLUGIN}`);
+		assert.equal(fs.existsSync(path.join(h.paths.claudeSkill, 'SKILL.md')), true);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.skill-dir').state, 'failed');
+		const entry = apply(h, prep, { groups: ['claude'] });
+		assert.equal(entry.lines[0], 'failed  claude.mcp-entry: ~/.claude.json changed since the plan', 'the registration now points into a plugin folder');
+		assert.equal(hasEntry(h), true);
+
+		const inside = fakeHome('folder-holds-plugin', { editors: ['cursor'] });
+		const prepInside = prepare(inside);
+		const nested = path.join(inside.paths.cursorSkill, 'nested-plugin');
+		makePluginRoot(nested);
+		const moved = apply(inside, only(prepInside, 'cursor.skill-dir'), { groups: ['cursor'], pluginRoot: nested });
+		assert.equal(moved.lines.find((line) => line.startsWith('failed')), `failed  cursor.skill-dir: ${DIR_PLUGIN}`);
+		assert.equal(fs.existsSync(path.join(inside.paths.cursorSkill, 'SKILL.md')), true);
+		const member = apply(inside, prepInside, { groups: ['cursor'], pluginRoot: nested });
+		assert.equal(member.lines[0], 'failed  cursor.mcp-entry.make-app-context: ~/.cursor/mcp.json changed since the plan');
+	});
+
+	it('the backup folder name gets a suffix when it exists', POSIX_ONLY, () => {
+		const h = fakeHome('backup-names', { editors: ['cursor'] });
+		const first = apply(h, prepare(h), { groups: ['cursor'] });
+		assert.equal(first.backupDir, backupOf(h));
+		const again = fakeHome('backup-names-2', { editors: ['cursor'] });
+		fs.mkdirSync(path.join(again.home, '.make-custom-app', BACKUP_NAME), { recursive: true });
+		fs.mkdirSync(path.join(again.home, '.make-custom-app', `${BACKUP_NAME}-2`));
+		const second = apply(again, prepare(again), { groups: ['cursor'] });
+		assert.equal(second.backupDir, backupOf(again, `${BACKUP_NAME}-3`));
+		assert.equal(second.lines.includes(`Backup: ${shortOf(again, second.backupDir)}`), true);
+		assert.deepEqual(fs.readdirSync(backupOf(again)), [], 'the folders that were there are not touched');
+	});
+});
+
+describe('applySteps: the claude.sentinel step', () => {
+	it('a CLAUDE.md edited after the plan fails the sentinel step and nothing after it runs', POSIX_ONLY, () => {
+		const h = fakeHome('md-edited', { editors: ['claude'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		fs.writeFileSync(p.claudeMd, `a new first line\n${fs.readFileSync(p.claudeMd, 'utf8')}`);
+		const edited = fs.readFileSync(p.claudeMd);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 4);
+		assert.deepEqual(result.lines, [
+			'done    claude.mcp-entry',
+			'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan',
+			`Backup: ${shortOf(h, backupOf(h))}`,
+			BACKUP_COPY_TEXT,
+			`To undo: node "${h.pluginRoot}/shared/scripts/cleanup-legacy.js" --restore`,
+			PARTIAL_LINE,
+		]);
+		assert.deepEqual(states(manifestOf(result.backupDir)), ['claude.mcp-entry:done', 'claude.sentinel:failed', 'claude.env-file:pending', 'claude.skill-dir:pending']);
+		assert.equal(edited.equals(fs.readFileSync(p.claudeMd)), true, 'the file keeps its bytes');
+		assert.equal(fs.existsSync(p.claudeEnv), true);
+		assert.equal(fs.existsSync(p.claudeSkill), true);
+		assert.deepEqual(tempFilesIn(path.dirname(p.claudeMd)), []);
+
+		const inside = fakeHome('md-edited-block', { editors: ['claude'] });
+		const insidePrep = prepare(inside);
+		fs.writeFileSync(inside.paths.claudeMd, fs.readFileSync(inside.paths.claudeMd, 'utf8').replace('# Make Custom App Skill', '# Make Custom App Skill (my note)'));
+		const insideResult = apply(inside, insidePrep, { groups: ['claude'] });
+		assert.equal(insideResult.lines[1], 'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan');
+
+		const gone = fakeHome('md-removed', { editors: ['claude'] });
+		const gonePrep = prepare(gone);
+		fs.writeFileSync(gone.paths.claudeMd, '# My notes\n');
+		assert.equal(apply(gone, gonePrep, { groups: ['claude'] }).lines[1], 'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan');
+		const missing = fakeHome('md-missing', { editors: ['claude'] });
+		const missingPrep = prepare(missing);
+		fs.rmSync(missing.paths.claudeMd);
+		assert.equal(apply(missing, missingPrep, { groups: ['claude'] }).lines[1], `failed  claude.sentinel: ENOENT on ${missing.paths.claudeMd}`);
+	});
+
+	it('a CLAUDE.md that became a folder, or that changes between the read and the rename, fails the step and keeps its bytes', POSIX_ONLY, () => {
+		const folder = fakeHome('md-folder', { editors: ['claude'] });
+		const folderPrep = prepare(folder);
+		fs.rmSync(folder.paths.claudeMd);
+		fs.mkdirSync(folder.paths.claudeMd);
+		const refused = apply(folder, folderPrep, { groups: ['claude'] });
+		assert.equal(refused.lines[1], 'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan');
+
+		const h = fakeHome('md-racing', { editors: ['claude'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		let reads = 0;
+		const racing = {
+			...fs,
+			readFileSync(file, ...rest) {
+				const bytes = fs.readFileSync(file, ...rest);
+				return file === p.claudeMd && ++reads === 2 ? Buffer.concat([Buffer.from(bytes), Buffer.from('x')]) : bytes;
+			},
+		};
+		const original = fs.readFileSync(p.claudeMd);
+		const result = apply(h, prep, { groups: ['claude'], fs: racing });
+		assert.equal(reads, 2);
+		assert.equal(result.lines[1], 'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan');
+		assert.equal(original.equals(fs.readFileSync(p.claudeMd)), true);
+		assert.deepEqual(tempFilesIn(path.dirname(p.claudeMd)), [], 'no temp file is left');
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.sentinel').state, 'failed');
+	});
+
+	it('a CLAUDE.md that is a link whose target changed after the plan fails the step; one that is the same link is edited at its target', POSIX_ONLY, () => {
+		const make = (label) => {
+			const h = fakeHome(label, { editors: ['claude'] });
+			const target = path.join(h.root, 'dotfiles', 'CLAUDE.md');
+			fs.mkdirSync(path.dirname(target), { recursive: true });
+			fs.renameSync(h.paths.claudeMd, target);
+			fs.chmodSync(target, 0o640);
+			fs.symlinkSync(target, h.paths.claudeMd);
+			return { h, target };
+		};
+		const same = make('md-link-same');
+		const prep = prepare(same.h);
+		const result = apply(same.h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		assert.equal(fs.lstatSync(same.h.paths.claudeMd).isSymbolicLink(), true, 'the link stays');
+		assert.equal(fs.readlinkSync(same.h.paths.claudeMd), same.target);
+		assert.equal(fs.readFileSync(same.target, 'utf8'), '# My notes\n\nAlways invoke the `make-custom-app` skill for Make apps.\n');
+		assert.equal(fs.statSync(same.target).mode & 0o777, 0o640, 'the old mode');
+		const step = stepOf(manifestOf(result.backupDir), 'claude.sentinel');
+		assert.equal(step.file, same.h.paths.claudeMd);
+		assert.equal(step.realPath, same.target);
+		assert.equal(step.mode, 0o640);
+		assert.deepEqual(tempFilesIn(path.dirname(same.target)), []);
+
+		const moved = make('md-link-moved');
+		const movedPrep = prepare(moved.h);
+		const other = path.join(moved.h.root, 'dotfiles', 'other.md');
+		fs.copyFileSync(moved.target, other);
+		fs.rmSync(moved.h.paths.claudeMd);
+		fs.symlinkSync(other, moved.h.paths.claudeMd);
+		const before = [fs.readFileSync(moved.target), fs.readFileSync(other)];
+		const refused = apply(moved.h, movedPrep, { groups: ['claude'] });
+		assert.equal(refused.lines[1], 'failed  claude.sentinel: ~/.claude/CLAUDE.md changed since the plan');
+		assert.equal(before[0].equals(fs.readFileSync(moved.target)) && before[1].equals(fs.readFileSync(other)), true, 'neither file was written');
+	});
+
+	it('a CRLF CLAUDE.md keeps CRLF, and the recorded offset and hashes describe the cut', POSIX_ONLY, () => {
+		const h = fakeHome('md-crlf', { editors: ['claude'] });
+		const p = h.paths;
+		const notes = '# Notes\r\nmy own line\r\n';
+		const block = INSTALLER_BLOCK.replace(/\n/g, '\r\n');
+		const original = `${notes}\r\n${block}\r\nafter the block\r\n`;
+		put(p.claudeMd, original, 0o644);
+		const prep = prepare(h);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		const next = fs.readFileSync(p.claudeMd, 'utf8');
+		assert.equal(next, `${notes}after the block\r\n`);
+		assert.equal(fs.statSync(p.claudeMd).mode & 0o777, 0o644);
+		const step = stepOf(manifestOf(result.backupDir), 'claude.sentinel');
+		assert.equal(step.offset, notes.length);
+		assert.equal(step.removedText, `\r\n${block}\r\n`);
+		assert.equal(original.slice(0, step.offset) + original.slice(step.offset + step.removedText.length), next);
+		assert.equal(step.sha256Before, sha256(original));
+		assert.equal(step.sha256After, sha256(next));
+	});
+
+	it('an invalid UTF-8 byte in CLAUDE.md or ~/.cursor/mcp.json fails the step with "<file> is not valid UTF-8, so the cleanup does not rewrite it" and the file keeps its bytes', POSIX_ONLY, () => {
+		const h = fakeHome('utf8-invalid');
+		const p = h.paths;
+		const prep = prepare(h);
+		const md = Buffer.concat([Buffer.from('# bad '), Buffer.from([0xff, 0x0a]), fs.readFileSync(p.claudeMd)]);
+		fs.writeFileSync(p.claudeMd, md);
+		const mcpText = fs.readFileSync(p.cursorMcp, 'utf8');
+		const at = mcpText.indexOf(FAKE.cursorToken);
+		const mcp = Buffer.concat([Buffer.from(mcpText.slice(0, at), 'utf8'), Buffer.from([0xff]), Buffer.from(mcpText.slice(at), 'utf8')]);
+		fs.writeFileSync(p.cursorMcp, mcp);
+		const result = apply(h, prep);
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[1], `failed  claude.sentinel: ${p.claudeMd} is not valid UTF-8, so the cleanup does not rewrite it`);
+		assert.equal(md.equals(fs.readFileSync(p.claudeMd)), true);
+		const cursorRun = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(cursorRun.exitCode, 4);
+		assert.equal(cursorRun.lines[0], `failed  cursor.mcp-entry.make-app-context: ${p.cursorMcp} is not valid UTF-8, so the cleanup does not rewrite it`);
+		assert.equal(mcp.equals(fs.readFileSync(p.cursorMcp)), true);
+		assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), []);
+		assert.deepEqual(tempFilesIn(path.dirname(p.claudeMd)), []);
+		assert.equal(stepOf(manifestOf(cursorRun.backupDir), 'cursor.mcp-entry.make-app-context').state, 'failed');
+	});
+});
+
+describe('applySteps: the cursor.mcp-entry steps', () => {
+	it('a Cursor file that keeps changing fails after 3 tries', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-keeps-changing', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const original = fs.readFileSync(p.cursorMcp);
+		let reads = 0;
+		const unstable = {
+			...fs,
+			readFileSync(file, ...rest) {
+				const bytes = fs.readFileSync(file, ...rest);
+				if (file !== p.cursorMcp) return bytes;
+				reads += 1;
+				return reads % 2 === 0 ? Buffer.concat([bytes, Buffer.from(' '.repeat(reads))]) : bytes;
+			},
+		};
+		const result = apply(h, prep, { groups: ['cursor'], fs: unstable });
+		assert.equal(result.exitCode, 4);
+		assert.equal(reads, 6, 'two reads (before and right before the rename) in each of three tries');
+		assert.equal(result.lines[0], 'failed  cursor.mcp-entry.make-app-context: ~/.cursor/mcp.json kept changing; close Cursor, then run the cleanup again');
+		assert.equal(original.equals(fs.readFileSync(p.cursorMcp)), true);
+		assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), [], 'no temp file is left');
+		assert.deepEqual(states(manifestOf(result.backupDir)), ['cursor.mcp-entry.make-app-context:failed', 'cursor.env-file:pending', 'cursor.skill-dir:pending', 'cursor.rules-dir:pending']);
+	});
+
+	it('a Cursor file that changes once is read again, and the change of the user is kept', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-changes-once', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		let reads = 0;
+		const racing = {
+			...fs,
+			readFileSync(file, ...rest) {
+				if (file === p.cursorMcp && (reads += 1) === 2) {
+					const json = readJson(p.cursorMcp);
+					json.theme = 'dark';
+					fs.writeFileSync(p.cursorMcp, `${JSON.stringify(json, null, 2)}\n`);
+				}
+				return fs.readFileSync(file, ...rest);
+			},
+		};
+		const result = apply(h, prep, { groups: ['cursor'], fs: racing });
+		assert.equal(result.exitCode, 0);
+		assert.equal(reads, 5, 'two reads in each of two tries, and one more to parse the result');
+		const json = readJson(p.cursorMcp);
+		assert.equal(json.theme, 'dark', 'the edit made during the first try is in the result');
+		assert.deepEqual(Object.keys(json.mcpServers), ['other-cursor']);
+		assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), []);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context').state, 'done');
+	});
+
+	it('a Cursor file that cannot be renamed into place fails with the code, removes the temp file, and keeps its bytes', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-rename-fails', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const original = fs.readFileSync(p.cursorMcp);
+		const blocked = {
+			...fs,
+			renameSync(from, to) {
+				if (to === p.cursorMcp) throw errorWithCode('EACCES');
+				return fs.renameSync(from, to);
+			},
+		};
+		const result = apply(h, prep, { groups: ['cursor'], fs: blocked });
+		assert.equal(result.lines[0], `failed  cursor.mcp-entry.make-app-context: EACCES on ${p.cursorMcp}`);
+		assert.equal(original.equals(fs.readFileSync(p.cursorMcp)), true);
+		assert.deepEqual(tempFilesIn(path.dirname(p.cursorMcp)), []);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context').state, 'failed', 'nothing changed');
+	});
+
+	it('a temp file that cannot be created is not removed, and a temp file that cannot be removed does not hide the first error', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-temp-exists', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const leftover = `${p.cursorMcp}.${process.pid}.tmp`;
+		fs.writeFileSync(leftover, 'not ours');
+		const original = fs.readFileSync(p.cursorMcp);
+		const result = apply(h, prep, { groups: ['cursor'] });
+		assert.equal(result.lines[0], `failed  cursor.mcp-entry.make-app-context: EEXIST on ${p.cursorMcp}`);
+		assert.equal(fs.readFileSync(leftover, 'utf8'), 'not ours', 'a file that was there before is left alone');
+		assert.equal(original.equals(fs.readFileSync(p.cursorMcp)), true);
+
+		const h2 = fakeHome('cursor-temp-stuck', { editors: ['cursor'] });
+		const stuck = {
+			...fs,
+			renameSync(from, to) {
+				if (to === h2.paths.cursorMcp) throw errorWithCode('EACCES');
+				return fs.renameSync(from, to);
+			},
+			unlinkSync(file) {
+				if (String(file).endsWith('.tmp')) throw errorWithCode('EPERM');
+				return fs.unlinkSync(file);
+			},
+		};
+		const second = apply(h2, prepare(h2), { groups: ['cursor'], fs: stuck });
+		assert.equal(second.lines[0], `failed  cursor.mcp-entry.make-app-context: EACCES on ${h2.paths.cursorMcp}`);
+	});
+
+	it('a Cursor file that does not parse after the rename fails the step and the step stays running', POSIX_ONLY, () => {
+		const h = fakeHome('cursor-result-broken', { editors: ['cursor'] });
+		const p = h.paths;
+		const prep = prepare(h);
+		const racing = {
+			...fs,
+			renameSync(from, to) {
+				fs.renameSync(from, to);
+				if (to === p.cursorMcp) fs.writeFileSync(p.cursorMcp, `{"mcpServers": {"x": "${FAKE.cursorToken}`);
+			},
+		};
+		const result = apply(h, prep, { groups: ['cursor'], fs: racing });
+		assert.equal(result.lines[0], `failed  cursor.mcp-entry.make-app-context: ${p.cursorMcp} is not valid JSON`);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'cursor.mcp-entry.make-app-context').state, 'running');
+		assert.deepEqual(leaks(result.lines), []);
+	});
+
+	it('a Cursor member that changed, vanished, or turned the file into jsonc after the plan fails the step', POSIX_ONLY, () => {
+		const cases = {
+			'the member changed': { change: (p) => put(p.cursorMcp, fs.readFileSync(p.cursorMcp, 'utf8').replace('index.js', 'other.js'), 0o600), text: '~/.cursor/mcp.json changed since the plan' },
+			'the member is gone': { change: (p) => put(p.cursorMcp, JSON.stringify({ mcpServers: {} }), 0o600), text: '~/.cursor/mcp.json changed since the plan' },
+			'the file has no mcpServers': { change: (p) => put(p.cursorMcp, '{}', 0o600), text: '~/.cursor/mcp.json changed since the plan' },
+			'a comment was added': { change: (p) => put(p.cursorMcp, `// mine\n${fs.readFileSync(p.cursorMcp, 'utf8')}`, 0o600), text: null },
+			'the file vanished': { change: (p) => fs.rmSync(p.cursorMcp), text: null },
+			'the file became a folder': { change: (p) => (fs.rmSync(p.cursorMcp), fs.mkdirSync(p.cursorMcp)), text: '~/.cursor/mcp.json changed since the plan', folder: true },
+		};
+		for (const [label, { change, text, folder }] of Object.entries(cases)) {
+			const h = fakeHome('cursor-changed', { editors: ['cursor'] });
+			const p = h.paths;
+			const prep = prepare(h);
+			change(p);
+			const exists = fs.existsSync(p.cursorMcp);
+			const bytes = exists && !folder ? fs.readFileSync(p.cursorMcp) : null;
+			const result = apply(h, prep, { groups: ['cursor'] });
+			const expected = text !== null ? text : exists ? `${p.cursorMcp} is not valid JSON` : `ENOENT on ${p.cursorMcp}`;
+			assert.equal(result.lines[0], `failed  cursor.mcp-entry.make-app-context: ${expected}`, label);
+			assert.equal(result.exitCode, 4, label);
+			if (bytes !== null) assert.equal(bytes.equals(fs.readFileSync(p.cursorMcp)), true, label);
+			assert.equal(fs.existsSync(p.cursorEnv), true, `${label}: nothing after it ran`);
+		}
+	});
+});
+
+describe('applySteps: the env-file steps', () => {
+	it('keep-in-backup leaves the .env in the moved folder with mode 0600 and its old mode in the manifest', POSIX_ONLY, () => {
+		const text = `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`;
+		const h = fakeHome('env-keep', { editors: ['claude'], envText: text });
+		const p = h.paths;
+		const prep = prepare(h);
+		assert.equal(prep.plan.items.find((item) => item.id === 'claude.env-file').action, 'keep-in-backup');
+		const seen = [];
+		const result = apply(h, prep, { groups: ['claude'], hooks: { afterChange: (id) => id === 'claude.env-file' && seen.push(fs.statSync(p.claudeEnv).mode & 0o777) } });
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(seen, [0o600], 'the mode is set before the folder moves');
+		const kept = path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env');
+		assert.equal(fs.readFileSync(kept, 'utf8'), text);
+		assert.equal(fs.statSync(kept).mode & 0o777, 0o600);
+		const step = stepOf(manifestOf(result.backupDir), 'claude.env-file');
+		assert.deepEqual(step, { id: 'claude.env-file', type: 'env-file', state: 'done', error: null, path: p.claudeEnv, mode: 0o644, action: 'keep-in-backup', eol: null, trailingNewline: null, bom: null, template: null });
+		assert.equal(result.lines.includes('done    claude.env-file'), true);
+	});
+
+	it('a .env with mixed line endings and every secret line templated is kept in the backup, not deleted (the manifest action is keep-in-backup and the file keeps its bytes)', POSIX_ONLY, () => {
+		const text = INSTALLER_ENV_TEXT.replace('# Pinecone\n', '# Pinecone\r\n');
+		assert.notEqual(text, INSTALLER_ENV_TEXT);
+		const h = fakeHome('env-mixed', { editors: ['claude'], envText: text });
+		const prep = prepare(h);
+		const item = prep.plan.items.find((candidate) => candidate.id === 'claude.env-file');
+		assert.equal(item.action, 'keep-in-backup');
+		const parsed = parseEnvTemplate(text, (key) => ({ 'pinecone-api-key': FAKE.pinecone, 'openai-api-key': FAKE.openai, 'pinecone-index-name': FAKE.index })[key]);
+		assert.equal(parsed.mixedEol, true);
+		assert.deepEqual(parsed.untemplatedSecretLines, [], 'every secret line is templated');
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.env-file').action, 'keep-in-backup');
+		assert.equal(fs.readFileSync(path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env'), 'utf8'), text);
+	});
+
+	it('a .env whose value changed after the plan fails its step with "the .env changed since the plan"', POSIX_ONLY, () => {
+		const cases = {
+			'a value changed': (text) => Buffer.from(text.replace(`OPENAI_API_KEY=${FAKE.openai}`, 'OPENAI_API_KEY=fake-openai-0002')),
+			'an unknown assignment was added': (text) => Buffer.from(`${text}EXTRA_SETTING=on\n`),
+			'the line endings became mixed': (text) => Buffer.from(text.replace('# Pinecone\n', '# Pinecone\r\n')),
+			'an invalid byte was added': (text) => Buffer.concat([Buffer.from(text), Buffer.from([0x23, 0x20, 0xff, 0x0a])]),
+			'a line was added': (text) => Buffer.from(`${text}# a new comment\n`),
+			'the file is above the read cap': () => null,
+		};
+		for (const [label, change] of Object.entries(cases)) {
+			const h = fakeHome('env-changed', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+			const p = h.paths;
+			const prep = prepare(h);
+			assert.equal(prep.plan.items.find((item) => item.id === 'claude.env-file').action, 'delete', label);
+			let injected = fs;
+			const next = change(INSTALLER_ENV_TEXT);
+			if (next !== null) fs.writeFileSync(p.claudeEnv, next);
+			else injected = { ...fs, statSync: (file, ...rest) => (file === p.claudeEnv ? Object.assign(fs.statSync(file, ...rest), { size: 65 * 1024 * 1024 }) : fs.statSync(file, ...rest)) };
+			const before = fs.readFileSync(p.claudeEnv);
+			const result = apply(h, prep, { groups: ['claude'], fs: injected });
+			assert.equal(result.exitCode, 4, label);
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${ENV_CHANGED}`, label);
+			assert.equal(before.equals(fs.readFileSync(p.claudeEnv)), true, `${label}: the .env keeps its bytes`);
+			assert.equal(fs.existsSync(p.claudeSkill), true, label);
+			assert.deepEqual(states(manifestOf(result.backupDir)), ['claude.mcp-entry:done', 'claude.sentinel:done', 'claude.env-file:failed', 'claude.skill-dir:pending'], label);
+		}
+	});
+
+	it('a .env that is missing at the time of its step fails the step, for delete and for keep-in-backup', POSIX_ONLY, () => {
+		for (const text of [INSTALLER_ENV_TEXT, `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`]) {
+			const h = fakeHome('env-vanished', { editors: ['claude'], envText: text });
+			const prep = prepare(h);
+			fs.rmSync(h.paths.claudeEnv);
+			const result = apply(h, prep, { groups: ['claude'] });
+			assert.equal(result.exitCode, 4);
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ENOENT on ${h.paths.claudeEnv}`);
+			assert.equal(fs.existsSync(h.paths.claudeSkill), true);
+		}
+	});
+
+	it('a .env that lies outside its skill folder, is a link, or sits in a linked skill folder is never unlinked or changed, whatever the plan says', POSIX_ONLY, () => {
+		const OUTSIDE = 'the .env is not a regular file inside its old skill folder, so the cleanup does not touch it';
+		const outsideEnv = (h, text) => {
+			const server = path.join(h.paths.claudeSkill, 'mcp-server');
+			const outside = path.join(h.root, 'dev-checkout');
+			fs.mkdirSync(outside);
+			put(path.join(outside, '.env'), text, 0o640);
+			fs.renameSync(server, `${server}-real`);
+			fs.symlinkSync(outside, server);
+			return path.join(outside, '.env');
+		};
+		for (const text of [INSTALLER_ENV_TEXT, `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`]) {
+			const h = fakeHome('env-outside', { editors: ['claude'], envText: text });
+			const prep = prepare(h);
+			const outside = outsideEnv(h, text);
+			const result = apply(h, prep, { groups: ['claude'] });
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${OUTSIDE}`);
+			assert.equal(fs.readFileSync(outside, 'utf8'), text);
+			assert.equal(fs.statSync(outside).mode & 0o777, 0o640);
+		}
+
+		const linked = fakeHome('env-link', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+		const realEnv = path.join(linked.paths.claudeSkill, 'mcp-server', 'real.env');
+		fs.renameSync(linked.paths.claudeEnv, realEnv);
+		fs.symlinkSync(realEnv, linked.paths.claudeEnv);
+		const prepLinked = prepare(linked);
+		assert.equal(prepLinked.plan.items.some((item) => item.id === 'claude.env-file'), true, 'a link that stays inside the folder is planned');
+		const refused = apply(linked, prepLinked, { groups: ['claude'] });
+		assert.equal(refused.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${OUTSIDE}`);
+		assert.equal(fs.readFileSync(realEnv, 'utf8'), INSTALLER_ENV_TEXT);
+		assert.equal(fs.lstatSync(linked.paths.claudeEnv).isSymbolicLink(), true);
+
+		for (const action of ['delete', 'keep-in-backup']) {
+			const symlinked = fakeHome('env-skill-link', { editors: ['claude'], symlinkSkill: true, envText: INSTALLER_ENV_TEXT });
+			const prepSymlinked = prepare(symlinked);
+			const targetEnv = path.join(symlinked.paths.skillTarget, 'mcp-server', '.env');
+			const envMode = fs.statSync(targetEnv).mode & 0o777;
+			const plan = cloneOf(prepSymlinked.plan);
+			plan.items.splice(2, 0, { id: 'claude.env-file', group: 'claude', kind: 'env-file', path: symlinked.paths.claudeEnv, action, status: 'ready', reason: null, fix: null, fingerprint: { names: [], others: null, lineCount: 0 }, keys: [], other: 0, secrets: {} });
+			const result = apply(symlinked, { ...prepSymlinked, plan }, { groups: ['claude'] });
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${OUTSIDE}`, action);
+			assert.equal(fs.readFileSync(targetEnv, 'utf8'), INSTALLER_ENV_TEXT, action);
+			assert.equal(fs.statSync(targetEnv).mode & 0o777, envMode, action);
+			assert.equal(fs.lstatSync(symlinked.paths.claudeSkill).isSymbolicLink(), true, action);
+		}
+	});
+});
+
+describe('applySteps: failures of the manifest itself', () => {
+	const failingWrites = (h, failFrom) => {
+		let writes = 0;
+		return {
+			...fs,
+			writeFileSync(file, data, options) {
+				if (String(file).endsWith('manifest.json.tmp') && ++writes >= failFrom) throw errorWithCode('ENOSPC');
+				return fs.writeFileSync(file, data, options);
+			},
+		};
+	};
+
+	it('a manifest that cannot be created stops the run before any change and leaves no backup folder', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-create', { editors: ['claude'] });
+		const prep = prepare(h);
+		const spawned = applySpawn(h.root);
+		assert.throws(() => apply(h, prep, { groups: ['claude'], fs: failingWrites(h, 1), spawnSync: spawned.spawn }), { code: 'ENOSPC' });
+		assert.equal(spawned.calls.length, 0);
+		assert.equal(hasEntry(h), true);
+		assert.deepEqual(fs.readdirSync(path.join(h.home, '.make-custom-app')), [], 'the empty backup folder is removed');
+		assert.deepEqual(tempFilesIn(path.join(h.home, '.make-custom-app')), []);
+	});
+
+	it('a manifest that cannot be created and a folder that cannot be removed still give the error of the manifest', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-create-stuck', { editors: ['claude'] });
+		const prep = prepare(h);
+		const stuck = {
+			...failingWrites(h, 1),
+			rmdirSync() {
+				throw errorWithCode('EBUSY');
+			},
+		};
+		assert.throws(() => apply(h, prep, { groups: ['claude'], fs: stuck }), { code: 'ENOSPC' });
+		assert.deepEqual(fs.readdirSync(path.join(h.home, '.make-custom-app')), [BACKUP_NAME], 'the empty folder stays');
+	});
+
+	it('a manifest that cannot record a step as running stops that step before its change', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-running-fails', { editors: ['claude'] });
+		const prep = prepare(h);
+		const spawned = applySpawn(h.root);
+		const result = apply(h, prep, { groups: ['claude'], fs: failingWrites(h, 2), spawnSync: spawned.spawn });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  claude.mcp-entry: ENOSPC on ${path.join(result.backupDir, 'manifest.json')}`);
+		assert.equal(spawned.calls.length, 0, 'claude did not run');
+		assert.equal(hasEntry(h), true);
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(manifest.status, 'in-progress', 'the last manifest that could be written stays');
+		assert.deepEqual(manifest.steps.map((step) => step.state), ['pending', 'pending', 'pending', 'pending']);
+		assert.deepEqual(tempFilesIn(result.backupDir), []);
+	});
+
+	it('a manifest that cannot record a step as done leaves it running in the file and reports the failure', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-done-fails', { editors: ['claude'] });
+		const prep = prepare(h);
+		const result = apply(h, prep, { groups: ['claude'], fs: failingWrites(h, 3) });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  claude.mcp-entry: ENOSPC on ${path.join(result.backupDir, 'manifest.json')}`);
+		assert.equal(hasEntry(h), false, 'the removal happened');
+		const manifest = manifestOf(result.backupDir);
+		assert.deepEqual(manifest.steps.map((step) => step.state), ['running', 'pending', 'pending', 'pending']);
+		assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false);
+		assert.equal(result.lines.at(-1), PARTIAL_LINE);
 	});
 });
 
