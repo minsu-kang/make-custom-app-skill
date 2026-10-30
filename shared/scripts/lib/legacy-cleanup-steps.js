@@ -920,15 +920,20 @@ function knownSecrets(run) {
 	return [...values];
 }
 
+/**
+ * Writes the manifest through `manifest.json.tmp` (flag `wx`, mode 0600) and a rename. The backup folder is new, so a temp
+ * file in it is ours and is removed after every failure, also after a write that stopped part way; the one exception is an
+ * EEXIST of the open itself, which names a file that was there before.
+ */
 function writeManifest(run) {
 	const temp = `${run.manifestFile}.tmp`;
-	let created = false;
+	let renaming = false;
 	try {
 		run.fs.writeFileSync(temp, `${JSON.stringify(run.manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-		created = true;
+		renaming = true;
 		run.fs.renameSync(temp, run.manifestFile);
 	} catch (err) {
-		if (created) {
+		if (renaming || err.code !== 'EEXIST') {
 			try {
 				run.fs.unlinkSync(temp);
 			} catch {
@@ -1028,17 +1033,18 @@ function removalFailureText(run, result, secrets) {
 }
 
 /**
- * What ~/.claude.json holds for the registration right now: `servers` (null when the file does not parse), the `entry` (null
- * when the key is not there), and whether it is still the old registration of the plan (recheck: Ruling 28 and the fingerprint).
+ * What ~/.claude.json holds for the registration right now: `servers` (null when the file does not parse), whether the key
+ * is `present` (whatever its value, even null), its `entry`, and whether it is still the old registration of the plan
+ * (recheck: Ruling 28 and the fingerprint).
  */
 function judgeClaudeEntry(run, item) {
 	const current = readClaudeJson(run, REGISTRATION_ATTEMPTS);
 	const servers = current === null ? null : serversOf(current.value);
-	if (servers === null || !Object.hasOwn(servers, CLAUDE_KEY)) return { servers, entry: null, old: false };
+	if (servers === null || !Object.hasOwn(servers, CLAUDE_KEY)) return { servers, present: false, entry: null, old: false };
 	const entry = servers[CLAUDE_KEY];
 	const holder = { file: run.paths.claudeJson, ...entryFacts(entry, run.ownRoots) };
 	const old = recheck(run, item, { claudeEntry: holder, claude: { binary: run.claudeBin }, secretsText: secretsFileText(run.fs, run.secretsFile) });
-	return { servers, entry, old };
+	return { servers, present: true, entry, old };
 }
 
 /** The error for a ~/.claude.json that cannot be used after a removal: a file that is gone (ENOENT) or one that does not parse. */
@@ -1057,21 +1063,16 @@ function claudeEntryStep(run, step, item, flags) {
 	for (let attempt = 0; attempt < REMOVE_ATTEMPTS && outcome === 'present'; attempt++) {
 		if (attempt > 0) {
 			const again = judgeClaudeEntry(run, item);
-			if (again.servers === null) {
-				flags.changed = true;
-				throw unusableClaudeJson(run);
-			}
-			if (again.entry === null) return;
+			if (again.servers === null) throw unusableClaudeJson(run);
+			if (!again.present) return;
 			if (!again.old) throw new StepFailure(NO_LONGER_OLD_TEXT);
 		}
 		result = runClaude(run, ['mcp', 'remove', CLAUDE_KEY, '--scope', 'user']);
+		flags.changed = true;
 		outcome = removalOutcome(run);
 	}
 	if (outcome === 'gone') return;
-	if (outcome === 'unreadable') {
-		flags.changed = true;
-		throw unusableClaudeJson(run);
-	}
+	if (outcome === 'unreadable') throw unusableClaudeJson(run);
 	throw new StepFailure(removalFailureText(run, result, knownSecrets(run)));
 }
 

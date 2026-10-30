@@ -3078,7 +3078,7 @@ describe('applySteps: the claude.mcp-entry step', () => {
 		assert.deepEqual(diffSnapshots(before, snapshot(h.home, { exclude: ['.make-custom-app'] })), [], 'nothing moved and nothing changed');
 		const manifest = manifestOf(result.backupDir);
 		assert.equal(manifest.status, 'partial');
-		assert.deepEqual(states(manifest), prep.plan.items.map((item, index) => `${item.id}:${index === 0 ? 'failed' : 'pending'}`));
+		assert.deepEqual(states(manifest), prep.plan.items.map((item, index) => `${item.id}:${index === 0 ? 'running' : 'pending'}`), 'a removal ran, so the step may have changed something and stays running');
 		assert.equal(stepOf(manifest, 'claude.mcp-entry').error, 'simulated failure');
 		assert.deepEqual(fs.readdirSync(result.backupDir), ['manifest.json']);
 	});
@@ -3229,7 +3229,7 @@ describe('applySteps: the claude.mcp-entry step', () => {
 		assert.equal(quiet.calls.length, 3);
 		assert.deepEqual(waits, [500, 500, 500]);
 		assert.equal(result.lines[0], CLAUDE_FAILED(RESTART_TEXT));
-		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'failed', 'the key is there, so nothing needs a restore');
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'running', 'the key is there after the removals, but a removal ran, so the step stays running');
 		assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false);
 	});
 
@@ -3281,7 +3281,7 @@ describe('applySteps: the claude.mcp-entry step', () => {
 			assert.equal(stub.calls.length, 1, `${label}: claude was not run again`);
 			assert.deepEqual(waits, [500], label);
 			assert.deepEqual(readJson(h.paths.claudeJson).mcpServers['make-custom-app'], entry, `${label}: the entry that came back is untouched`);
-			assert.deepEqual(states(manifestOf(result.backupDir)).slice(0, 2), ['claude.mcp-entry:failed', 'claude.sentinel:pending'], label);
+			assert.deepEqual(states(manifestOf(result.backupDir)).slice(0, 2), ['claude.mcp-entry:running', 'claude.sentinel:pending'], `${label}: one removal ran, so the step stays running`);
 			assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false, label);
 		}
 
@@ -3337,6 +3337,46 @@ describe('applySteps: the claude.mcp-entry step', () => {
 		assert.equal(quietGarbled.calls.length, 1);
 		assert.equal(stepOf(manifestOf(broken.backupDir), 'claude.mcp-entry').state, 'running', 'the file is in an unknown state');
 		assert.deepEqual(leaks(broken.lines), []);
+	});
+
+	it('a key that holds null after the removal is still the key: it is rechecked and left alone, not taken for gone', POSIX_ONLY, () => {
+		const h = fakeHome('remove-null-key', { editors: ['claude'] });
+		const prep = prepare(h);
+		const stub = recorder(() => {
+			const json = readJson(h.paths.claudeJson);
+			json.mcpServers['make-custom-app'] = null;
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(json));
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn });
+		assert.equal(result.exitCode, 4, 'a key that holds null is present, so the step is not done');
+		assert.equal(result.lines[0], CLAUDE_FAILED('the entry in ~/.claude.json is no longer the old one, so it was left alone'));
+		assert.equal(stub.calls.length, 1);
+		assert.equal(readJson(h.paths.claudeJson).mcpServers['make-custom-app'], null, 'what is there is left alone');
+		assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false);
+	});
+
+	it('the step is failed when no removal ran and running once one has run, whatever stopped it', POSIX_ONLY, () => {
+		const beforeAny = fakeHome('state-before-removal', { editors: ['claude'] });
+		const beforePrep = prepare(beforeAny);
+		const json = readJson(beforeAny.paths.claudeJson);
+		json.mcpServers['make-custom-app'].args = ['/opt/unrelated.js'];
+		fs.writeFileSync(beforeAny.paths.claudeJson, JSON.stringify(json));
+		const never = recorder(() => assert.fail('claude must not start'));
+		const refused = apply(beforeAny, beforePrep, { groups: ['claude'], spawnSync: never.spawn });
+		assert.equal(stepOf(manifestOf(refused.backupDir), 'claude.mcp-entry').state, 'failed', 'stopped by the first recheck: nothing ran');
+
+		const afterOne = fakeHome('state-after-removal', { editors: ['claude'] });
+		const afterPrep = prepare(afterOne);
+		const stub = recorder(() => {
+			const current = readJson(afterOne.paths.claudeJson);
+			current.mcpServers['make-custom-app'] = { command: 'node', args: ['/opt/unrelated.js'] };
+			fs.writeFileSync(afterOne.paths.claudeJson, JSON.stringify(current));
+			return { status: 1, stdout: '', stderr: '' };
+		});
+		const stopped = apply(afterOne, afterPrep, { groups: ['claude'], spawnSync: stub.spawn });
+		assert.equal(stepOf(manifestOf(stopped.backupDir), 'claude.mcp-entry').state, 'running', 'stopped by the recheck of a further attempt, after a removal ran');
+		assert.equal(stopped.lines[0], CLAUDE_FAILED('the entry in ~/.claude.json is no longer the old one, so it was left alone'));
 	});
 
 	it('a ~/.claude.json that is gone after the removal is reported as missing, not as invalid JSON', POSIX_ONLY, () => {
@@ -3446,15 +3486,50 @@ describe('applySteps: the claude-backup-copy notice', () => {
 });
 
 describe('applySteps: a writer of ~/.claude.json', () => {
-	// ~/.claude.json at 0600, as Claude Code keeps it. The writer of the helper is an unsynchronized read-modify-write (Ruling 29): a single
-	// removal can be undone by it. These cases therefore apply again (a user would run the cleanup again) up to six times and assert after that.
+	// ~/.claude.json at 0600, as Claude Code keeps it. The writer of the helper is an unsynchronized read-modify-write (Ruling 29):
+	// a stale write of it can undo a removal, and a writer that is not scheduled for a while misses the moment that a case aims at.
+	// Every case therefore starts a fresh home and a fresh writer, waits until the writer has written, and tries again (a user
+	// would run the cleanup again) up to six times for the outcome it aims at. What must hold on every try is asserted on every try.
 	const STEP_WAIT_MS = 250;
+	const TRIES = 6;
 	const realWait = () => waitFor(STEP_WAIT_MS);
+	const OTHER = { command: 'node', args: ['/opt/unrelated.js'] };
+	const NO_LONGER = 'failed  claude.mcp-entry: the entry in ~/.claude.json is no longer the old one, so it was left alone';
+
+	async function writerHasWritten(h) {
+		for (let i = 0; i < 400; i++) {
+			try {
+				if (readJson(h.paths.claudeJson).writerCounter >= 1) return;
+			} catch {
+				// the file is being replaced at this moment
+			}
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		assert.fail('the writer never wrote');
+	}
+
+	/** A fresh home with a running writer of `mode` (`entry` is the old registration unless given); `run(h)` does the work, then the writer is stopped. */
+	async function withWriter(label, mode, entry, run) {
+		const h = fakeHome(label, { editors: ['claude'] });
+		const written = entry === null ? readJson(h.paths.claudeJson).mcpServers['make-custom-app'] : entry;
+		const writer = startWriter({ file: h.paths.claudeJson, mode, entry: written });
+		let outcome;
+		let stats;
+		try {
+			await writerHasWritten(h);
+			outcome = await run(h);
+		} finally {
+			stats = await writer.stop();
+		}
+		const json = readJson(h.paths.claudeJson);
+		assert.deepEqual(json.mcpServers['other-server'], { command: 'node', args: ['/opt/other.js'], env: { API_TOKEN: FAKE.otherToken } }, 'on every try: the file parses and other-server is intact');
+		return { h, json, stats, ...outcome };
+	}
 
 	async function applyUntilGone(h, run) {
 		let last = null;
 		let attempts = 0;
-		while (attempts < 6) {
+		while (attempts < TRIES) {
 			const prep = prepare(h);
 			if (!prep.plan.items.some((item) => item.id === 'claude.mcp-entry')) break;
 			attempts += 1;
@@ -3465,82 +3540,76 @@ describe('applySteps: a writer of ~/.claude.json', () => {
 	}
 
 	it('a writer rewriting ~/.claude.json every 5 ms: the file parses, other-server intact, the entry gone', POSIX_ONLY, async () => {
-		const h = fakeHome('writer-counter', { editors: ['claude'] });
-		const writer = startWriter({ file: h.paths.claudeJson, mode: 'counter' });
-		let outcome;
-		let stats;
-		try {
-			outcome = await applyUntilGone(h, (prep) => apply(h, prep, { groups: ['claude'], sleep: realWait }));
-		} finally {
-			stats = await writer.stop();
-		}
-		assert.ok(outcome.attempts >= 1 && outcome.attempts <= 6);
-		assert.equal(outcome.last.exitCode, 0, `done after ${outcome.attempts} applies`);
-		const json = readJson(h.paths.claudeJson);
-		assert.equal(Object.hasOwn(json.mcpServers, 'make-custom-app'), false);
-		assert.deepEqual(json.mcpServers['other-server'], { command: 'node', args: ['/opt/other.js'], env: { API_TOKEN: FAKE.otherToken } });
-		assert.equal(json.numStartups, 7);
-		assert.ok(stats.writes >= 1 && json.writerCounter >= 1, 'the writer ran while the cleanup did');
-		assert.equal(fs.statSync(h.paths.claudeJson).mode & 0o777, 0o600);
-		assert.equal(fs.existsSync(h.paths.claudeSkill), false, 'the rest of the group ran');
+		const t = await withWriter('writer-counter', 'counter', null, (h) => applyUntilGone(h, (prep) => apply(h, prep, { groups: ['claude'], sleep: realWait })));
+		assert.ok(t.attempts >= 1 && t.attempts <= TRIES);
+		assert.equal(t.last.exitCode, 0, `done after ${t.attempts} applies`);
+		assert.equal(Object.hasOwn(t.json.mcpServers, 'make-custom-app'), false);
+		assert.equal(t.json.numStartups, 7);
+		assert.ok(t.stats.writes >= 1 && t.json.writerCounter >= 1, 'the writer ran while the cleanup did');
+		assert.equal(fs.statSync(t.h.paths.claudeJson).mode & 0o777, 0o600);
+		assert.equal(fs.existsSync(t.h.paths.claudeSkill), false, 'the rest of the group ran');
 	});
 
 	it('resurrect-once is caught by the reread; resurrect-always fails with the restart text', POSIX_ONLY, async () => {
-		const once = fakeHome('writer-once', { editors: ['claude'] });
-		const entry = readJson(once.paths.claudeJson).mcpServers['make-custom-app'];
-		const writer = startWriter({ file: once.paths.claudeJson, mode: 'resurrect-once', entry });
-		let outcome;
-		try {
-			outcome = await applyUntilGone(once, (prep) => apply(once, prep, { groups: ['claude'], sleep: realWait }));
-		} finally {
-			await writer.stop();
+		let once = null;
+		for (let attempt = 1; attempt <= TRIES && once === null; attempt++) {
+			const t = await withWriter('writer-once', 'resurrect-once', null, (h) => applyUntilGone(h, (prep) => apply(h, prep, { groups: ['claude'], sleep: realWait })));
+			assert.ok(mcpCalls(t.h).length <= 3 * TRIES, 'on every try: no endless removals');
+			if (t.last.exitCode === 0 && !Object.hasOwn(t.json.mcpServers, 'make-custom-app') && mcpCalls(t.h).length >= 2) once = t;
 		}
-		assert.equal(outcome.last.exitCode, 0, `done after ${outcome.attempts} applies`);
-		assert.equal(Object.hasOwn(readJson(once.paths.claudeJson).mcpServers, 'make-custom-app'), false);
-		assert.ok(mcpCalls(once).length >= 2, 'the writer put the entry back, the reread saw it, and claude removed it again');
+		assert.notEqual(once, null, `one of ${TRIES} tries: the writer put the entry back, the reread saw it, claude removed it again, and it stayed gone`);
 
-		const always = fakeHome('writer-always', { editors: ['claude'] });
-		const entryAlways = readJson(always.paths.claudeJson).mcpServers['make-custom-app'];
-		const alwaysWriter = startWriter({ file: always.paths.claudeJson, mode: 'resurrect-always', entry: entryAlways });
-		const before = fs.readFileSync(always.paths.claudeMd);
-		let result;
-		const waits = [];
-		try {
-			result = apply(always, prepare(always), {
-				groups: ['claude'],
-				sleep: (ms) => {
-					waits.push(ms);
-					realWait();
-				},
+		let always = null;
+		for (let attempt = 1; attempt <= TRIES && always === null; attempt++) {
+			const t = await withWriter('writer-always', 'resurrect-always', null, (h) => {
+				const waits = [];
+				const before = fs.readFileSync(h.paths.claudeMd);
+				const result = apply(h, prepare(h), {
+					groups: ['claude'],
+					sleep: (ms) => {
+						waits.push(ms);
+						realWait();
+					},
+				});
+				return { result, waits, before };
 			});
-		} finally {
-			await alwaysWriter.stop();
+			assert.ok(mcpCalls(t.h).length <= 3, 'on every try: at most three removals');
+			assert.equal(t.before.equals(fs.readFileSync(t.h.paths.claudeMd)), true, 'on every try: nothing after the entry ran unless the entry went');
+			if (t.result.exitCode === 4) always = t;
 		}
-		assert.equal(result.exitCode, 4);
-		assert.equal(result.lines[0], `failed  claude.mcp-entry: ${RESTART_TEXT}`);
-		assert.equal(mcpCalls(always).length, 3, 'three removals in all');
-		assert.deepEqual(waits, [500, 500, 500]);
-		assert.equal(before.equals(fs.readFileSync(always.paths.claudeMd)), true, 'nothing after the entry ran');
-		assert.equal(fs.existsSync(always.paths.claudeSkill), true);
-		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'failed');
-		assert.equal(result.lines.at(-1), PARTIAL_LINE);
+		assert.notEqual(always, null, `one of ${TRIES} tries: the writer put the entry back after each removal`);
+		assert.equal(always.result.lines[0], `failed  claude.mcp-entry: ${RESTART_TEXT}`);
+		assert.equal(mcpCalls(always.h).length, 3, 'three removals in all');
+		assert.deepEqual(always.waits, [500, 500, 500]);
+		assert.equal(fs.existsSync(always.h.paths.claudeSkill), true);
+		assert.equal(stepOf(manifestOf(always.result.backupDir), 'claude.mcp-entry').state, 'running', 'removals ran, so the step may have changed something');
+		assert.equal(always.result.lines.at(-1), PARTIAL_LINE);
 	});
 
 	it('a writer that puts back another entry than the old one: the cleanup does not remove that one', POSIX_ONLY, async () => {
-		const h = fakeHome('writer-other-entry', { editors: ['claude'] });
-		const other = { command: 'node', args: ['/opt/unrelated.js'] };
-		const writer = startWriter({ file: h.paths.claudeJson, mode: 'resurrect-always', entry: other });
-		let result;
-		try {
-			result = apply(h, prepare(h), { groups: ['claude'], sleep: realWait });
-		} finally {
-			await writer.stop();
+		let seen = null;
+		for (let attempt = 1; attempt <= TRIES && seen === null; attempt++) {
+			const t = await withWriter('writer-other-entry', 'resurrect-always', OTHER, (h) => {
+				const violations = [];
+				const spawn = (command, args, options) => {
+					const current = readJson(h.paths.claudeJson).mcpServers['make-custom-app'];
+					if (JSON.stringify(current) === JSON.stringify(OTHER)) violations.push(args.join(' '));
+					return spawnUnder(h.root)(command, args, options);
+				};
+				const result = apply(h, prepare(h), { groups: ['claude'], sleep: realWait, spawnSync: spawn });
+				return { result, violations };
+			});
+			assert.deepEqual(t.violations, [], 'on every try: claude was never run while the other entry was there');
+			const entry = t.json.mcpServers['make-custom-app'];
+			assert.ok(entry === undefined || JSON.stringify(entry) === JSON.stringify(OTHER) || entry.command === process.execPath, 'on every try: what is left is the other entry, the old one, or nothing');
+			if (t.result.lines[0] === NO_LONGER) seen = t;
 		}
-		assert.equal(result.exitCode, 4);
-		assert.equal(result.lines[0], 'failed  claude.mcp-entry: the entry in ~/.claude.json is no longer the old one, so it was left alone');
-		assert.ok(mcpCalls(h).length <= 2, 'the entry that came back was not removed again');
-		assert.deepEqual(readJson(h.paths.claudeJson).mcpServers['make-custom-app'], other);
-		assert.equal(fs.existsSync(h.paths.claudeSkill), true, 'nothing after the entry ran');
+		assert.notEqual(seen, null, `one of ${TRIES} tries: the writer put the other entry back and the cleanup saw it`);
+		assert.equal(seen.result.exitCode, 4);
+		assert.ok(mcpCalls(seen.h).length <= 2, 'the other entry was not removed again');
+		assert.deepEqual(seen.json.mcpServers['make-custom-app'], OTHER);
+		assert.equal(stepOf(manifestOf(seen.result.backupDir), 'claude.mcp-entry').state, 'running', 'a removal ran, so the step may have changed something');
+		assert.equal(fs.existsSync(seen.h.paths.claudeSkill), true, 'nothing after the entry ran');
 	});
 });
 
@@ -4516,6 +4585,69 @@ describe('applySteps: failures of the manifest itself', () => {
 		};
 		assert.throws(() => apply(foreign, foreignPrep, { groups: ['claude'], fs: planted }), { code: 'EEXIST' });
 		assert.equal(fs.readFileSync(path.join(backupOf(foreign), 'manifest.json.tmp'), 'utf8'), 'not ours');
+	});
+
+	it('a manifest write that fails part way leaves no temp file: the first one also leaves no backup folder and throws the file system error unchanged, a later one lets the next write work', POSIX_ONLY, () => {
+		const first = fakeHome('manifest-partial-first', { editors: ['claude'] });
+		const firstPrep = prepare(first);
+		const failure = errorWithCode('ENOSPC');
+		let firstWrites = 0;
+		const partialFirst = {
+			...fs,
+			writeFileSync(file, data, options) {
+				if (String(file).endsWith('manifest.json.tmp') && ++firstWrites === 1) {
+					fs.writeFileSync(file, '{"schema"', options);
+					throw failure;
+				}
+				return fs.writeFileSync(file, data, options);
+			},
+		};
+		const spawned = applySpawn(first.root);
+		let thrown = null;
+		try {
+			apply(first, firstPrep, { groups: ['claude'], fs: partialFirst, spawnSync: spawned.spawn });
+		} catch (err) {
+			thrown = err;
+		}
+		assert.equal(thrown, failure, 'the error of the file system, unchanged');
+		assert.deepEqual(fs.readdirSync(path.join(first.home, '.make-custom-app')), [], 'no backup folder and no temp file are left behind');
+		assert.equal(spawned.calls.length, 0);
+		assert.equal(hasEntry(first), true);
+
+		const later = fakeHome('manifest-partial-later', { editors: ['claude'] });
+		const laterPrep = prepare(later);
+		let laterWrites = 0;
+		const partialLater = {
+			...fs,
+			writeFileSync(file, data, options) {
+				if (String(file).endsWith('manifest.json.tmp') && ++laterWrites === 2) {
+					fs.writeFileSync(file, '{"schema"', options);
+					throw errorWithCode('ENOSPC');
+				}
+				return fs.writeFileSync(file, data, options);
+			},
+		};
+		const result = apply(later, laterPrep, { groups: ['claude'], fs: partialLater });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  claude.mcp-entry: ENOSPC on ${path.join(result.backupDir, 'manifest.json')}`);
+		assert.deepEqual(tempFilesIn(result.backupDir), [], 'the partial temp file is gone');
+		assert.equal(manifestOf(result.backupDir).status, 'partial', 'the next manifest write worked');
+		assert.equal(manifestOf(result.backupDir).steps[0].state, 'failed');
+
+		const renamed = fakeHome('manifest-rename-exists', { editors: ['claude'] });
+		const renamedPrep = prepare(renamed);
+		let renames = 0;
+		const refusing = {
+			...fs,
+			renameSync(from, to) {
+				if (String(to).endsWith('manifest.json') && ++renames === 2) throw errorWithCode('EEXIST');
+				return fs.renameSync(from, to);
+			},
+		};
+		const afterRename = apply(renamed, renamedPrep, { groups: ['claude'], fs: refusing });
+		assert.equal(afterRename.lines[0], `failed  claude.mcp-entry: EEXIST on ${path.join(afterRename.backupDir, 'manifest.json')}`);
+		assert.deepEqual(tempFilesIn(afterRename.backupDir), [], 'an EEXIST of the rename is not an EEXIST of the open: our temp file is removed');
+		assert.equal(manifestOf(afterRename.backupDir).status, 'partial');
 	});
 
 	it('a manifest that cannot record a step as running stops that step before its change', POSIX_ONLY, () => {
