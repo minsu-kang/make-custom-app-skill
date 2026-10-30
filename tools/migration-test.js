@@ -715,22 +715,27 @@ function scenarioNoClaude(ctx) {
 	ctx.check('nothing in the home changed', () => unchanged(before, homeSnapshot(ctx)));
 
 	// With CLAUDE_BIN set the script names the variable. The texts for a machine without claude need a search that finds nothing,
-	// which is only so when no usual install folder holds one: --dry-run changes nothing either way.
+	// which is only so when no usual install folder holds one. Where one does, --dry-run reaches that claude, which keeps state
+	// files of its own in the home (~/.claude.json), so the home is compared only when no search reached it.
 	const env = { ...ctx.env, PATH: [path.join(ctx.root, 'fakebin'), '/usr/bin', '/bin'].join(path.delimiter) };
 	const texts = {
 		claude: [`  /plugin marketplace add ${MARKETPLACE_URL}`, `  /plugin install ${PLUGIN_ID}`],
 		cursor: ['Installing the make-custom-app plugin for Cursor alone is not supported yet.'],
 	};
+	let reached = false;
 	for (const editor of ['claude', 'cursor']) {
 		const label = `phase A finds no claude from the ${editor} install and prints its own text`;
 		const run = phaseA(ctx, { editor, args: ['--dry-run'], env });
 		if (run.status === 0) {
+			reached = true;
 			ctx.skip(label, 'a claude exists in a usual install folder');
 			continue;
 		}
 		ctx.check(label, () => expectExit(run, 5) || must(run.stdout === '' && texts[editor].every((text) => run.stderr.includes(text)), 'the text differs'));
 	}
-	ctx.check('nothing in the home changed after the searches', () => unchanged(before, homeSnapshot(ctx)));
+	const homeLabel = 'nothing in the home changed after the searches';
+	if (reached) ctx.skip(homeLabel, 'a search reached a claude, which writes state files of its own');
+	else ctx.check(homeLabel, () => unchanged(before, homeSnapshot(ctx)));
 }
 
 function scenarioEditedSentinel(ctx) {
