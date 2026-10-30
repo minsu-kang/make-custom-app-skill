@@ -7,7 +7,9 @@
  * start, and applySteps is the only code that moves or deletes a user file: it rereads every file or folder right before
  * it acts, rebuilds the plan item from what it read, and acts only when the item is still the one the user confirmed.
  * It records each step in a manifest before the change, never writes ~/.claude.json (`claude mcp remove` does), and never
- * shows a value of a file: every error text goes through describeError or is one of the fixed texts below.
+ * shows a value of a file: every error text goes through describeError or is one of the fixed texts below. findBackups and
+ * restoreSteps undo a run from its manifest, which they treat as data that may be hostile: every place it names is checked
+ * against oldInstallPaths before anything is written, and a step is judged by what is on disk now (restoreDecision).
  * Every function that reads or writes under a home, temp, or lock folder, or starts a process, takes those folders (and
  * `env`) as required parameters and throws a TypeError without them, so a test or a script can never reach a real home by
  * default. Only the entry scripts pass `process.env` and `os.homedir()`. Loading this module has no side effect.
@@ -36,6 +38,10 @@ const {
 	redactEntry,
 	redactOutput,
 	removeJsonMember,
+	restoreBlock,
+	renderEnvTemplate,
+	insertJsonMember,
+	restoreDecision,
 } = require('./legacy-cleanup-logic');
 const { upsertSecretsFile } = require('./secrets-file');
 
@@ -1024,11 +1030,11 @@ function removalOutcome(run) {
 	return 'unreadable';
 }
 
-/** The text for a registration that is still there: the first line of stderr of a command that failed, with the known secrets cut out, else the restart text. */
-function removalFailureText(run, result, secrets) {
+/** The text for a registration that is still there: the first line of stderr of a command that failed, with the known secrets cut out, else the restart text (or `fallback`). */
+function removalFailureText(run, result, secrets, fallback = RESTART_TEXT) {
 	if (result.error) return describeError(result.error, run.claudeBin);
 	const line = result.status === 0 ? '' : String(result.stderr ?? '').split(/\r?\n/, 1)[0].trim();
-	if (line === '') return RESTART_TEXT;
+	if (line === '') return fallback;
 	return redactOutput(line, secrets).replace(CONTROL_CHARACTERS, '?').slice(0, STDERR_LINE_LIMIT);
 }
 
@@ -1157,7 +1163,10 @@ function copyThenRemove(run, from, to, isLink, flags) {
 	else run.fs.rmSync(from, { recursive: true });
 }
 
-/** Renames `from` to `to` (a link moves as a link). EXDEV falls back to a copy that is checked and then removed; EPERM and EBUSY on Windows are retried 3 times, 500 ms apart. */
+/**
+ * Renames `from` to `to` (a link moves as a link). EXDEV falls back to a copy that is checked and then removed; EPERM and
+ * EBUSY on Windows are retried 3 times, 500 ms apart. A `step` records the fallback as its method; the restore passes null.
+ */
 function moveFolder(run, step, from, to, isLink, flags) {
 	for (let attempt = 0; ; attempt++) {
 		try {
@@ -1172,8 +1181,10 @@ function moveFolder(run, step, from, to, isLink, flags) {
 			throw err;
 		}
 	}
-	step.method = 'copy';
-	writeManifest(run);
+	if (step !== null) {
+		step.method = 'copy';
+		writeManifest(run);
+	}
 	copyThenRemove(run, from, to, isLink, flags);
 }
 
@@ -1409,6 +1420,491 @@ function applySteps(params) {
 	return { exitCode: failed ? 4 : 0, status: run.manifest.status, backupDir, lines: resultLines(run, entries, failed) };
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// findBackups and restoreSteps
+// ---------------------------------------------------------------------------------------------------------------
+
+const BACKUP_NAME = /^migration-backup-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z)(?:-(\d+))?$/;
+const MANIFEST_STATUSES = ['in-progress', 'complete', 'partial', 'restored', 'partially-restored'];
+const STEP_STATES = ['pending', 'running', 'done', 'failed', 'restored', 'restore-skipped'];
+const MAX_RESTORE_STEPS = 64;
+const MAX_SHOWN_CHARACTERS = 300;
+const PLACE_FIELD = { 'claude-mcp-entry': 'file', 'text-block': 'file', 'env-file': 'path', directory: 'original', 'json-member': 'file' };
+const REAL_PATH_TYPES = ['text-block', 'json-member'];
+
+const WINDOWS_RESTORE_TEXT = 'on Windows with claude.cmd the entry is not passed through cmd.exe; run the old installer again to register the old server';
+const NO_CLAUDE_RESTORE_TEXT = 'Claude Code was not found. Set CLAUDE_BIN and run --restore again.';
+const NO_FOLDER_TO_PUT_BACK_TEXT = 'the backup holds no folder to put back';
+const ADD_FAILED_TEXT = 'claude did not add the registration to ~/.claude.json';
+const APPENDED_TEXT = ' (appended at the end, because the file changed)';
+const EARLIER_RESTORE_TEXT = 'handled by an earlier restore';
+const ADD_JSON_NOTE = 'Note: the restored MCP registration was passed to claude on its command line; other processes of your user could see it in the process list while it ran.';
+const RESTART_AFTER_RESTORE = 'Restart Claude Code and Cursor.';
+
+function backupSummary(fs, dir) {
+	const unreadable = { status: 'unreadable', createdAt: null };
+	const read = readFileRecord(fs, path.join(dir, MANIFEST_FILE));
+	if (read.state !== 'ok') return unreadable;
+	try {
+		const manifest = parseJsonText(read.buffer.toString('utf8'));
+		if (!isPlainObject(manifest) || !MANIFEST_STATUSES.includes(manifest.status)) return unreadable;
+		return { status: manifest.status, createdAt: typeof manifest.createdAt === 'string' && ISO_UTC.test(manifest.createdAt) ? manifest.createdAt : null };
+	} catch {
+		return unreadable;
+	}
+}
+
+/**
+ * The backup folders under `<home>/.make-custom-app`, newest name first, as `{ dir, name, status, createdAt }`. A folder
+ * counts when it is a real folder (no link) named like backupFolderName makes them. `status` is the status of its
+ * manifest, `unreadable` when the manifest is missing, is too big, does not parse, or holds a status this version does not
+ * write; `createdAt` is the time the manifest records, or null.
+ */
+function findBackups(params) {
+	requireParams('findBackups', params, ['home']);
+	const { home, fs = nodeFs } = params;
+	const base = path.join(home, STATE_DIR);
+	let entries;
+	try {
+		entries = fs.readdirSync(base, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+	const found = [];
+	for (const entry of entries) {
+		const match = BACKUP_NAME.exec(entry.name);
+		if (match === null || !entry.isDirectory()) continue;
+		const dir = path.join(base, entry.name);
+		found.push({ stamp: match[1], serial: match[2] === undefined ? 1 : Number(match[2]), item: { dir, name: entry.name, ...backupSummary(fs, dir) } });
+	}
+	found.sort((a, b) => (a.stamp === b.stamp ? b.serial - a.serial : a.stamp < b.stamp ? 1 : -1));
+	return found.map(({ item }) => item);
+}
+
+function restoreSpecs(paths) {
+	return {
+		'claude.mcp-entry': { type: 'claude-mcp-entry', place: paths.claudeJson },
+		'claude.sentinel': { type: 'text-block', place: paths.claudeMd },
+		'claude.env-file': { type: 'env-file', place: paths.claudeEnv, skillDir: paths.claudeSkill },
+		'claude.skill-dir': { type: 'directory', place: paths.claudeSkill },
+		'cursor.env-file': { type: 'env-file', place: paths.cursorEnv, skillDir: paths.cursorSkill },
+		'cursor.skill-dir': { type: 'directory', place: paths.cursorSkill },
+		[RULES_ID]: { type: 'directory', place: paths.cursorRules },
+		secrets: { type: 'secrets', place: null },
+	};
+}
+
+function isMode(value) {
+	return Number.isInteger(value) && value >= 0 && value <= 0o777;
+}
+
+function isEol(value) {
+	return value === '\n' || value === '\r\n';
+}
+
+/** True when every object in `entry.env` is a `{ "$secret": <one of the three plugin keys> }` reference. */
+function hasKnownSecretRefs(entry) {
+	if (!isPlainObject(entry) || !isPlainObject(entry.env)) return true;
+	return Object.values(entry.env).every((value) => !isPlainObject(value) || (Object.keys(value).length === 1 && PLUGIN_KEYS.includes(value.$secret)));
+}
+
+function isEnvTemplate(template) {
+	return Array.isArray(template) && template.every((item) => typeof item === 'string' || (isPlainObject(item) && Object.keys(item).length === 2 && typeof item.prefix === 'string' && PLUGIN_KEYS.includes(item.$secret)));
+}
+
+const NONNEGATIVE = (value) => Number.isInteger(value) && value >= 0;
+
+/** The fields every step of a type has, in every state (the pending ones are filled in when the manifest is created). */
+const STEP_SHAPES = {
+	'claude-mcp-entry': (step) => typeof step.file === 'string',
+	'text-block': (step) => typeof step.file === 'string',
+	'env-file': (step) => typeof step.path === 'string' && (step.action === 'delete' || step.action === 'keep-in-backup'),
+	directory: (step) => typeof step.original === 'string' && typeof step.backup === 'string' && (step.method === 'rename' || step.method === 'copy') && typeof step.symlink === 'boolean',
+	'json-member': (step) => typeof step.file === 'string' && typeof step.key === 'string' && step.key !== '' && step.id === CURSOR_PREFIX + step.key,
+	secrets: () => true,
+};
+
+/** The fields a step has once it has run (it was recorded as `running` before its change, so these are there for `running` and `done`). */
+const RAN_SHAPES = {
+	'claude-mcp-entry': (step) => isPlainObject(step.entry) && hasKnownSecretRefs(step.entry),
+	'text-block': (step) => typeof step.realPath === 'string' && isMode(step.mode) && NONNEGATIVE(step.offset) && typeof step.removedText === 'string' && typeof step.sha256After === 'string',
+	'env-file': (step) => isMode(step.mode) && (step.action !== 'delete' || (isEnvTemplate(step.template) && isEol(step.eol) && typeof step.trailingNewline === 'boolean' && typeof step.bom === 'boolean')),
+	'json-member': (step) =>
+		typeof step.realPath === 'string' &&
+		isMode(step.mode) &&
+		(step.position === null || NONNEGATIVE(step.position)) &&
+		typeof step.indent === 'string' &&
+		/^[ \t]*$/.test(step.indent) &&
+		isEol(step.eol) &&
+		typeof step.trailingNewline === 'boolean' &&
+		step.entry !== undefined &&
+		hasKnownSecretRefs(step.entry),
+};
+
+/**
+ * The steps of a manifest as `{ step, spec, realPath }`, or null when it is not a manifest this version writes: the
+ * schema, at most 64 steps, each a known id once, its type, its state, and the fields of its type. Nothing here reads the file system.
+ */
+function checkManifest(manifest, paths) {
+	if (!isPlainObject(manifest) || manifest.schema !== SCHEMA || !Array.isArray(manifest.steps) || manifest.steps.length > MAX_RESTORE_STEPS) return null;
+	const known = restoreSpecs(paths);
+	const seen = new Set();
+	const entries = [];
+	for (const step of manifest.steps) {
+		if (!isPlainObject(step) || typeof step.id !== 'string' || seen.has(step.id) || !STEP_STATES.includes(step.state)) return null;
+		seen.add(step.id);
+		let spec = Object.hasOwn(known, step.id) ? known[step.id] : null;
+		if (step.id.startsWith(CURSOR_PREFIX) && step.id.length > CURSOR_PREFIX.length) spec = { type: 'json-member', place: paths.cursorMcp };
+		if (spec === null || step.type !== spec.type || !STEP_SHAPES[spec.type](step)) return null;
+		const ran = step.state === 'running' || step.state === 'done';
+		if (ran && Object.hasOwn(RAN_SHAPES, spec.type) && !RAN_SHAPES[spec.type](step)) return null;
+		entries.push({ step, spec, realPath: null });
+	}
+	return entries;
+}
+
+function isInsideRelative(relative) {
+	return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/** The real path of the folder that holds `file` (the deepest part that exists, then the rest), joined with its name; null when it cannot be told. */
+function realParentPath(fs, file) {
+	const rest = [path.basename(file)];
+	let current = path.dirname(file);
+	for (;;) {
+		try {
+			return path.join(fs.realpathSync(current), ...rest);
+		} catch (err) {
+			const parent = path.dirname(current);
+			if (!isMissingFile(err) || parent === current) return null;
+			rest.unshift(path.basename(current));
+			current = parent;
+		}
+	}
+}
+
+/** True when `backup` is a normalized absolute path that lies inside the backup folder, also after the links on the way are resolved. The last name is not resolved: a link moves as a link. */
+function backupInside(fs, backupDir, realBackupDir, backup) {
+	if (path.resolve(backup) !== backup || !isInsideRelative(path.relative(path.resolve(backupDir), backup))) return false;
+	const real = realParentPath(fs, backup);
+	return real !== null && isInsideRelative(path.relative(realBackupDir, real));
+}
+
+/**
+ * The first place a step names that the cleanup does not move, or null (Ruling 9). A step that ran must still have the
+ * real path it recorded: it is computed now and kept on the entry, which is where every write goes. A file that is gone has
+ * none (null: its step fails later), one whose real path cannot be told counts as a place that does not match.
+ */
+function foreignPlace(fs, backupDir, realBackupDir, entries) {
+	for (const entry of entries) {
+		const { step, spec } = entry;
+		const named = step[PLACE_FIELD[spec.type]];
+		if (spec.place !== null && named !== spec.place) return named;
+		if (spec.type === 'directory' && !backupInside(fs, backupDir, realBackupDir, step.backup)) return step.backup;
+		if (REAL_PATH_TYPES.includes(spec.type) && (step.state === 'running' || step.state === 'done')) {
+			let now = null;
+			try {
+				now = fs.realpathSync(step.file);
+			} catch (err) {
+				if (!isMissingFile(err)) return step.realPath;
+			}
+			if (now !== null && now !== step.realPath) return step.realPath;
+			entry.realPath = now;
+		}
+	}
+	return null;
+}
+
+function showText(value) {
+	return shownPath(value).slice(0, MAX_SHOWN_CHARACTERS);
+}
+
+function missingFile() {
+	return Object.assign(new Error('the file is missing'), { code: 'ENOENT' });
+}
+
+/** What the restore may print as a secret: the values of the secrets file and every literal env value the manifest holds. */
+function manifestSecrets(run) {
+	const values = new Set(Object.values(secretsByKey(run)).filter((value) => value !== null));
+	for (const { step } of run.entries) {
+		if (!isPlainObject(step.entry) || !isPlainObject(step.entry.env)) continue;
+		for (const value of Object.values(step.entry.env)) if (typeof value === 'string') values.add(value);
+	}
+	return [...values];
+}
+
+/** A copy of a recorded entry whose `{ "$secret": k }` values are the values of the secrets file; a key it lacks fails the step. */
+function resolveEntry(run, entry) {
+	const copy = JSON.parse(JSON.stringify(entry));
+	if (isPlainObject(copy) && isPlainObject(copy.env)) {
+		const text = secretsFileText(run.fs, run.secretsFile);
+		for (const [name, value] of Object.entries(copy.env)) {
+			if (!isPlainObject(value)) continue;
+			const secret = secretsValue(text, value.$secret);
+			if (secret === null) throw new StepFailure(`the secrets file has no ${value.$secret} any more`);
+			Object.defineProperty(copy.env, name, { value: secret, enumerable: true, writable: true, configurable: true });
+		}
+	}
+	return copy;
+}
+
+const restored = (suffix = '') => ({ result: 'restored', suffix });
+const skipped = (why) => ({ result: 'skipped', why, state: 'restore-skipped' });
+const untouched = (why) => ({ result: 'skipped', why, state: null });
+
+function changedWhileRestoring(label) {
+	return new StepFailure(`${label} changed while it was restored, so it was left as it is`);
+}
+
+/** The bytes of a file that a step rewrites, read at the real path computed before the restore began. */
+function readTarget(run, entry, label) {
+	if (entry.realPath === null) throw missingFile();
+	const read = readFileRecord(run.fs, entry.realPath);
+	if (read.state !== 'ok') throw new StepFailure(`${label} could not be read`);
+	return read;
+}
+
+function restoreTextBlock(run, entry) {
+	const { step } = entry;
+	const read = readTarget(run, entry, '~/.claude/CLAUDE.md');
+	const { text, utf8Exact } = decode(read.buffer);
+	if (!utf8Exact) throw notUtf8(step.file);
+	const result = restoreBlock(text, step);
+	if (restoreDecision(step, { markerPresent: result.how === 'present' }) === 'skip') return skipped('the block is already there');
+	if (!replaceFile(run, entry.realPath, result.text, read.buffer, step.mode)) throw changedWhileRestoring('~/.claude/CLAUDE.md');
+	return restored(result.how === 'appended' ? APPENDED_TEXT : '');
+}
+
+function restoreJsonMember(run, entry) {
+	const { step } = entry;
+	const read = readTarget(run, entry, '~/.cursor/mcp.json');
+	const { text, utf8Exact } = decode(read.buffer);
+	if (!utf8Exact) throw notUtf8(step.file);
+	const keyPresent = Object.hasOwn(serversOf(JSON.parse(text)), step.key);
+	if (restoreDecision(step, { keyPresent }) === 'skip') return skipped('the member exists again');
+	const layout = { position: step.position, indent: step.indent, eol: step.eol, trailingNewline: step.trailingNewline };
+	const next = insertJsonMember(text, step.key, resolveEntry(run, step.entry), layout);
+	if (!replaceFile(run, entry.realPath, next, read.buffer, step.mode)) throw changedWhileRestoring('~/.cursor/mcp.json');
+	return restored();
+}
+
+function restoreClaudeEntry(run, entry) {
+	const { step } = entry;
+	const current = readClaudeJson(run, REGISTRATION_ATTEMPTS);
+	if (current === null && readFileRecord(run.fs, run.paths.claudeJson, Infinity).state !== 'missing') throw unusableClaudeJson(run);
+	const servers = current === null ? {} : serversOf(current.value);
+	if (restoreDecision(step, { keyPresent: Object.hasOwn(servers, CLAUDE_KEY) }) === 'skip') {
+		const same = canonicalJson(redactEntry(servers[CLAUDE_KEY], secretsByKey(run)).entry) === canonicalJson(step.entry);
+		return skipped(same ? 'the registration is still there' : 'another registration holds this key, so it was left as it is');
+	}
+	if (run.claudeBin === null) throw new StepFailure(NO_CLAUDE_RESTORE_TEXT);
+	if (run.platform === 'win32' && /\.cmd$/i.test(run.claudeBin)) return skipped(WINDOWS_RESTORE_TEXT);
+	const json = JSON.stringify(resolveEntry(run, step.entry));
+	run.usedAddJson = true;
+	const result = runClaude(run, ['mcp', 'add-json', CLAUDE_KEY, json, '--scope', 'user']);
+	const outcome = removalOutcome(run);
+	if (outcome === 'present') return restored();
+	if (outcome === 'unreadable') throw unusableClaudeJson(run);
+	throw new StepFailure(removalFailureText(run, result, run.secrets, ADD_FAILED_TEXT));
+}
+
+/** Writes a file that is not there, exclusively (an existing file is never replaced) and with the recorded mode; a partial file of ours is removed. */
+function createFile(run, file, text, mode) {
+	try {
+		run.fs.writeFileSync(file, text, { flag: 'wx', mode });
+		run.fs.chmodSync(file, mode);
+	} catch (err) {
+		if (err.code !== 'EEXIST') {
+			try {
+				run.fs.unlinkSync(file);
+			} catch {
+				// no partial file to remove
+			}
+		}
+		throw err;
+	}
+}
+
+function restoreEnvFile(run, entry) {
+	const { step, spec } = entry;
+	const file = step.path;
+	const decision = restoreDecision(step, { fileExists: pathExists(run.fs, file) });
+	if (decision === 'skip') return skipped('the .env exists again');
+	if (decision === 'missing') return untouched('the .env is not there, so there is no mode to put back');
+	if (step.action === 'keep-in-backup') {
+		if (!realPathInside(run.fs, file, spec.skillDir) || !run.fs.statSync(file).isFile()) throw new StepFailure(ENV_OUTSIDE_TEXT);
+		run.fs.chmodSync(file, step.mode);
+		return restored();
+	}
+	const folder = run.fs.realpathSync(path.dirname(file));
+	if (!isInsideRelative(path.relative(run.fs.realpathSync(spec.skillDir), folder))) throw new StepFailure(ENV_OUTSIDE_TEXT);
+	const text = secretsFileText(run.fs, run.secretsFile);
+	const value = (key) => secretsValue(text, key);
+	for (const item of step.template) if (typeof item !== 'string' && value(item.$secret) === null) throw new StepFailure(`the secrets file has no ${item.$secret} any more`);
+	createFile(run, file, renderEnvTemplate(step, value), step.mode);
+	return restored();
+}
+
+/** Copies into `to` every entry of `from` that `to` lacks; an entry that is there stays as it is, a folder of the copy is filled in too. */
+function copyMissing(fs, from, to) {
+	for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+		const source = path.join(from, entry.name);
+		const target = path.join(to, entry.name);
+		const existing = pathExists(fs, target) ? fs.lstatSync(target) : null;
+		if (entry.isDirectory()) {
+			if (existing === null) fs.mkdirSync(target);
+			if (existing === null || existing.isDirectory()) {
+				copyMissing(fs, source, target);
+				if (existing === null) fs.chmodSync(target, fs.lstatSync(source).mode & 0o777);
+			}
+		} else if (existing === null) {
+			if (entry.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(source), target);
+			else fs.copyFileSync(source, target, nodeFs.constants.COPYFILE_EXCL);
+		}
+	}
+}
+
+function restoreDirectory(run, entry) {
+	const { original, backup, method, state } = entry.step;
+	const backupExists = pathExists(run.fs, backup);
+	const decision = restoreDecision(entry.step, { originalExists: pathExists(run.fs, original), backupExists });
+	if (decision === 'skip') {
+		const completing = method === 'copy' && state === 'running' && backupExists && run.fs.lstatSync(backup).isDirectory() && run.fs.lstatSync(original).isDirectory();
+		if (!completing) return skipped('the folder exists again');
+		copyMissing(run.fs, backup, original);
+		return restored();
+	}
+	if (decision === 'missing') throw new StepFailure(NO_FOLDER_TO_PUT_BACK_TEXT);
+	const stat = run.fs.lstatSync(backup);
+	const isLink = stat.isSymbolicLink();
+	if (!isLink && !stat.isDirectory()) throw new StepFailure(NO_FOLDER_TO_PUT_BACK_TEXT);
+	run.fs.mkdirSync(path.dirname(original), { recursive: true });
+	moveFolder(run, null, backup, original, isLink, { changed: false });
+	return restored();
+}
+
+const RESTORERS = {
+	'claude-mcp-entry': restoreClaudeEntry,
+	'text-block': restoreTextBlock,
+	'env-file': restoreEnvFile,
+	directory: restoreDirectory,
+	'json-member': restoreJsonMember,
+	secrets: () => skipped('the added keys stay'),
+};
+
+/** The outcome of one step: a step that never ran, failed, or was handled before is left alone; the others are judged by what is on disk (restoreDecision) in their restorer. */
+function restoreOne(run, entry) {
+	const { step } = entry;
+	if (step.state === 'pending') return untouched('this step never ran');
+	if (step.state === 'failed') return untouched('this step failed, so there is nothing to undo');
+	if (step.state === 'restored' || step.state === 'restore-skipped') return untouched(EARLIER_RESTORE_TEXT);
+	try {
+		return RESTORERS[step.type](run, entry);
+	} catch (err) {
+		return { result: 'failed', why: failureText(run, step, err) };
+	}
+}
+
+/** Records an outcome in its step and returns whether the step changed. A failed restore keeps the state, so the next run tries again; it records its error. */
+function settleStep(step, outcome) {
+	let { state, error } = step;
+	if (outcome.result === 'restored') {
+		state = 'restored';
+		error = null;
+	} else if (outcome.result === 'failed') {
+		error = outcome.why;
+	} else if (outcome.state !== null) {
+		state = outcome.state;
+		error = null;
+	}
+	const changed = state !== step.state || error !== step.error;
+	Object.assign(step, { state, error });
+	return changed;
+}
+
+/**
+ * Puts back what applySteps moved, from `<backupDir>/manifest.json`, and returns `{ exitCode, status, lines, usedAddJson }`:
+ * exit 2 and status null when it refused before any change (the manifest does not parse, is not one this version writes, or
+ * names a place the cleanup does not move or a file whose real path is not the recorded one), else exit 0 and `restored`, or
+ * exit 4 and `partially-restored` when a step failed. The manifest is data from disk that may be hostile: every step is
+ * checked before the first change, writes go to real paths computed now, and a line holds only a fixed text, an id, or an
+ * error through describeError, with every value that may be a secret cut out. The steps run in reverse order; a step is done
+ * or running only when it changed something, so those go through restoreDecision and are judged by what is on disk now; a
+ * step that failed to restore keeps its state, so a second restore tries it again. The manifest is written once, at the
+ * end, and only when something in it changed. `claude mcp add-json` takes the registration with its secrets on the command
+ * line: `usedAddJson` is true when it was started, and the lines then carry the note about it.
+ */
+function restoreSteps(params) {
+	requireParams('restoreSteps', params, ['env', 'home']);
+	const { env, home, backupDir } = params;
+	if (typeof backupDir !== 'string' || !path.isAbsolute(backupDir)) throw new TypeError('restoreSteps needs backupDir');
+	const fs = params.fs === undefined ? nodeFs : params.fs;
+	const paths = oldInstallPaths(home);
+	const manifestFile = path.join(backupDir, MANIFEST_FILE);
+	const refuse = (reason) => ({ exitCode: 2, status: null, lines: [`Cannot restore ${showText(shortHome(home, backupDir))}: ${reason}. Nothing was changed.`], usedAddJson: false });
+
+	let manifest;
+	let realBackupDir;
+	try {
+		if (fs.statSync(manifestFile).size > MAX_READ_BYTES) throw Object.assign(new Error('the manifest is too big'), { code: 'EFBIG' });
+		manifest = parseJsonText(fs.readFileSync(manifestFile, 'utf8'));
+		realBackupDir = fs.realpathSync(backupDir);
+	} catch (err) {
+		return refuse(describeError(err, manifestFile));
+	}
+	const entries = checkManifest(manifest, paths);
+	if (entries === null) return refuse(`${showText(manifestFile)} is not a manifest this version wrote`);
+	const foreign = foreignPlace(fs, backupDir, realBackupDir, entries);
+	if (foreign !== null) return refuse(`the manifest names ${showText(foreign)}, which is not a place the cleanup moves`);
+
+	const run = {
+		fs,
+		env,
+		home,
+		paths,
+		manifest,
+		manifestFile,
+		entries,
+		secretsFile: path.join(home, '.make-custom-app-skill-secrets'),
+		spawn: params.spawnSync === undefined ? childProcess.spawnSync : params.spawnSync,
+		sleep: params.sleep === undefined ? sleepMs : params.sleep,
+		platform: params.platform === undefined ? process.platform : params.platform,
+		claudeBin: typeof params.claudeBin === 'string' && params.claudeBin !== '' ? params.claudeBin : null,
+		usedAddJson: false,
+		secrets: null,
+	};
+	run.secrets = manifestSecrets(run);
+
+	const lines = [];
+	let failed = false;
+	let dirty = false;
+	for (const entry of [...entries].reverse()) {
+		const outcome = restoreOne(run, entry);
+		const id = showText(entry.step.id);
+		if (outcome.result === 'restored') lines.push(`restored ${id}${outcome.suffix}`);
+		else if (outcome.result === 'skipped') lines.push(`skipped  ${id}: ${outcome.why}`);
+		else lines.push(`failed   ${id}: ${outcome.why}`);
+		failed = failed || outcome.result === 'failed';
+		dirty = settleStep(entry.step, outcome) || dirty;
+	}
+	const status = failed ? 'partially-restored' : 'restored';
+	if (manifest.status !== status) {
+		manifest.status = status;
+		dirty = true;
+	}
+	if (dirty) {
+		try {
+			writeManifest(run);
+		} catch (err) {
+			failed = true;
+			lines.push(`failed   manifest: ${describeError(err.cause, manifestFile)}`);
+		}
+	}
+	if (run.usedAddJson) lines.push(ADD_JSON_NOTE);
+	lines.push(RESTART_AFTER_RESTORE);
+	return { exitCode: failed ? 4 : 0, status: failed ? 'partially-restored' : 'restored', lines: lines.map((line) => redactOutput(line, run.secrets)), usedAddJson: run.usedAddJson };
+}
+
 module.exports = {
 	LOCK_STALE_MS,
 	childEnv,
@@ -1422,4 +1918,6 @@ module.exports = {
 	writeDecline,
 	preflightApply,
 	applySteps,
+	findBackups,
+	restoreSteps,
 };
