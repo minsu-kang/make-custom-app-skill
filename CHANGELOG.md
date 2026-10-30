@@ -12,6 +12,12 @@ The make-custom-app skill becomes one plugin for Claude Code and Cursor.
 - **Cleanup of a 2.x install.** The `make-app-setup` skill runs `cleanup-legacy.js`: it lists the old skill folders, their MCP registrations, the block in `~/.claude/CLAUDE.md`, and the old Cursor rule folder, moves them to `~/.make-custom-app/migration-backup-<time>/` only after you confirm, and puts them back with `--restore`.
 - **Checks.** `plugin-check` guards the manifests, `mcp.json`, the skills, and the shared content; `tools/build-mcp.js --check` guards the bundle; `old-tree-guard.js` limits the old tree to the 2.4.x bridge files, and `tools/migration-test.js` runs the migration from a 2.x install with the real Claude CLI.
 
+## 2.3.14 — 2026-10-30
+
+Require merging any `make-apps-mockup` fixture PR into `master` before transitioning a Jira ticket to `Commit`.
+
+- **Mockup PR gate before `Commit` transition.** `lifecycle.md` (§7 Close out, § Checklist) and `component-test-guide.md` (§ CI Integration) require committing, opening a PR, and merging any added or updated `make-apps-mockup/data/{slug}/v{version}/` fixtures into `master` before transitioning the Jira ticket from `In Progress` to `Commit` (`Compilation`), because Jira automation immediately runs component tests against `make-apps-mockup` `master` and reverts the ticket to `In Progress` if any single test fails.
+
 ## 2.3.13 — 2026-10-27
 
 Specify endpoint remediation for sub-resource token exchanges on deployed vs. new apps and for `arbitraryCall` on token-exposing APIs.
