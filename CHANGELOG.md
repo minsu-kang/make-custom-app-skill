@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.14 — 2026-10-30
+
+Require merging any `make-apps-mockup` fixture PR into `master` before transitioning a Jira ticket to `Commit`.
+
+- **Mockup PR gate before `Commit` transition.** `lifecycle.md` (§7 Close out, § Checklist) and `component-test-guide.md` (§ CI Integration) require committing, opening a PR, and merging any added or updated `make-apps-mockup/data/{slug}/v{version}/` fixtures into `master` before transitioning the Jira ticket from `In Progress` to `Commit` (`Compilation`), because Jira automation immediately runs component tests against `make-apps-mockup` `master` and reverts the ticket to `In Progress` if any single test fails.
+
 ## 2.3.13 — 2026-10-27
 
 Specify endpoint remediation for sub-resource token exchanges on deployed vs. new apps and for `arbitraryCall` on token-exposing APIs.

@@ -465,3 +465,4 @@ Key locations:
 - Failure detection: output contains `"status": "failed"` or `"error"`
 - Posts results as PR comment with `<!-- make-apps-ci-results -->` marker (upserts)
 - `workflow_dispatch`: accepts explicit inputs for manual runs
+- **Jira `Commit` automation gate:** Transitioning a Jira ticket to `Commit` (`Compilation`) triggers Jira automation to run the app's component tests against `make-apps-mockup` `master`. If any single component test fails, Jira automation posts the failure and **automatically transitions the ticket back to `In Progress`**. Always open and merge the `make-apps-mockup` PR **before** transitioning the Jira ticket to `Commit`.
