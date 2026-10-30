@@ -12,7 +12,8 @@
  * too), 2 = refused before any change, 3 = the plan changed since the digest, 4 = stopped after some changes or a partial
  * restore. It needs no account check: it only moves local files. The work is in lib/legacy-cleanup-steps.js and
  * lib/legacy-cleanup-logic.js; this file only wires them to the command line. It prints plan JSON, the lines those
- * functions return, and fixed texts, never a fact or an environment value.
+ * functions return, and fixed texts. It never prints a fact or a secret; the only environment value it shows is CLAUDE_BIN,
+ * and the --restore argument is shown when no such backup exists, both with control characters shown as `?`.
  */
 'use strict';
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
@@ -84,8 +85,8 @@ function apply({ env, home, stateDir, args }) {
 		const refusal = steps.preflightApply({ digest: args.digest, groups: args.groups, plan: current, facts });
 		if (refusal !== null) {
 			print(refusal.lines);
-			// exit 2 with the plugin guard passed can only be the blocked item of a named group: no usable claude
-			const binLine = refusal.exitCode === 2 && steps.pluginGuard(facts) === null ? claudeBinLine({ env, home, facts }) : null;
+			const needsClaude = args.groups.includes('claude') && current.items.some((item) => item.id === 'claude.mcp-entry' && item.status === 'blocked');
+			const binLine = refusal.exitCode === 2 && needsClaude ? claudeBinLine({ env, home, facts }) : null;
 			if (binLine !== null) print([binLine]);
 			return refusal.exitCode;
 		}
@@ -156,7 +157,10 @@ function decline({ env, home, args }) {
 function main() {
 	const env = process.env;
 	const home = os.homedir();
-	if (!path.isAbsolute(home)) throw new TypeError('cleanup-legacy needs an absolute home folder');
+	if (!path.isAbsolute(home)) {
+		process.stderr.write('cleanup-legacy: HOME is not an absolute path. Nothing was changed.\n');
+		return 1;
+	}
 	const args = parseArgs(process.argv.slice(2));
 	if (args.error !== null) {
 		process.stderr.write(`${args.error}\n`);

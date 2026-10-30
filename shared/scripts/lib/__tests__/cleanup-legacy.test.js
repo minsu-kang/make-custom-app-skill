@@ -4,7 +4,9 @@
  * returns, on a synthetic old install under a temporary root, with the plugin root set to this checkout (so the script
  * runs from the installed plugin). The fake `claude` of that helper is the only binary that runs, and CLAUDE_BIN always
  * names it (or a missing file): a host may have a real `claude` in a fallback folder. Only fake values are used (FAKE).
- * The file moves HOME and the temp folders into a temporary root first (isolate-home).
+ * The file moves HOME and the temp folders into a temporary root first (isolate-home). Every child also loads a preload
+ * (NODE_OPTIONS=--require, written by this file) that refuses any process start of a command outside that root and leaves a
+ * marker file that `run` checks after every run, so a start of a host program fails the running test.
  */
 const { TEST_ROOT, assertIsolated } = require('./isolate-home');
 const { describe, it, before, after } = require('node:test');
@@ -39,9 +41,52 @@ const BACKUP_NAME = /^migration-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z(-\d+
 
 let work;
 let counter = 0;
+let guardFile;
+let refusedFile;
+
+/** The source of the preload that every child of `run` loads: it refuses each way of starting a program that is not a file inside `root`, and records the refused command in `marker`. */
+function spawnGuardSource(root, marker) {
+	return [
+		"'use strict';",
+		"const childProcess = require('child_process');",
+		"const fs = require('fs');",
+		"const path = require('path');",
+		`const ROOT = ${JSON.stringify(root)};`,
+		`const MARKER = ${JSON.stringify(marker)};`,
+		'function refuse(command) {',
+		"\tfs.appendFileSync(MARKER, `${String(command)}\\n`);",
+		"\tthrow new Error('a program outside the test root was refused by the test');",
+		'}',
+		'function allowed(command) {',
+		"\tif (typeof command !== 'string' || !path.isAbsolute(command)) return false;",
+		'\ttry {',
+		'\t\treturn fs.realpathSync(command).startsWith(ROOT + path.sep);',
+		'\t} catch {',
+		'\t\treturn false;',
+		'\t}',
+		'}',
+		"for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {",
+		'\tconst original = childProcess[name];',
+		'\tchildProcess[name] = function guarded(command, ...rest) {',
+		'\t\tif (!allowed(command)) refuse(command);',
+		'\t\treturn original.call(this, command, ...rest);',
+		'\t};',
+		'}',
+		"for (const name of ['exec', 'execSync', 'fork']) {",
+		'\tchildProcess[name] = function refused(command) {',
+		'\t\trefuse(command);',
+		'\t};',
+		'}',
+		'',
+	].join('\n');
+}
 
 before(() => {
 	work = fs.mkdtempSync(path.join(os.tmpdir(), 'cleanup-cli-test-'));
+	fs.mkdirSync(path.join(work, 'aux'));
+	guardFile = path.join(work, 'aux', 'spawn-guard.js');
+	refusedFile = path.join(work, 'aux', 'spawn-refused.log');
+	fs.writeFileSync(guardFile, spawnGuardSource(TEST_ROOT, refusedFile));
 });
 
 after(() => {
@@ -82,15 +127,29 @@ function reinstall(h) {
 	buildFakeLegacyHome(h.options);
 }
 
-/** Runs the script; `stdout` and `stderr` are the whole texts, `lines` the lines of stdout. No run may leak a fake value or start a program outside the test root. */
-function run(h, args, { env = h.env, cwd = h.root } = {}) {
-	const result = spawnSync(process.execPath, [CLI, ...args], { env, cwd, encoding: 'utf8', timeout: 120000 });
+/** The commands that the preload refused since the last call (the marker file is removed), in the order they were tried. */
+function takeRefusedStarts() {
+	if (!fs.existsSync(refusedFile)) return [];
+	const starts = fs.readFileSync(refusedFile, 'utf8').split('\n').filter(Boolean);
+	fs.rmSync(refusedFile);
+	return starts;
+}
+
+/**
+ * Runs the script with the spawn guard preloaded; `stdout` and `stderr` are the whole texts, `lines` the lines of stdout, `refused`
+ * the commands that the guard refused. A start of a program outside the test root fails the running test unless the case passes
+ * `refused: true`. No run may leak a fake value.
+ */
+function run(h, args, { env = h.env, cwd = h.root, refused = false } = {}) {
+	const result = spawnSync(process.execPath, [CLI, ...args], { env: { ...env, NODE_OPTIONS: `--require ${JSON.stringify(guardFile)}` }, cwd, encoding: 'utf8', timeout: 120000 });
+	const starts = takeRefusedStarts();
+	if (!refused) assert.deepEqual(starts, [], 'a program outside the test root was started');
 	assert.equal(result.error, undefined, 'the script ran');
 	assert.equal(result.signal, null, 'the script ended by itself');
 	assert.ok(result.stdout === '' || result.stdout.endsWith('\n'), 'stdout ends with one newline');
 	assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fake claude:/, 'the fake claude stayed inside its root');
 	assert.deepEqual(leaks(`${result.stdout}${result.stderr}`), [], 'no fake value on stdout or stderr');
-	return { status: result.status, stdout: result.stdout, stderr: result.stderr, lines: result.stdout === '' ? [] : result.stdout.slice(0, -1).split('\n') };
+	return { status: result.status, stdout: result.stdout, stderr: result.stderr, lines: result.stdout === '' ? [] : result.stdout.slice(0, -1).split('\n'), refused: starts };
 }
 
 function planOf(h, extra) {
@@ -350,12 +409,16 @@ describe('cleanup-legacy.js: --apply', () => {
 		assert.equal(first.status, 0);
 		const names = backupNames(h);
 		assert.equal(names.length, 1);
+		const afterFirst = snapshot(h.home);
+		const callsAfterFirst = readLog(h).length;
 		const second = apply(h, BOTH, digest);
 		assert.deepEqual([second.status, second.lines, second.stderr], [0, ['Nothing to remove in claude and cursor.'], '']);
 		assert.deepEqual(backupNames(h), names);
+		assert.deepEqual(diffSnapshots(afterFirst, snapshot(h.home)), [], 'no file or folder of the home changed, the state folder and its backup included');
+		assert.equal(readLog(h).length, callsAfterFirst + 1, 'only the version check of the second run reached claude');
 	});
 
-	it('apply, reinstall the old files the same way, apply again with the same digest: exit 0 and a second backup folder (Ruling 39)', POSIX_ONLY, () => {
+	it('apply, reinstall the old files the same way, apply again with the same digest: exit 0 and a second backup folder', POSIX_ONLY, () => {
 		const h = fakeHome('apply-reinstall');
 		const digest = digestOf(h);
 		const first = apply(h, BOTH, digest);
@@ -553,7 +616,18 @@ describe('cleanup-legacy.js: claude and its failures', () => {
 		const disabled = fakeHome('no-claude-disabled', { claudeMode: 'none', pluginState: 'disabled' });
 		const disabledPlan = planOf(disabled);
 		const refused = apply(disabled, CLAUDE_ONLY, disabledPlan.digest);
-		assert.deepEqual([refused.status, refused.lines], [2, ['Refused: The make-custom-app plugin is installed but disabled. Nothing was changed. Fix: claude plugin enable make-custom-app@make-custom-app']], 'a plugin that may not run is reported alone');
+		const DISABLED_LINE = 'Refused: The make-custom-app plugin is installed but disabled. Nothing was changed. Fix: claude plugin enable make-custom-app@make-custom-app';
+		assert.deepEqual([refused.status, refused.lines], [2, [DISABLED_LINE, binLine(disabled.paths.claudeBin)]], 'a refusal of the guard comes first, and the claude that the named group needs is explained after it');
+
+		const cursorOnly = apply(disabled, ['--groups', 'cursor'], disabledPlan.digest);
+		assert.deepEqual([cursorOnly.status, cursorOnly.lines], [2, [DISABLED_LINE]], 'a blocked item of a group that is not named adds no CLAUDE_BIN line');
+
+		const manual = fakeHome('no-claude-manual', { claudeMode: 'none', pluginState: 'disabled', claudeEntry: 'plugin-bundle' });
+		const manualPlan = planOf(manual);
+		assert.equal(manualPlan.items.find((item) => item.id === 'claude.mcp-entry').status, 'manual');
+		assert.equal(manualPlan.items.some((item) => item.status === 'blocked'), false, 'no item needs claude');
+		const unneeded = apply(manual, CLAUDE_ONLY, manualPlan.digest);
+		assert.deepEqual([unneeded.status, unneeded.lines], [2, [DISABLED_LINE]], 'without a blocked item there is no CLAUDE_BIN line, although CLAUDE_BIN is set and unusable');
 	});
 
 	it('a missing claude does not stop a Cursor-only apply, and a blocked group that is not named adds no CLAUDE_BIN line', POSIX_ONLY, () => {
@@ -573,8 +647,10 @@ describe('cleanup-legacy.js: claude and its failures', () => {
 		assert.equal(plan.status, 0);
 		assert.equal(plan.stderr, `${binLine('claude')}\n`);
 		assert.equal(JSON.parse(plan.stdout).claude.binary, null);
+		const before = snapshot(h.home);
 		const refused = apply(h, CLAUDE_ONLY, JSON.parse(plan.stdout).digest, fromBin);
 		assert.deepEqual([refused.status, refused.lines.at(-1)], [2, binLine('claude')]);
+		assertUntouched(h, before, 'a relative CLAUDE_BIN');
 
 		const shown = run(h, ['--plan'], { env: { ...h.env, CLAUDE_BIN: '/nonexistent/a\u0001b\nc\u2028d' } });
 		assert.equal(shown.stderr, `${binLine('/nonexistent/a?b?c?d')}\n`);
@@ -591,8 +667,10 @@ describe('cleanup-legacy.js: claude and its failures', () => {
 		const plan = run(h, ['--plan'], { env });
 		assert.equal(plan.stderr, '');
 		assert.equal(JSON.parse(plan.stdout).claude.binary, null);
+		const before = snapshot(h.home);
 		const refused = apply(h, CLAUDE_ONLY, JSON.parse(plan.stdout).digest, { env });
 		assert.deepEqual([refused.status, refused.lines], [2, [BLOCKED_LINE]]);
+		assertUntouched(h, before, 'an unset CLAUDE_BIN');
 	});
 
 	it('a failing claude: exit 4 and no folder moved', POSIX_ONLY, () => {
@@ -652,11 +730,64 @@ describe('cleanup-legacy.js: the lock during a run', () => {
 	});
 });
 
+describe('cleanup-legacy.js: the spawn guard of these tests', () => {
+	it('a CLAUDE_BIN that points outside the test root is never started: the preload refuses it and the test sees the refusal', POSIX_ONLY, () => {
+		const h = fakeHome('guard-outside');
+		const link = path.join(h.root, 'link-to-node');
+		fs.symlinkSync(process.execPath, link);
+		try {
+			for (const [label, bin] of [['a file outside the root', process.execPath], ['a link inside the root to a file outside it', link]]) {
+				const env = { ...h.env, CLAUDE_BIN: bin };
+				const plan = run(h, ['--plan'], { env, refused: true });
+				assert.equal(plan.status, 0, label);
+				assert.deepEqual(plan.refused, [bin], `${label}: the start was refused and recorded`);
+				assert.equal(plan.stderr, `${binLine(bin)}\n`, `${label}: the script took it for no claude`);
+				assert.equal(JSON.parse(plan.stdout).claude.binary, null, label);
+				const refused = apply(h, CLAUDE_ONLY, JSON.parse(plan.stdout).digest, { env, refused: true });
+				assert.deepEqual([refused.status, refused.lines, refused.refused], [2, [BLOCKED_LINE, binLine(bin)], [bin]], label);
+				assert.throws(() => run(h, ['--plan'], { env }), /a program outside the test root was started/, `${label}: without refused: true the running test fails`);
+				assert.equal(fs.existsSync(refusedFile), false, 'the marker is taken with every run');
+			}
+		} finally {
+			takeRefusedStarts();
+		}
+	});
+
+	it('the preload refuses every way to start a program that is not an absolute path inside the root (a bare name or a relative path too, although the working folder holds that file), and lets the fake claude of the case run', POSIX_ONLY, () => {
+		const h = fakeHome('guard-apis');
+		const env = { ...h.env, NODE_OPTIONS: `--require ${JSON.stringify(guardFile)}` };
+		const attempt = (call) => spawnSync(process.execPath, ['-e', `const c = require('child_process'); try { ${call}; console.log('started'); } catch (e) { console.log('refused'); }`], { env, cwd: h.binDir, encoding: 'utf8' }).stdout.trim();
+		const refusedCalls = [
+			"c.spawnSync('/bin/echo', ['x'])",
+			"c.spawn('/bin/echo', ['x'])",
+			"c.execFileSync('/bin/echo', ['x'])",
+			"c.execFile('/bin/echo', ['x'], () => {})",
+			"c.execSync('echo x')",
+			"c.exec('echo x', () => {})",
+			"c.fork('/bin/echo')",
+			"c.spawnSync('echo', ['x'])",
+			"c.spawnSync('./claude', ['--version'])",
+			"c.spawnSync('claude', ['--version'])",
+		];
+		try {
+			for (const call of refusedCalls) assert.equal(attempt(call), 'refused', call);
+			assert.equal(takeRefusedStarts().length, refusedCalls.length, 'each refusal is recorded');
+			const fake = JSON.stringify(h.paths.claudeBin);
+			assert.equal(attempt(`c.spawnSync(${fake}, ['--version'])`), 'started');
+			assert.equal(attempt(`c.execFileSync(${fake}, ['--version'])`), 'started');
+			assert.deepEqual(takeRefusedStarts(), [], 'the fake claude of the case is not refused');
+		} finally {
+			takeRefusedStarts();
+		}
+	});
+});
+
 describe('cleanup-legacy.js: a writer of ~/.claude.json', () => {
 	// The writer of the helper is an unsynchronized read-modify-write (Ruling 29): a stale write of it can undo a removal, and a
-	// writer that is not scheduled for a while misses the moment that a case aims at. The two cases here therefore start a fresh
-	// home and a fresh writer per try, wait until the writer has written, and run the script again (as a user would) up to six
-	// times for the outcome they aim at. What must hold on every try is asserted on every try. No other case runs a writer.
+	// writer that is not scheduled for a while misses the moment that a case aims at. Both cases wait until the writer has
+	// written and try up to six times. The counter case keeps one home and one writer and runs the script again (as a user
+	// would) until the entry is gone; resurrect-always starts a fresh home and a fresh writer per try, for the outcome that
+	// the writer put the entry back each time. What must hold on every try is asserted on every try. No other case runs a writer.
 	const TRIES = 6;
 	const OTHER = { command: 'node', args: ['/opt/other.js'], env: { API_TOKEN: FAKE.otherToken } };
 
@@ -900,7 +1031,7 @@ describe('cleanup-legacy.js: usage and unexpected errors', () => {
 		assert.equal(stripped.stderr, `${GROUPS_ERROR}\n`, '--editor never reaches the argument parser');
 	});
 
-	it('an unexpected error prints one line with the code and the state folder, and a plain error prints only the fixed sentence', POSIX_ONLY, () => {
+	it('an unexpected error prints one line with the code and the state folder, never the message of the error', POSIX_ONLY, () => {
 		const h = fakeHome('unexpected');
 		const digest = digestOf(h);
 		const before = snapshot(h.home);
@@ -911,23 +1042,23 @@ describe('cleanup-legacy.js: usage and unexpected errors', () => {
 		}
 		fs.rmSync(stateDir(h));
 		assert.deepEqual(diffSnapshots(before, snapshot(h.home)), []);
-
-		const noHome = run(h, ['--plan'], { env: { ...h.env, HOME: '' } });
-		assert.deepEqual([noHome.status, noHome.stdout, noHome.stderr], [1, '', 'cleanup-legacy: unexpected error: an unexpected error occurred\n']);
 	});
 
-	it('a home folder that is empty or not an absolute path stops every mode before it creates anything in the current folder', POSIX_ONLY, () => {
+	it('a home folder that is empty or not an absolute path stops every mode with one fixed line before it creates anything in the current folder', POSIX_ONLY, () => {
 		const h = fakeHome('relative-home');
 		const digest = '0123456789abcdef';
 		const cwd = path.join(h.root, 'cwd');
 		fs.mkdirSync(cwd);
+		const line = 'cleanup-legacy: HOME is not an absolute path. Nothing was changed.\n';
 		for (const home of ['', 'relative-home', '.']) {
-			for (const args of [['--plan'], ['--apply', digest, ...BOTH], ['--restore'], ['--decline', digest]]) {
+			for (const args of [['--plan'], ['--apply', digest, ...BOTH], ['--restore'], ['--restore', 'migration-backup-2026-10-30T12-00-00Z'], ['--decline', digest], [], ['--bogus']]) {
 				const result = run(h, args, { env: { ...h.env, HOME: home }, cwd });
-				assert.deepEqual([result.status, result.stdout, result.stderr], [1, '', 'cleanup-legacy: unexpected error: an unexpected error occurred\n'], `${args[0]} with HOME ${JSON.stringify(home)}`);
+				assert.deepEqual([result.status, result.stdout, result.stderr], [1, '', line], `${args.join(' ') || 'no arguments'} with HOME ${JSON.stringify(home)}: a bad HOME is reported as HOME, also before a usage error`);
 				assert.deepEqual(fs.readdirSync(cwd), [], 'nothing is created in the current folder');
 			}
 		}
+		const usage = run(h, ['--bogus']);
+		assert.deepEqual([usage.status, usage.stdout, usage.stderr], [1, '', `${USAGE}\n`], 'with a good HOME a usage error has its own text');
 	});
 });
 
