@@ -402,18 +402,29 @@ function realPathInside(fs, child, parent) {
 	}
 }
 
+/** True when the file itself is a symbolic link (a link in a folder on the way does not count). */
+function isLinkFile(fs, file) {
+	try {
+		return fs.lstatSync(file).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
 /**
- * The `.env` of a skill folder, as read: text, mode, whether its bytes survive UTF-8, and whether its real path lies
- * inside the real path of the folder. One above the read cap is not read: it has no text, `utf8Exact` false, and
- * `tooLarge` true, so the plan keeps it in the backup and never deletes it.
+ * The `.env` of a skill folder, as read: text, mode (of the file a link names), whether its bytes survive UTF-8, and
+ * whether its real path lies inside the real path of the folder. `linked: true` is added when the `.env` itself is a
+ * link, so the plan keeps it in the backup and never deletes it. One above the read cap is not read: it has no text,
+ * `utf8Exact` false, and `tooLarge` true, so the plan keeps it in the backup and never deletes it.
  */
 function envFacts(fs, envFile, skillDir) {
 	const read = readFileRecord(fs, envFile);
 	if (read.state !== 'ok' && read.state !== 'toolarge') return null;
 	const insideSkill = realPathInside(fs, envFile, skillDir);
-	if (read.state === 'toolarge') return { path: envFile, text: '', mode: read.mode, utf8Exact: false, insideSkill, tooLarge: true };
+	const linked = isLinkFile(fs, envFile) ? { linked: true } : {};
+	if (read.state === 'toolarge') return { path: envFile, text: '', mode: read.mode, utf8Exact: false, insideSkill, ...linked, tooLarge: true };
 	const { text, utf8Exact } = decode(read.buffer);
-	return { path: envFile, text, mode: read.mode, utf8Exact, insideSkill };
+	return { path: envFile, text, mode: read.mode, utf8Exact, insideSkill, ...linked };
 }
 
 /** CLAUDE.md as read; one above the read cap is `{ file, tooLarge: true }`, which the plan turns into a manual item. */
@@ -812,6 +823,7 @@ const PLUGIN_KEYS = Object.values(ENV_TO_KEY);
 const PLAN_ERROR = 'applySteps needs a plan of the items this version knows';
 const RESTART_TEXT = 'the entry came back after removal; restart Claude Code, then run the cleanup again';
 const NO_CLAUDE_TEXT = 'Claude Code was not found, so the old MCP registration cannot be removed.';
+const NO_LONGER_OLD_TEXT = 'the entry in ~/.claude.json is no longer the old one, so it was left alone';
 const ENV_CHANGED_TEXT = 'the .env changed since the plan';
 const ENV_OUTSIDE_TEXT = 'the .env is not a regular file inside its old skill folder, so the cleanup does not touch it';
 const DIR_CHANGED_TEXT = 'the old folder changed since the plan';
@@ -839,15 +851,16 @@ function changedSince(label) {
 
 /**
  * Why `--apply` may not start, as `{ exitCode, lines }`, or null when it may. Checked in this order (Ruling 39): nothing to
- * remove in the named groups (exit 0), a digest that is not the plan's (3), the plugin guard (2), a blocked item of a
- * named group (2). It reads only the plan and the facts it is given, and an item counts as ready only when it is `ready`.
+ * remove in the named groups (exit 0; it fires only when they hold neither a `ready` nor a `blocked` item, as planDigest
+ * counts them), a digest that is not the plan's (3), the plugin guard (2), a blocked item of a named group (2). It reads
+ * only the plan and the facts it is given.
  */
 function preflightApply(params) {
 	requireParams('preflightApply', params, ['digest', 'groups', 'plan', 'facts']);
 	const { digest, groups, plan, facts } = params;
 	if (!Array.isArray(groups) || !isPlainObject(plan) || !Array.isArray(plan.items)) throw new TypeError('preflightApply needs digest, groups, plan, and facts');
 	const named = plan.items.filter((item) => groups.includes(item.group));
-	if (!named.some((item) => item.status === 'ready')) return { exitCode: 0, lines: [`Nothing to remove in ${groups.join(' and ')}.`] };
+	if (!named.some((item) => item.status === 'ready' || item.status === 'blocked')) return { exitCode: 0, lines: [`Nothing to remove in ${groups.join(' and ')}.`] };
 	if (plan.digest !== digest) {
 		return { exitCode: 3, lines: [`The old install changed since the plan (digest ${digest}, now ${plan.digest}). Nothing was changed. Run --plan again.`] };
 	}
@@ -909,14 +922,18 @@ function knownSecrets(run) {
 
 function writeManifest(run) {
 	const temp = `${run.manifestFile}.tmp`;
+	let created = false;
 	try {
 		run.fs.writeFileSync(temp, `${JSON.stringify(run.manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+		created = true;
 		run.fs.renameSync(temp, run.manifestFile);
 	} catch (err) {
-		try {
-			run.fs.unlinkSync(temp);
-		} catch {
-			// no temp file to remove
+		if (created) {
+			try {
+				run.fs.unlinkSync(temp);
+			} catch {
+				// the temp file is gone already
+			}
 		}
 		throw new ManifestError(err);
 	}
@@ -1010,25 +1027,50 @@ function removalFailureText(run, result, secrets) {
 	return redactOutput(line, secrets).replace(CONTROL_CHARACTERS, '?').slice(0, STDERR_LINE_LIMIT);
 }
 
-function claudeEntryStep(run, step, item, flags) {
-	if (run.claudeBin === null) throw new StepFailure(NO_CLAUDE_TEXT);
+/**
+ * What ~/.claude.json holds for the registration right now: `servers` (null when the file does not parse), the `entry` (null
+ * when the key is not there), and whether it is still the old registration of the plan (recheck: Ruling 28 and the fingerprint).
+ */
+function judgeClaudeEntry(run, item) {
 	const current = readClaudeJson(run, REGISTRATION_ATTEMPTS);
-	const servers = current === null ? {} : serversOf(current.value);
-	if (!Object.hasOwn(servers, CLAUDE_KEY)) throw changedSince('~/.claude.json');
+	const servers = current === null ? null : serversOf(current.value);
+	if (servers === null || !Object.hasOwn(servers, CLAUDE_KEY)) return { servers, entry: null, old: false };
 	const entry = servers[CLAUDE_KEY];
 	const holder = { file: run.paths.claudeJson, ...entryFacts(entry, run.ownRoots) };
-	if (!recheck(run, item, { claudeEntry: holder, claude: { binary: run.claudeBin }, secretsText: secretsFileText(run.fs, run.secretsFile) })) throw changedSince('~/.claude.json');
-	startStep(run, step, { position: Object.keys(servers).indexOf(CLAUDE_KEY), entry: redactEntry(entry, secretsByKey(run)).entry });
+	const old = recheck(run, item, { claudeEntry: holder, claude: { binary: run.claudeBin }, secretsText: secretsFileText(run.fs, run.secretsFile) });
+	return { servers, entry, old };
+}
+
+/** The error for a ~/.claude.json that cannot be used after a removal: a file that is gone (ENOENT) or one that does not parse. */
+function unusableClaudeJson(run) {
+	if (readFileRecord(run.fs, run.paths.claudeJson, Infinity).state === 'missing') return Object.assign(new Error('~/.claude.json is gone'), { code: 'ENOENT' });
+	return new SyntaxError('~/.claude.json does not parse');
+}
+
+function claudeEntryStep(run, step, item, flags) {
+	if (run.claudeBin === null) throw new StepFailure(NO_CLAUDE_TEXT);
+	const first = judgeClaudeEntry(run, item);
+	if (!first.old) throw changedSince('~/.claude.json');
+	startStep(run, step, { position: Object.keys(first.servers).indexOf(CLAUDE_KEY), entry: redactEntry(first.entry, secretsByKey(run)).entry });
 	let result;
 	let outcome = 'present';
 	for (let attempt = 0; attempt < REMOVE_ATTEMPTS && outcome === 'present'; attempt++) {
+		if (attempt > 0) {
+			const again = judgeClaudeEntry(run, item);
+			if (again.servers === null) {
+				flags.changed = true;
+				throw unusableClaudeJson(run);
+			}
+			if (again.entry === null) return;
+			if (!again.old) throw new StepFailure(NO_LONGER_OLD_TEXT);
+		}
 		result = runClaude(run, ['mcp', 'remove', CLAUDE_KEY, '--scope', 'user']);
 		outcome = removalOutcome(run);
 	}
 	if (outcome === 'gone') return;
 	if (outcome === 'unreadable') {
 		flags.changed = true;
-		throw new SyntaxError('~/.claude.json does not parse');
+		throw unusableClaudeJson(run);
 	}
 	throw new StepFailure(removalFailureText(run, result, knownSecrets(run)));
 }
@@ -1053,16 +1095,24 @@ function sentinelStep(run, step, item, flags) {
 
 // The .env files ---------------------------------------------------------------------------------------------------
 
-/** The stat of the `.env`, when it is a regular file (no link) whose real path lies inside the real path of its skill folder, and that folder is no link. */
+/**
+ * `{ stat, linked }` of the `.env`: `stat` is the one of the regular file it names, which may be the file behind a link,
+ * and its real path must lie inside the real path of its skill folder, which is no link itself.
+ */
 function envLocation(run, item) {
 	const skillDir = item.group === 'claude' ? run.paths.claudeSkill : run.paths.cursorSkill;
-	const stat = run.fs.lstatSync(item.path);
+	const own = run.fs.lstatSync(item.path);
+	const linked = own.isSymbolicLink();
+	const stat = linked ? run.fs.statSync(item.path) : own;
 	if (run.fs.lstatSync(skillDir).isSymbolicLink() || !stat.isFile() || !realPathInside(run.fs, item.path, skillDir)) throw new StepFailure(ENV_OUTSIDE_TEXT);
-	return stat;
+	return { stat, linked };
 }
 
 function envFileStep(run, step, item) {
-	const stat = envLocation(run, item);
+	const { stat, linked } = envLocation(run, item);
+	const folder = run.plan.items.find((candidate) => candidate.id === `${item.group}.skill-dir`);
+	if (folder === undefined) throw new StepFailure(DIR_CHANGED_TEXT);
+	checkFolder(run, folder);
 	if (item.action === 'keep-in-backup') {
 		startStep(run, step, { mode: stat.mode & 0o777 });
 		run.fs.chmodSync(item.path, 0o600);
@@ -1072,7 +1122,7 @@ function envFileStep(run, step, item) {
 	if (read.state !== 'ok') throw new StepFailure(ENV_CHANGED_TEXT);
 	const { text, utf8Exact } = decode(read.buffer);
 	const secretsText = secretsFileText(run.fs, run.secretsFile);
-	const holder = { path: item.path, text, mode: read.mode, utf8Exact, insideSkill: true };
+	const holder = { path: item.path, text, mode: read.mode, utf8Exact, insideSkill: true, ...(linked ? { linked: true } : {}) };
 	if (!recheck(run, item, { [`${item.group}Env`]: holder, secretsText })) throw new StepFailure(ENV_CHANGED_TEXT);
 	const parsed = parseEnvTemplate(text, (key) => secretsValue(secretsText, key));
 	startStep(run, step, { mode: read.mode, eol: parsed.eol, trailingNewline: parsed.trailingNewline, bom: parsed.bom, template: parsed.template });
@@ -1126,12 +1176,19 @@ function moveFolder(run, step, from, to, isLink, flags) {
 	copyThenRemove(run, from, to, isLink, flags);
 }
 
-function directoryStep(run, step, item, flags) {
+/** The checks before a skill or rules folder is moved or its `.env` is touched: it is no plugin, and it is still the folder of the plan. Returns its fresh facts. */
+function checkFolder(run, item) {
 	const original = item.path;
 	if (isLookalikeSkillDir(original, run.pluginRoot)) throw new StepFailure(DIR_PLUGIN_TEXT);
 	const rules = item.id === RULES_ID;
 	const fresh = rules ? rulesFolderFacts(run.fs, original) : skillFolderFacts(run.fs, original);
 	if (!recheck(run, item, rules ? { cursorRules: fresh } : { [`${item.group}Skill`]: fresh })) throw new StepFailure(DIR_CHANGED_TEXT);
+	return fresh;
+}
+
+function directoryStep(run, step, item, flags) {
+	const original = item.path;
+	const fresh = checkFolder(run, item);
 	run.fs.mkdirSync(path.dirname(step.backup), { recursive: true, mode: 0o700 });
 	if (pathExists(run.fs, step.backup)) throw new StepFailure(BACKUP_TAKEN_TEXT);
 	startStep(run, step, { symlink: fresh.symlink === true, method: 'rename' });

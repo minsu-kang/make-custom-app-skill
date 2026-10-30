@@ -997,7 +997,13 @@ describe('gatherFacts: the old folders', () => {
 		fs.rmSync(lp.claudeEnv);
 		put(path.join(lp.claudeSkill, 'mcp-server', '.env.real'), INSTALLER_ENV_TEXT);
 		fs.symlinkSync('.env.real', lp.claudeEnv);
-		assert.equal(gather(leading).claudeEnv.insideSkill, true);
+		const inside = gather(leading);
+		assert.equal(inside.claudeEnv.insideSkill, true);
+		assert.equal(inside.claudeEnv.linked, true, 'a link is a fact of its own');
+		assert.equal(Object.hasOwn(inside.cursorEnv, 'linked'), false, 'a regular file has no such member');
+		const planned = buildPlan(inside).items.find((item) => item.id === 'claude.env-file');
+		assert.equal(planned.action, 'keep-in-backup', 'a link is kept, never deleted: deleting the link would leave the file it names in the backup');
+		assert.equal(planned.status, 'ready');
 	});
 
 	it('gatherFacts: a .env that is a folder or is missing gives null', () => {
@@ -1410,6 +1416,14 @@ describe('gatherFacts: file system failures', () => {
 		const linked = fakeHome('failures-link', { symlinkSkill: true });
 		const lp = oldInstallPaths(linked.home);
 		assert.equal(gather(linked, { fs: failing({ readlinkSync: (file) => file === lp.claudeSkill }) }).claudeSkill, null);
+	});
+
+	it('gatherFacts: a .env whose lstat fails is still read and is not marked as a link', POSIX_ONLY, () => {
+		const h = fakeHome('failures-env-lstat');
+		const p = oldInstallPaths(h.home);
+		const facts = gather(h, { fs: failing({ lstatSync: (file) => file === p.claudeEnv }) });
+		assert.equal(facts.claudeEnv.text, INSTALLER_ENV_TEXT);
+		assert.equal(Object.hasOwn(facts.claudeEnv, 'linked'), false);
 	});
 
 	it('gatherFacts: a rules folder link that cannot be listed has no names, and an env or CLAUDE.md whose real path cannot be resolved is not trusted', POSIX_ONLY, () => {
@@ -2307,7 +2321,13 @@ describe('preflightApply', () => {
 		const manual = { ...disabled.plan, items: disabled.plan.items.map((item) => ({ ...item, status: 'manual' })) };
 		assert.deepEqual(steps.preflightApply({ digest: stale, groups: ['claude', 'cursor'], plan: manual, facts: disabled.facts }), { exitCode: 0, lines: ['Nothing to remove in claude and cursor.'] });
 		const onlyBlocked = { ...plan, items: plan.items.map((item) => ({ ...item, status: item.id === 'claude.mcp-entry' ? 'blocked' : 'manual' })) };
-		assert.equal(steps.preflightApply({ ...ok, plan: onlyBlocked }).exitCode, 0, 'a blocked item is not a ready one: check (1) fires first');
+		const blockedOnly = steps.preflightApply({ ...ok, plan: onlyBlocked });
+		assert.equal(blockedOnly.exitCode, 2, 'a group that holds only a blocked item is refused with the fix, not told there is nothing to remove');
+		assert.match(blockedOnly.lines[0], /^Refused: claude\.mcp-entry is blocked: .* Nothing was changed\. Fix: /);
+		const blockedOther = steps.preflightApply({ ...ok, groups: ['cursor'], plan: { ...onlyBlocked, items: onlyBlocked.items.map((item) => (item.group === 'cursor' ? { ...item, status: 'manual' } : item)) } });
+		assert.deepEqual(blockedOther, { exitCode: 0, lines: ['Nothing to remove in cursor.'] }, 'a blocked item of another group does not count');
+		const blockedStale = steps.preflightApply({ digest: stale, groups: ['claude'], plan: onlyBlocked, facts });
+		assert.equal(blockedStale.exitCode, 3, 'with a blocked item the digest check follows check (1)');
 
 		assert.deepEqual(steps.preflightApply({ ...ok, digest: stale }), {
 			exitCode: 3,
@@ -2991,10 +3011,13 @@ describe('applySteps: the secrets step', () => {
 		const prep = prepare(h);
 		fs.appendFileSync(SECRETS_FILE(h), `pinecone-api-key: ${FAKE.pinecone}\nopenai-api-key: ${FAKE.openai}\npinecone-index-name: ${FAKE.index}\n`);
 		const before = fs.readFileSync(SECRETS_FILE(h));
+		const statBefore = fs.statSync(SECRETS_FILE(h));
 		const result = apply(h, prep, { groups: ['claude'] });
 		assert.equal(result.exitCode, 0);
 		assert.equal(result.lines[0], 'done    secrets');
 		assert.equal(before.equals(fs.readFileSync(SECRETS_FILE(h))), true, 'the file was not written');
+		const statAfter = fs.statSync(SECRETS_FILE(h));
+		assert.deepEqual([statAfter.ino, statAfter.mode, statAfter.mtimeMs], [statBefore.ino, statBefore.mode, statBefore.mtimeMs], 'the file was not even replaced by an identical one');
 		assert.deepEqual(manifestOf(result.backupDir).secretsKeysAdded, []);
 		assert.deepEqual(stepOf(manifestOf(result.backupDir), 'secrets').keys, []);
 	});
@@ -3233,6 +3256,122 @@ describe('applySteps: the claude.mcp-entry step', () => {
 		}
 	});
 
+	it('every further removal rechecks the registration: an entry that came back as another one is left alone, a vanished key is done, and a file that stops parsing fails the step', POSIX_ONLY, () => {
+		const NO_LONGER = CLAUDE_FAILED('the entry in ~/.claude.json is no longer the old one, so it was left alone');
+		const puts = (h, entry) => () => {
+			const json = readJson(h.paths.claudeJson);
+			json.mcpServers['make-custom-app'] = entry;
+			fs.writeFileSync(h.paths.claudeJson, JSON.stringify(json));
+			return { status: 0, stdout: '', stderr: '' };
+		};
+		const cases = {
+			'another server under the same key': () => ({ command: 'node', args: ['/opt/unrelated.js'] }),
+			'a registration that points at the plugin bundle': (h) => ({ command: 'node', args: [path.join(h.pluginRoot, 'mcp', 'index.mjs')] }),
+			'an old registration with other arguments': (h) => ({ command: process.execPath, args: [path.join(h.paths.claudeSkill, 'mcp-server', 'dist', 'other.js')] }),
+		};
+		for (const [label, make] of Object.entries(cases)) {
+			const h = fakeHome('remove-came-back-other', { editors: ['claude'] });
+			const prep = prepare(h);
+			const entry = make(h);
+			const stub = recorder(puts(h, entry));
+			const waits = [];
+			const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn, sleep: (ms) => waits.push(ms) });
+			assert.equal(result.exitCode, 4, label);
+			assert.equal(result.lines[0], NO_LONGER, label);
+			assert.equal(stub.calls.length, 1, `${label}: claude was not run again`);
+			assert.deepEqual(waits, [500], label);
+			assert.deepEqual(readJson(h.paths.claudeJson).mcpServers['make-custom-app'], entry, `${label}: the entry that came back is untouched`);
+			assert.deepEqual(states(manifestOf(result.backupDir)).slice(0, 2), ['claude.mcp-entry:failed', 'claude.sentinel:pending'], label);
+			assert.equal(result.lines.includes(BACKUP_COPY_TEXT), false, label);
+		}
+
+		const same = fakeHome('remove-came-back-same', { editors: ['claude'] });
+		const samePrep = prepare(same);
+		const original = readJson(same.paths.claudeJson).mcpServers['make-custom-app'];
+		let attempts = 0;
+		const backOnce = recorder(() => {
+			attempts += 1;
+			if (attempts === 1) return puts(same, original)();
+			const json = readJson(same.paths.claudeJson);
+			delete json.mcpServers['make-custom-app'];
+			fs.writeFileSync(same.paths.claudeJson, JSON.stringify(json));
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const second = apply(same, samePrep, { groups: ['claude'], spawnSync: backOnce.spawn });
+		assert.equal(second.exitCode, 0, 'the same entry is removed again');
+		assert.equal(backOnce.calls.length, 2);
+
+		const vanished = fakeHome('remove-vanished-at-retry', { editors: ['claude'] });
+		const vanishedPrep = prepare(vanished);
+		let vanishedReads = 0;
+		const racing = {
+			...fs,
+			readFileSync(file, ...rest) {
+				if (file === vanished.paths.claudeJson && ++vanishedReads === 3) {
+					const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+					delete json.mcpServers['make-custom-app'];
+					return Buffer.from(JSON.stringify(json));
+				}
+				return fs.readFileSync(file, ...rest);
+			},
+		};
+		const quiet = recorder({ status: 0, stdout: '', stderr: '' });
+		const gone = apply(vanished, vanishedPrep, { groups: ['claude'], fs: racing, spawnSync: quiet.spawn });
+		assert.equal(gone.exitCode, 0, 'a key that is gone at the recheck is done');
+		assert.equal(quiet.calls.length, 1);
+		assert.equal(vanishedReads, 3);
+
+		const garbled = fakeHome('remove-garbled-at-retry', { editors: ['claude'] });
+		const garbledPrep = prepare(garbled);
+		let garbledReads = 0;
+		const breaking = {
+			...fs,
+			readFileSync(file, ...rest) {
+				if (file === garbled.paths.claudeJson && ++garbledReads >= 3) return Buffer.from(`{"mcpServers": {"x": "${FAKE.otherToken}`);
+				return fs.readFileSync(file, ...rest);
+			},
+		};
+		const quietGarbled = recorder({ status: 0, stdout: '', stderr: '' });
+		const broken = apply(garbled, garbledPrep, { groups: ['claude'], fs: breaking, spawnSync: quietGarbled.spawn });
+		assert.equal(broken.lines[0], CLAUDE_FAILED(`${garbled.paths.claudeJson} is not valid JSON`));
+		assert.equal(quietGarbled.calls.length, 1);
+		assert.equal(stepOf(manifestOf(broken.backupDir), 'claude.mcp-entry').state, 'running', 'the file is in an unknown state');
+		assert.deepEqual(leaks(broken.lines), []);
+	});
+
+	it('a ~/.claude.json that is gone after the removal is reported as missing, not as invalid JSON', POSIX_ONLY, () => {
+		const h = fakeHome('remove-file-gone', { editors: ['claude'] });
+		const prep = prepare(h);
+		const stub = recorder(() => {
+			fs.rmSync(h.paths.claudeJson);
+			return { status: 0, stdout: '', stderr: '' };
+		});
+		const waits = [];
+		const result = apply(h, prep, { groups: ['claude'], spawnSync: stub.spawn, sleep: (ms) => waits.push(ms) });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], CLAUDE_FAILED(`ENOENT on ${h.paths.claudeJson}`));
+		assert.deepEqual(waits, [500, 500, 500]);
+		assert.equal(stub.calls.length, 1);
+		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'running');
+		assert.equal(manifestOf(result.backupDir).steps[0].error, `ENOENT on ${h.paths.claudeJson}`);
+	});
+
+	it('the manifest records the registration as it is at the time of the step, not as the facts of the plan had it', POSIX_ONLY, () => {
+		const h = fakeHome('remove-fresh-entry', { editors: ['claude'] });
+		const prep = prepare(h);
+		const json = readJson(h.paths.claudeJson);
+		json.mcpServers['make-custom-app'].env.PINECONE_API_KEY = FAKE.conflictPinecone;
+		json.mcpServers['make-custom-app'].env.OPENAI_API_KEY = 'fake-openai-0002';
+		fs.writeFileSync(h.paths.claudeJson, `${JSON.stringify(json, null, 2)}\n`);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0, 'only a value changed, so the fingerprint is the same');
+		assert.deepEqual(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').entry.env, {
+			PINECONE_API_KEY: FAKE.conflictPinecone,
+			OPENAI_API_KEY: 'fake-openai-0002',
+			PINECONE_INDEX_NAME: { $secret: 'pinecone-index-name' },
+		});
+	});
+
 	it('a ~/.claude.json that does not parse after the removal fails the step and the step stays running, because the removal may have happened', POSIX_ONLY, () => {
 		const h = fakeHome('remove-garbled', { editors: ['claude'] });
 		const prep = prepare(h);
@@ -3386,6 +3525,23 @@ describe('applySteps: a writer of ~/.claude.json', () => {
 		assert.equal(stepOf(manifestOf(result.backupDir), 'claude.mcp-entry').state, 'failed');
 		assert.equal(result.lines.at(-1), PARTIAL_LINE);
 	});
+
+	it('a writer that puts back another entry than the old one: the cleanup does not remove that one', POSIX_ONLY, async () => {
+		const h = fakeHome('writer-other-entry', { editors: ['claude'] });
+		const other = { command: 'node', args: ['/opt/unrelated.js'] };
+		const writer = startWriter({ file: h.paths.claudeJson, mode: 'resurrect-always', entry: other });
+		let result;
+		try {
+			result = apply(h, prepare(h), { groups: ['claude'], sleep: realWait });
+		} finally {
+			await writer.stop();
+		}
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], 'failed  claude.mcp-entry: the entry in ~/.claude.json is no longer the old one, so it was left alone');
+		assert.ok(mcpCalls(h).length <= 2, 'the entry that came back was not removed again');
+		assert.deepEqual(readJson(h.paths.claudeJson).mcpServers['make-custom-app'], other);
+		assert.equal(fs.existsSync(h.paths.claudeSkill), true, 'nothing after the entry ran');
+	});
 });
 
 describe('applySteps: moving the folders', () => {
@@ -3498,6 +3654,19 @@ describe('applySteps: moving the folders', () => {
 		assert.equal(fs.existsSync(path.join(mismatch.backupDir, 'cursor', 'skill-dir')), false, 'the partial copy is removed');
 		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').state, 'failed');
 		assert.equal(stepOf(manifestOf(mismatch.backupDir), 'cursor.skill-dir').method, 'copy');
+
+		const hEmpty = fakeHome('copy-empty-file', { editors: ['cursor'] });
+		put(path.join(hEmpty.paths.cursorSkill, 'scripts', 'empty.txt'), '');
+		const dropping = exdevFor(hEmpty.paths, {
+			cpSync(from, to, options) {
+				fs.cpSync(from, to, options);
+				fs.rmSync(path.join(to, 'scripts', 'empty.txt'));
+			},
+		});
+		const dropped = apply(hEmpty, prepare(hEmpty), { groups: ['cursor'], fs: dropping });
+		assert.equal(dropped.lines.find((line) => line.startsWith('failed')), 'failed  cursor.skill-dir: the copy of the folder does not match the original, so nothing was removed', 'a copy that lacks an empty file has the same size but fewer files');
+		assert.equal(fs.existsSync(path.join(hEmpty.paths.cursorSkill, 'scripts', 'empty.txt')), true, 'the source is intact');
+		assert.equal(fs.existsSync(path.join(dropped.backupDir, 'cursor', 'skill-dir')), false);
 
 		const hSize = fakeHome('copy-truncated', { editors: ['cursor'] });
 		const truncating = exdevFor(hSize.paths, {
@@ -4118,7 +4287,114 @@ describe('applySteps: the env-file steps', () => {
 		}
 	});
 
-	it('a .env that lies outside its skill folder, is a link, or sits in a linked skill folder is never unlinked or changed, whatever the plan says', POSIX_ONLY, () => {
+	it('a .env that is a link to a file inside its skill folder is planned keep-in-backup and kept: link and target keep their bytes, the target gets 0600, and a rerun has nothing left', POSIX_ONLY, () => {
+		const h = fakeHome('env-link-inside', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+		const p = h.paths;
+		const real = path.join(p.claudeSkill, 'mcp-server', 'real.env');
+		fs.renameSync(p.claudeEnv, real);
+		fs.chmodSync(real, 0o640);
+		fs.symlinkSync('real.env', p.claudeEnv);
+		const prep = prepare(h);
+		const item = prep.plan.items.find((candidate) => candidate.id === 'claude.env-file');
+		assert.deepEqual([item.status, item.action], ['ready', 'keep-in-backup']);
+		const result = apply(h, prep, { groups: ['claude'] });
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(result.lines.slice(0, 4), ['done    claude.mcp-entry', 'done    claude.sentinel', 'done    claude.env-file', 'done    claude.skill-dir']);
+		const kept = path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server');
+		assert.equal(fs.lstatSync(path.join(kept, '.env')).isSymbolicLink(), true, 'the link moved with the folder');
+		assert.equal(fs.readlinkSync(path.join(kept, '.env')), 'real.env');
+		assert.equal(fs.readFileSync(path.join(kept, 'real.env'), 'utf8'), INSTALLER_ENV_TEXT, 'the target keeps its bytes');
+		assert.equal(fs.statSync(path.join(kept, 'real.env')).mode & 0o777, 0o600, 'the chmod reached the target');
+		const step = stepOf(manifestOf(result.backupDir), 'claude.env-file');
+		assert.deepEqual([step.action, step.mode, step.template], ['keep-in-backup', 0o640, null], 'the old mode of the target is recorded');
+		assert.equal(fs.existsSync(p.claudeSkill), false);
+
+		const again = prepare(h);
+		assert.deepEqual(again.plan.items.filter((candidate) => candidate.group === 'claude'), [], 'a rerun finds nothing left');
+		assert.deepEqual(steps.preflightApply({ digest: again.plan.digest, groups: ['claude'], plan: again.plan, facts: again.facts }), { exitCode: 0, lines: ['Nothing to remove in claude.'] });
+	});
+
+	it('a linked .env: a forged delete is refused as changed, and a link to a file outside the folder is refused whatever the plan says', POSIX_ONLY, () => {
+		const OUTSIDE = 'the .env is not a regular file inside its old skill folder, so the cleanup does not touch it';
+		const h = fakeHome('env-link-delete', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+		const p = h.paths;
+		const real = path.join(p.claudeSkill, 'mcp-server', 'real.env');
+		fs.renameSync(p.claudeEnv, real);
+		fs.symlinkSync('real.env', p.claudeEnv);
+		const prep = prepare(h);
+		const plan = cloneOf(prep.plan);
+		plan.items.find((item) => item.id === 'claude.env-file').action = 'delete';
+		const refused = apply(h, { ...prep, plan }, { groups: ['claude'] });
+		assert.equal(refused.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${ENV_CHANGED}`);
+		assert.equal(fs.readFileSync(real, 'utf8'), INSTALLER_ENV_TEXT);
+		assert.equal(fs.lstatSync(p.claudeEnv).isSymbolicLink(), true);
+		assert.equal(stepOf(manifestOf(refused.backupDir), 'claude.env-file').state, 'failed');
+
+		for (const action of ['delete', 'keep-in-backup']) {
+			const out = fakeHome('env-link-outside', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
+			const outsideFile = path.join(out.root, 'shared.env');
+			put(outsideFile, INSTALLER_ENV_TEXT, 0o640);
+			fs.rmSync(out.paths.claudeEnv);
+			fs.symlinkSync(outsideFile, out.paths.claudeEnv);
+			const outPrep = prepare(out);
+			assert.equal(outPrep.plan.items.some((item) => item.id === 'claude.env-file'), false, 'the plan does not offer it');
+			const forged = cloneOf(outPrep.plan);
+			forged.items.splice(2, 0, { id: 'claude.env-file', group: 'claude', kind: 'env-file', path: out.paths.claudeEnv, action, status: 'ready', reason: null, fix: null, fingerprint: { names: [], others: null, lineCount: 0 }, keys: [], other: 0, secrets: {} });
+			const result = apply(out, { ...outPrep, plan: forged }, { groups: ['claude'] });
+			assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${OUTSIDE}`, action);
+			assert.equal(fs.readFileSync(outsideFile, 'utf8'), INSTALLER_ENV_TEXT, action);
+			assert.equal(fs.statSync(outsideFile).mode & 0o777, 0o640, action);
+		}
+	});
+
+	it('a .env that became a folder, or a link to a folder, is refused for delete and for keep-in-backup, and its mode is not changed', POSIX_ONLY, () => {
+		for (const text of [INSTALLER_ENV_TEXT, `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`]) {
+			for (const shape of ['folder', 'link to a folder']) {
+				const h = fakeHome('env-became-folder', { editors: ['claude'], envText: text });
+				const p = h.paths;
+				const prep = prepare(h);
+				const folder = shape === 'folder' ? p.claudeEnv : path.join(p.claudeSkill, 'mcp-server', 'env-folder');
+				fs.rmSync(p.claudeEnv);
+				fs.mkdirSync(folder);
+				fs.chmodSync(folder, 0o755);
+				if (shape !== 'folder') fs.symlinkSync('env-folder', p.claudeEnv);
+				const result = apply(h, prep, { groups: ['claude'] });
+				assert.equal(result.lines.find((line) => line.startsWith('failed')), 'failed  claude.env-file: the .env is not a regular file inside its old skill folder, so the cleanup does not touch it', `${shape}`);
+				assert.equal(fs.statSync(folder).mode & 0o777, 0o755, `${shape}: the mode of the folder is not changed`);
+				assert.equal(stepOf(manifestOf(result.backupDir), 'claude.env-file').state, 'failed', shape);
+			}
+		}
+	});
+
+	it('the skill folder is checked before the .env is deleted or changed: a folder that changed or became a plugin after the plan keeps its .env', POSIX_ONLY, () => {
+		const cases = {
+			'a new top-level file': { change: (p) => put(path.join(p.claudeSkill, 'NEW.md'), 'x'), text: 'the old folder changed since the plan' },
+			'a plugin marker': { change: (p) => fs.mkdirSync(path.join(p.claudeSkill, '.claude-plugin')), text: DIR_PLUGIN },
+		};
+		for (const [label, { change, text }] of Object.entries(cases)) {
+			for (const envText of [INSTALLER_ENV_TEXT, `${INSTALLER_ENV_TEXT}EXTRA_SETTING=on\n`]) {
+				const h = fakeHome('env-folder-changed', { editors: ['claude'], envText });
+				const p = h.paths;
+				const prep = prepare(h);
+				const only = { ...prep, plan: { ...prep.plan, items: prep.plan.items.filter((item) => item.id !== 'claude.mcp-entry' && item.id !== 'claude.sentinel') } };
+				change(p);
+				const mode = fs.statSync(p.claudeEnv).mode & 0o777;
+				const result = apply(h, only, { groups: ['claude'] });
+				assert.equal(result.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${text}`, label);
+				assert.equal(fs.readFileSync(p.claudeEnv, 'utf8'), envText, `${label}: the .env is still there`);
+				assert.equal(fs.statSync(p.claudeEnv).mode & 0o777, mode, `${label}: and keeps its mode`);
+				assert.equal(stepOf(manifestOf(result.backupDir), 'claude.env-file').state, 'failed', label);
+			}
+		}
+		const h = fakeHome('env-without-folder-item', { editors: ['claude'] });
+		const prep = prepare(h);
+		const plan = { ...prep.plan, items: prep.plan.items.filter((item) => item.id !== 'claude.skill-dir' && item.id !== 'claude.mcp-entry' && item.id !== 'claude.sentinel') };
+		const result = apply(h, { ...prep, plan }, { groups: ['claude'] });
+		assert.equal(result.lines.find((line) => line.startsWith('failed')), 'failed  claude.env-file: the old folder changed since the plan', 'an env-file item without the item of its folder is refused');
+		assert.equal(fs.existsSync(h.paths.claudeEnv), true);
+	});
+
+	it('a .env that lies outside its skill folder or sits in a linked skill folder is never unlinked or changed, whatever the plan says', POSIX_ONLY, () => {
 		const OUTSIDE = 'the .env is not a regular file inside its old skill folder, so the cleanup does not touch it';
 		const outsideEnv = (h, text) => {
 			const server = path.join(h.paths.claudeSkill, 'mcp-server');
@@ -4138,17 +4414,6 @@ describe('applySteps: the env-file steps', () => {
 			assert.equal(fs.readFileSync(outside, 'utf8'), text);
 			assert.equal(fs.statSync(outside).mode & 0o777, 0o640);
 		}
-
-		const linked = fakeHome('env-link', { editors: ['claude'], envText: INSTALLER_ENV_TEXT });
-		const realEnv = path.join(linked.paths.claudeSkill, 'mcp-server', 'real.env');
-		fs.renameSync(linked.paths.claudeEnv, realEnv);
-		fs.symlinkSync(realEnv, linked.paths.claudeEnv);
-		const prepLinked = prepare(linked);
-		assert.equal(prepLinked.plan.items.some((item) => item.id === 'claude.env-file'), true, 'a link that stays inside the folder is planned');
-		const refused = apply(linked, prepLinked, { groups: ['claude'] });
-		assert.equal(refused.lines.find((line) => line.startsWith('failed')), `failed  claude.env-file: ${OUTSIDE}`);
-		assert.equal(fs.readFileSync(realEnv, 'utf8'), INSTALLER_ENV_TEXT);
-		assert.equal(fs.lstatSync(linked.paths.claudeEnv).isSymbolicLink(), true);
 
 		for (const action of ['delete', 'keep-in-backup']) {
 			const symlinked = fakeHome('env-skill-link', { editors: ['claude'], symlinkSkill: true, envText: INSTALLER_ENV_TEXT });
@@ -4200,6 +4465,57 @@ describe('applySteps: failures of the manifest itself', () => {
 		};
 		assert.throws(() => apply(h, prep, { groups: ['claude'], fs: stuck }), { code: 'ENOSPC' });
 		assert.deepEqual(fs.readdirSync(path.join(h.home, '.make-custom-app')), [BACKUP_NAME], 'the empty folder stays');
+	});
+
+	it('a manifest write that fails leaves no temp file behind, so the next write works; a temp file that is not ours is left alone', POSIX_ONLY, () => {
+		const h = fakeHome('manifest-rename-once', { editors: ['claude'] });
+		const prep = prepare(h);
+		let renames = 0;
+		const flaky = {
+			...fs,
+			renameSync(from, to) {
+				if (String(to).endsWith('manifest.json') && ++renames === 2) throw errorWithCode('EIO');
+				return fs.renameSync(from, to);
+			},
+		};
+		const spawned = applySpawn(h.root);
+		const result = apply(h, prep, { groups: ['claude'], fs: flaky, spawnSync: spawned.spawn });
+		assert.equal(result.exitCode, 4);
+		assert.equal(result.lines[0], `failed  claude.mcp-entry: EIO on ${path.join(result.backupDir, 'manifest.json')}`);
+		assert.equal(spawned.calls.length, 0, 'the step was not started');
+		assert.deepEqual(tempFilesIn(result.backupDir), [], 'no stray temp file');
+		const manifest = manifestOf(result.backupDir);
+		assert.equal(manifest.status, 'partial', 'the next manifest write worked');
+		assert.deepEqual(manifest.steps.map((step) => step.state), ['failed', 'pending', 'pending', 'pending']);
+		assert.equal(manifest.steps[0].error, `EIO on ${path.join(result.backupDir, 'manifest.json')}`);
+
+		const stuck = fakeHome('manifest-rename-unlink', { editors: ['claude'] });
+		const stuckPrep = prepare(stuck);
+		let stuckRenames = 0;
+		const stubborn = {
+			...fs,
+			renameSync(from, to) {
+				if (String(to).endsWith('manifest.json') && ++stuckRenames === 1) throw errorWithCode('EIO');
+				return fs.renameSync(from, to);
+			},
+			unlinkSync(file) {
+				if (String(file).endsWith('manifest.json.tmp')) throw errorWithCode('EPERM');
+				return fs.unlinkSync(file);
+			},
+		};
+		assert.throws(() => apply(stuck, stuckPrep, { groups: ['claude'], fs: stubborn }), { code: 'EIO' }, 'the first error is the one that is thrown');
+
+		const foreign = fakeHome('manifest-foreign-temp', { editors: ['claude'] });
+		const foreignPrep = prepare(foreign);
+		const planted = {
+			...fs,
+			writeFileSync(file, data, options) {
+				if (String(file).endsWith('manifest.json.tmp')) fs.writeFileSync(file, 'not ours');
+				return fs.writeFileSync(file, data, options);
+			},
+		};
+		assert.throws(() => apply(foreign, foreignPrep, { groups: ['claude'], fs: planted }), { code: 'EEXIST' });
+		assert.equal(fs.readFileSync(path.join(backupOf(foreign), 'manifest.json.tmp'), 'utf8'), 'not ours');
 	});
 
 	it('a manifest that cannot record a step as running stops that step before its change', POSIX_ONLY, () => {

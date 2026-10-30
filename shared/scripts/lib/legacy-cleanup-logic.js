@@ -875,14 +875,15 @@ function sentinelItem(facts, paths) {
  * render gives back the same text. Otherwise it stays in the folder, which moves into the backup. No item when the skill
  * folder is not planned, is a symbolic link (only the link moves, Ruling 38), or the `.env` does not lie inside it
  * (`insideSkill` is not true: `mcp-server` may link to a folder elsewhere, and the cleanup would unlink or change a file
- * outside the old install). `keys` lists the known names; the other assignment names are only counted.
+ * outside the old install). A `.env` that is itself a link (`linked` true) is never deleted: unlinking the link would leave
+ * the file it names, with the secrets, in the backup. `keys` lists the known names; the other assignment names are only counted.
  */
 function envFileItem(group, facts, skill, skillPath, env, envPath, compared) {
 	if (dirState(facts, skill, skillPath, isDirFacts(skill) ? skill.topNames : undefined) !== 'ok' || skill.symlink === true) return null;
 	if (!isPlainObject(env) || typeof env.path !== 'string' || typeof env.text !== 'string' || env.insideSkill !== true) return null;
 	if (env.path !== envPath) return foreignItem(`${group}.env-file`, 'env-file', 'keep-in-backup', envPath);
 	const parsed = parseEnvTemplate(env.text, compared.finalValue);
-	const deletable = env.tooLarge !== true && parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
+	const deletable = env.tooLarge !== true && env.linked !== true && parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
 	const keys = parsed.names.filter((name) => Object.hasOwn(ENV_TO_KEY, name));
 	return {
 		id: `${group}.env-file`,

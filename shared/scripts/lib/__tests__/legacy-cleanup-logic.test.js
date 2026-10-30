@@ -1903,6 +1903,8 @@ describe('buildPlan: the .env files', () => {
 			['an empty value and a placeholder', envFacts(`PINECONE_API_KEY=\nOPENAI_API_KEY=your-openai-key\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
 			['a reference', envFacts(`OPENAI_API_KEY=\${env:OPENAI_API_KEY}\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
 			['no final newline and a byte order mark', envFacts(`\uFEFFOPENAI_API_KEY=${FAKE.openai}`), 'delete'],
+			['a link to a file inside the folder (deleting the link would leave the file it names in the backup)', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true, linked: true } }), 'keep-in-backup'],
+			['a file that is no link', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true, linked: false } }), 'delete'],
 		];
 		for (const [name, facts, expected] of cases) assert.equal(actionOf(facts), expected, name);
 	});
