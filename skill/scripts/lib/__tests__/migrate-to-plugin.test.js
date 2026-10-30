@@ -19,7 +19,7 @@ const { CLAUDE_VERSION_PATTERN, readPluginStatus, verifyInstall, parseMarketplac
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const SKILL_SOURCE = path.join(REPO_ROOT, 'skill');
-const BASE_COMMIT = 'cd8f60b';
+const BASE_COMMIT = 'df148e5';
 const ID = 'make-custom-app@make-custom-app';
 const DAY = 24 * 3600000;
 const POSIX_ONLY = { skip: process.platform === 'win32' };
@@ -956,7 +956,7 @@ describe('check-setup.js PLUGIN_MIGRATION', () => {
 		assert.ok(!PINNED_SECTION.includes('```'));
 	});
 
-	it('SKILL.md: without the section and without the version line the file equals cd8f60b', { skip: BASE_SKILL_MD.skip }, () => {
+	it('SKILL.md: without the section and without the version line the file equals df148e5', { skip: BASE_SKILL_MD.skip }, () => {
 		const { head, start, next } = skillMdParts();
 		const rest = [...head.slice(0, start), ...head.slice(next)];
 		assert.equal(dropVersionLine(rest).join(''), dropVersionLine(splitLines(BASE_SKILL_MD.text)).join(''));

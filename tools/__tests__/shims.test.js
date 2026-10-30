@@ -16,7 +16,7 @@ const { spawnSync } = require('child_process');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const SHIMS = path.join(REPO, 'tools', 'shims');
-const BASE_COMMIT = 'cd8f60b';
+const BASE_COMMIT = 'df148e5';
 const RAW = 'https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master';
 const IS_CI = process.env.GITHUB_ACTIONS === 'true';
 const POSIX = process.platform !== 'win32';
@@ -158,15 +158,15 @@ const baseCommitReady = spawnSync('git', ['-C', REPO, 'cat-file', '-e', `${BASE_
 const NO_CLIENT = NO_BASH || (!baseCommitReady && !IS_CI ? `commit ${BASE_COMMIT} is not in this clone (CI fetches the full history)` : false);
 
 let oldClientSource = null;
-/** The 2.3.13 client, extracted once from the commit of master that holds it. */
+/** The 2.3.14 client, extracted once from the commit of master that holds it. */
 function oldClient() {
 	if (oldClientSource) return oldClientSource;
-	const dir = caseDir('client-2.3.13');
+	const dir = caseDir('client-2.3.14');
 	const archive = spawnSync('git', ['-C', REPO, 'archive', BASE_COMMIT, 'skill'], { maxBuffer: 64 * 1024 * 1024 });
 	assert.equal(archive.status, 0, `git archive ${BASE_COMMIT} skill failed: ${archive.stderr}`);
 	const untar = spawnSync('tar', ['-x', '-C', dir, '--strip-components=1'], { input: archive.stdout });
 	assert.equal(untar.status, 0, `tar failed: ${untar.stderr}`);
-	assert.match(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'), /^version:\s*2\.3\.13$/m);
+	assert.match(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'), /^version:\s*2\.3\.14$/m);
 	oldClientSource = dir;
 	return dir;
 }
@@ -201,13 +201,13 @@ test('the test process sees a temporary home', () => {
 	assert.ok(process.env.CLAUDE_CONFIG_DIR.startsWith(TEST_ROOT));
 });
 
-test('a 2.3.13 Claude client: exit 1; stderr shows, in order, SKILL OUTDATED: 2.3.13 -> 2.4.9, the headline, both commands, the agent line, and Auto-update failed; one version fetch and one installer fetch; HOME unchanged', { skip: NO_CLIENT }, () => {
+test('a 2.3.14 Claude client: exit 1; stderr shows, in order, SKILL OUTDATED: 2.3.14 -> 2.4.9, the headline, both commands, the agent line, and Auto-update failed; one version fetch and one installer fetch; HOME unchanged', { skip: NO_CLIENT }, () => {
 	const c = newCase('claude-client');
 	const checkSetup = installClient(c, '.claude', oldClient());
 	const before = state(c);
 	const result = run(c, process.execPath, [checkSetup]);
 	assert.equal(result.status, 1, result.stderr);
-	assertInOrder(result.stderr, ['SKILL OUTDATED: 2.3.13 -> 2.4.9', TEXT[0], ...COMMANDS, AGENT_LINE, 'Auto-update failed']);
+	assertInOrder(result.stderr, ['SKILL OUTDATED: 2.3.14 -> 2.4.9', TEXT[0], ...COMMANDS, AGENT_LINE, 'Auto-update failed']);
 	assert.ok(result.stderr.includes(expected('claude')), result.stderr);
 	assert.ok(!result.stderr.includes('Cursor loads plugins'));
 	assert.deepEqual(fetched(c), [`${RAW}/version.json`, `${RAW}/install-claude.sh`]);
@@ -248,7 +248,7 @@ test('a Cursor client fetches the Cursor shim and shows CURSOR_LINE', { skip: NO
 	const before = state(c);
 	const result = run(c, process.execPath, [checkSetup]);
 	assert.equal(result.status, 1, result.stderr);
-	assertInOrder(result.stderr, ['SKILL OUTDATED: 2.3.13 -> 2.4.9', TEXT[0], ...COMMANDS, CURSOR_LINE, AGENT_LINE, 'Auto-update failed']);
+	assertInOrder(result.stderr, ['SKILL OUTDATED: 2.3.14 -> 2.4.9', TEXT[0], ...COMMANDS, CURSOR_LINE, AGENT_LINE, 'Auto-update failed']);
 	assert.ok(result.stderr.includes(expected('cursor')), result.stderr);
 	assert.ok(result.stderr.includes(`The make-app-setup skill lists the old install and removes it after you confirm.\n${CURSOR_LINE}\n`));
 	assert.equal(manualCommand(result.stderr), `curl -fsSL ${RAW}/install-cursor.sh | bash -s -- --update`);

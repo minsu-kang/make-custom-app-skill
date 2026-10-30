@@ -41,7 +41,7 @@ node ../tools/build-mcp.js             # writes ../mcp/index.mjs (add --check to
 # Old tree, while it exists
 node --test "skill/scripts/lib/__tests__/*.test.js"
 node .github/scripts/check-skill.js
-node .github/scripts/old-tree-guard.js --mode=branch --base=cd8f60b   # old-tree changes only in the bridge files
+node .github/scripts/old-tree-guard.js --mode=branch --base=df148e5   # old-tree changes only in the bridge files
 
 # Migration from a 2.x install with the real CLI (it refuses to run outside a container or CI)
 docker run --rm -v "$PWD:/src:ro" node:22 bash -c 'set -e; git config --global --add safe.directory "*"; git clone -q /src /w/repo; cd /w/repo; npm install --global --silent @anthropic-ai/claude-code@2.1.312; node tools/migration-test.js'
