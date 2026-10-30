@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const util = require('util');
 const {
 	canonicalJson,
 	sha256,
@@ -1122,8 +1123,8 @@ function fullFacts(overrides = {}) {
 		claudeSkill: skillFacts(PLAN_PATHS.claudeSkill),
 		cursorSkill: skillFacts(PLAN_PATHS.cursorSkill),
 		cursorRules: { path: PLAN_PATHS.cursorRules, names: ['make-custom-app.mdc'], fileCount: 1, sizeBytes: 800 },
-		claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true },
-		cursorEnv: { path: PLAN_PATHS.cursorEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true },
+		claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true },
+		cursorEnv: { path: PLAN_PATHS.cursorEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true },
 		claudeEntry: claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill)),
 		cursorMembers: cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) }),
 		claudeMd: { file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: `# Notes\n\n${INSTALLER_BLOCK}\n`, mode: 0o644, utf8Exact: true },
@@ -1316,7 +1317,7 @@ describe('secretSources', () => {
 		const text = `PINECONE_API_KEY= ${FAKE.pinecone} \nOPENAI_API_KEY=\${env:OPENAI_API_KEY}\nPINECONE_INDEX_NAME=\nOTHER_TOKEN=${FAKE.otherToken}\n`;
 		const facts = old({
 			claudeEntry: claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill, { env })),
-			claudeEnv: { path: PLAN_PATHS.claudeEnv, text, mode: 0o644, utf8Exact: true },
+			claudeEnv: { path: PLAN_PATHS.claudeEnv, text, mode: 0o644, utf8Exact: true, insideSkill: true },
 			cursorMembers: null,
 			cursorEnv: null,
 		});
@@ -1435,17 +1436,18 @@ describe('fingerprint', () => {
 		assert.notDeepEqual(fingerprint({ ...directory, symlink: true, linkTarget: '/t' }), fingerprint(directory));
 
 		const entry = { kind: 'claude-mcp-entry', entry: registrationOf(PLAN_PATHS.claudeSkill) };
-		const named = fingerprint(entry);
-		assert.deepEqual(named.env, { PINECONE_API_KEY: 'PINECONE_API_KEY', OPENAI_API_KEY: 'OPENAI_API_KEY', PINECONE_INDEX_NAME: 'PINECONE_INDEX_NAME' });
+		const hashed = fingerprint(entry);
+		assert.match(hashed, /^[0-9a-f]{64}$/);
 		const changedValues = { ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { env: { PINECONE_API_KEY: FAKE.otherToken, OPENAI_API_KEY: FAKE.cursorToken, PINECONE_INDEX_NAME: 'x' } }) };
-		assert.deepEqual(fingerprint({ ...changedValues, numStartups: 4, status: 'blocked' }), named);
-		assert.deepEqual(fingerprint({ kind: 'json-member', entry: entry.entry }), named);
-		assert.notDeepEqual(fingerprint({ ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { command: '/usr/bin/other' }) }), named);
-		assert.notDeepEqual(fingerprint({ ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { env: { OPENAI_API_KEY: 'x' } }) }), named);
-		assert.ok(!JSON.stringify(named).includes(FAKE.pinecone));
+		assert.equal(fingerprint({ ...changedValues, numStartups: 4, status: 'blocked' }), hashed);
+		assert.equal(fingerprint({ kind: 'json-member', entry: entry.entry }), hashed);
+		assert.notEqual(fingerprint({ ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { command: '/usr/bin/other' }) }), hashed);
+		assert.notEqual(fingerprint({ ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { env: { OPENAI_API_KEY: 'x' } }) }), hashed);
+		assert.notEqual(fingerprint({ ...entry, entry: registrationOf(PLAN_PATHS.claudeSkill, { args: ['/other.js'] }) }), hashed);
+		for (const seed of SECRET_SEEDS) assert.ok(!hashed.includes(seed));
 	});
 
-	it('fingerprint of a registration holds no option value, url, or header, and none for a value that is not an object', () => {
+	it('fingerprint of a registration is a hash of its identity: option values, urls, and headers are cut or left out, and a value that is not an object has none', () => {
 		const entry = {
 			type: 'stdio',
 			command: `TOKEN=${FAKE.otherToken} node`,
@@ -1456,18 +1458,22 @@ describe('fingerprint', () => {
 			cwd: '/somewhere',
 		};
 		const identity = fingerprint({ kind: 'claude-mcp-entry', entry });
-		assert.deepEqual(identity, { type: 'stdio', command: 'TOKEN=', args: ['/opt/server.js', '--token=', '-y', 'https://example.test/mcp?key=', null], env: { OPENAI_API_KEY: 'OPENAI_API_KEY' } });
-		for (const seed of SECRET_SEEDS) assert.ok(!JSON.stringify(identity).includes(seed), seed);
-		assert.notDeepEqual(fingerprint({ kind: 'json-member', entry: { ...entry, args: ['/opt/other.js'] } }), identity);
+		assert.equal(identity, sha256(canonicalJson({ type: 'stdio', command: 'TOKEN=', args: ['/opt/server.js', '--token=', '-y', 'https://example.test/mcp?key=', null], env: { OPENAI_API_KEY: 'OPENAI_API_KEY' } })));
+		for (const seed of SECRET_SEEDS) assert.ok(!identity.includes(seed), seed);
+		assert.notEqual(fingerprint({ kind: 'json-member', entry: { ...entry, args: ['/opt/other.js'] } }), identity);
 		assert.equal(fingerprint({ kind: 'claude-mcp-entry', entry: 'a string' }), null);
 		assert.equal(fingerprint({ kind: 'claude-mcp-entry', entry: [FAKE.otherToken] }), null);
 		assert.equal(fingerprint({ kind: 'claude-mcp-entry' }), null);
-		assert.deepEqual(fingerprint({ kind: 'claude-mcp-entry', entry: {} }), {});
+		assert.equal(fingerprint({ kind: 'claude-mcp-entry', entry: {} }), sha256(canonicalJson({})));
 	});
 
-	it('fingerprint: env-file names and line count, rules folder names, sentinel hash and line', () => {
-		assert.deepEqual(fingerprint({ kind: 'env-file', names: ['PINECONE_API_KEY', 'OPENAI_API_KEY'], lineCount: 6, value: FAKE.openai, mode: 0o644 }), { names: ['OPENAI_API_KEY', 'PINECONE_API_KEY'], lineCount: 6 });
-		assert.deepEqual(fingerprint({ kind: 'env-file' }), { names: [], lineCount: 0 });
+	it('fingerprint: env-file known names, a hash of the other names, and the line count; rules folder names; sentinel hash and line', () => {
+		assert.deepEqual(fingerprint({ kind: 'env-file', names: ['PINECONE_API_KEY', 'OPENAI_API_KEY'], lineCount: 6, value: FAKE.openai, mode: 0o644 }), { names: ['OPENAI_API_KEY', 'PINECONE_API_KEY'], others: null, lineCount: 6 });
+		assert.deepEqual(fingerprint({ kind: 'env-file' }), { names: [], others: null, lineCount: 0 });
+		const withOthers = fingerprint({ kind: 'env-file', names: ['OPENAI_API_KEY', FAKE.otherToken, 'B_NAME'], lineCount: 3 });
+		assert.deepEqual(withOthers, { names: ['OPENAI_API_KEY'], others: sha256(canonicalJson([FAKE.otherToken, 'B_NAME'].sort())), lineCount: 3 });
+		assert.ok(!JSON.stringify(withOthers).includes(FAKE.otherToken));
+		assert.notDeepEqual(fingerprint({ kind: 'env-file', names: ['OPENAI_API_KEY', 'C_NAME'], lineCount: 3 }), withOthers);
 		assert.deepEqual(fingerprint({ kind: 'directory', id: 'cursor.rules-dir', names: ['make-custom-app.mdc', '.DS_Store', 'a.mdc'], sizeBytes: 9 }), ['a.mdc', 'make-custom-app.mdc']);
 		assert.equal(fingerprint({ kind: 'text-block', removedText: 'x\n', lineStart: 3, status: 'ready' }), `${sha256('x\n')}:3`);
 		assert.equal(fingerprint({ kind: 'text-block', removedText: null, lineStart: null, blockStatus: 'unclosed' }), 'unclosed');
@@ -1564,18 +1570,19 @@ describe('buildPlan: the items', () => {
 		const common = { reason: null, fix: null, status: 'ready' };
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'claude.mcp-entry')), { id: 'claude.mcp-entry', group: 'claude', kind: 'claude-mcp-entry', path: PLAN_PATHS.claudeJson, action: 'remove-entry', ...common, key: 'make-custom-app', serverPath: serverClaude, envKeys });
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'claude.sentinel')), { id: 'claude.sentinel', group: 'claude', kind: 'text-block', path: PLAN_PATHS.claudeMd, action: 'remove-block', ...common, lines: [3, 7], edited: false });
-		assert.deepEqual(withoutFingerprint(itemOf(plan, 'claude.env-file')), { id: 'claude.env-file', group: 'claude', kind: 'env-file', path: PLAN_PATHS.claudeEnv, action: 'delete', ...common, keys: envNames, secrets: secretStatus });
+		assert.deepEqual(withoutFingerprint(itemOf(plan, 'claude.env-file')), { id: 'claude.env-file', group: 'claude', kind: 'env-file', path: PLAN_PATHS.claudeEnv, action: 'delete', ...common, keys: envNames, other: 0, secrets: secretStatus });
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'claude.skill-dir')), { id: 'claude.skill-dir', group: 'claude', kind: 'directory', path: PLAN_PATHS.claudeSkill, action: 'move', ...common, symlink: false, version: '2.3.13', fileCount: 12, sizeBytes: 3456, extraFiles: [] });
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'cursor.mcp-entry.make-app-context')), { id: 'cursor.mcp-entry.make-app-context', group: 'cursor', kind: 'json-member', path: PLAN_PATHS.cursorMcp, action: 'remove-entry', ...common, key: 'make-app-context', serverPath: serverCursor, envKeys, reformats: false });
-		assert.deepEqual(withoutFingerprint(itemOf(plan, 'cursor.env-file')), { id: 'cursor.env-file', group: 'cursor', kind: 'env-file', path: PLAN_PATHS.cursorEnv, action: 'delete', ...common, keys: envNames, secrets: secretStatus });
+		assert.deepEqual(withoutFingerprint(itemOf(plan, 'cursor.env-file')), { id: 'cursor.env-file', group: 'cursor', kind: 'env-file', path: PLAN_PATHS.cursorEnv, action: 'delete', ...common, keys: envNames, other: 0, secrets: secretStatus });
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'cursor.skill-dir')), { id: 'cursor.skill-dir', group: 'cursor', kind: 'directory', path: PLAN_PATHS.cursorSkill, action: 'move', ...common, symlink: false, version: '2.3.13', fileCount: 12, sizeBytes: 3456, extraFiles: [] });
 		assert.deepEqual(withoutFingerprint(itemOf(plan, 'cursor.rules-dir')), { id: 'cursor.rules-dir', group: 'cursor', kind: 'directory', path: PLAN_PATHS.cursorRules, action: 'move', ...common, symlink: false, version: null, fileCount: 1, sizeBytes: 800, extraFiles: [] });
 
 		assert.equal(itemOf(plan, 'claude.sentinel').fingerprint, `${sha256(`\n${INSTALLER_BLOCK}\n`)}:3`);
-		assert.deepEqual(itemOf(plan, 'claude.env-file').fingerprint, { names: ['OPENAI_API_KEY', 'PINECONE_API_KEY', 'PINECONE_INDEX_NAME'], lineCount: 6 });
+		assert.deepEqual(itemOf(plan, 'claude.env-file').fingerprint, { names: ['OPENAI_API_KEY', 'PINECONE_API_KEY', 'PINECONE_INDEX_NAME'], others: null, lineCount: 6 });
 		assert.deepEqual(itemOf(plan, 'claude.skill-dir').fingerprint, { symlink: false, linkTarget: null, skillName: 'make-custom-app', version: '2.3.13', topNames: ['SKILL.md', 'mcp-server', 'scripts'] });
 		assert.deepEqual(itemOf(plan, 'cursor.rules-dir').fingerprint, ['make-custom-app.mdc']);
-		assert.deepEqual(itemOf(plan, 'claude.mcp-entry').fingerprint, nameOnlyEntry(registrationOf(PLAN_PATHS.claudeSkill)));
+		assert.equal(itemOf(plan, 'claude.mcp-entry').fingerprint, fingerprint({ kind: 'claude-mcp-entry', entry: registrationOf(PLAN_PATHS.claudeSkill) }));
+		assert.match(itemOf(plan, 'claude.mcp-entry').fingerprint, /^[0-9a-f]{64}$/);
 	});
 
 	it('buildPlan: the plan block and the groups list only what exists, and the Claude-only and Cursor-only homes work', () => {
@@ -1822,7 +1829,7 @@ describe('buildPlan: the Cursor registrations', () => {
 });
 
 describe('buildPlan: the .env files', () => {
-	const envFacts = (text, extra = {}) => ({ claudeEntry: null, cursorMembers: null, cursorEnv: null, claudeEnv: { path: PLAN_PATHS.claudeEnv, text, mode: 0o644, utf8Exact: true }, ...extra });
+	const envFacts = (text, extra = {}) => ({ claudeEntry: null, cursorMembers: null, cursorEnv: null, claudeEnv: { path: PLAN_PATHS.claudeEnv, text, mode: 0o644, utf8Exact: true, insideSkill: true }, ...extra });
 	const actionOf = (facts) => {
 		const item = itemOf(buildPlan(fullFacts(facts)), 'claude.env-file');
 		assert.equal(item.status, 'ready');
@@ -1841,8 +1848,8 @@ describe('buildPlan: the .env files', () => {
 			['trailing spaces', envFacts(spaced), 'keep-in-backup'],
 			['mixed line endings', envFacts(mixed), 'keep-in-backup'],
 			['CRLF only', envFacts(INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n')), 'delete'],
-			['bytes that are not UTF-8', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: false } }), 'keep-in-backup'],
-			['utf8Exact missing', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644 } }), 'keep-in-backup'],
+			['bytes that are not UTF-8', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: false, insideSkill: true } }), 'keep-in-backup'],
+			['utf8Exact missing', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, insideSkill: true } }), 'keep-in-backup'],
 			['a value that differs from the secrets file', envFacts(INSTALLER_ENV_TEXT, { secretsText: `openai-api-key: ${FAKE.otherToken}\n` }), 'keep-in-backup'],
 			['an empty value and a placeholder', envFacts(`PINECONE_API_KEY=\nOPENAI_API_KEY=your-openai-key\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
 			['a reference', envFacts(`OPENAI_API_KEY=\${env:OPENAI_API_KEY}\nPINECONE_INDEX_NAME=${FAKE.index}\n`, { secretsText: `pinecone-index-name: ${FAKE.index}\n` }), 'delete'],
@@ -1863,7 +1870,7 @@ describe('buildPlan: the .env files', () => {
 
 	it('buildPlan: a second .env with a different value is kept, the first source wins and its .env is deleted', () => {
 		const other = INSTALLER_ENV_TEXT.replace(FAKE.pinecone, FAKE.conflictPinecone);
-		const plan = buildPlan(fullFacts({ claudeEntry: null, cursorMembers: null, secretsText: null, cursorEnv: { path: PLAN_PATHS.cursorEnv, text: other, mode: 0o644, utf8Exact: true } }));
+		const plan = buildPlan(fullFacts({ claudeEntry: null, cursorMembers: null, secretsText: null, cursorEnv: { path: PLAN_PATHS.cursorEnv, text: other, mode: 0o644, utf8Exact: true, insideSkill: true } }));
 		assert.equal(itemOf(plan, 'claude.env-file').action, 'delete');
 		assert.equal(itemOf(plan, 'cursor.env-file').action, 'keep-in-backup');
 		assert.deepEqual(plan.secrets.conflicts, [{ key: 'pinecone-api-key', used: 'claude-env', others: ['cursor-env'] }]);
@@ -1973,7 +1980,7 @@ describe('buildPlan: folders, notices, and secrets', () => {
 			fullFacts(),
 			fullFacts({ secretsText: '' }),
 			fullFacts({ secretsText: `openai-api-key: ${FAKE.otherToken}\npinecone-api-key: ${FAKE.cursorToken}\n` }),
-			fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: conflictEnv, mode: 0o644, utf8Exact: true }, cursorEnv: { path: PLAN_PATHS.cursorEnv, text: conflictEnv, mode: 0o644, utf8Exact: false } }),
+			fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: conflictEnv, mode: 0o644, utf8Exact: true, insideSkill: true }, cursorEnv: { path: PLAN_PATHS.cursorEnv, text: conflictEnv, mode: 0o644, utf8Exact: false, insideSkill: true } }),
 			fullFacts({ claudeEntry: claudeEntryFacts(bundle), cursorMembers: cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill, { env: loud }) }, { jsonc: true }) }),
 			fullFacts({ claudeEntry: claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill, { env: loud })), cursorMembers: cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill, { env: loud }) }, { compact: true }) }),
 			fullFacts({ configDirIsDefault: false, claude: { binary: null } }),
@@ -2034,7 +2041,7 @@ describe('buildPlan: the digest', () => {
 			['the plugin version', fullFacts({ plugin: { ...fullFacts().plugin, version: '3.1.0' } })],
 			['sizes and counts', fullFacts({ claudeSkill: skillFacts(PLAN_PATHS.claudeSkill, { fileCount: 99, sizeBytes: 1 }) })],
 			['a .DS_Store', fullFacts({ claudeSkill: skillFacts(PLAN_PATHS.claudeSkill, { topNames: ['.DS_Store', 'scripts', 'SKILL.md', 'mcp-server'] }) })],
-			['the mode of an .env', fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o600, utf8Exact: true } })],
+			['the mode of an .env', fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o600, utf8Exact: true, insideSkill: true } })],
 			['a context folder and an own line (notices)', fullFacts({ contextsDirs: [PLAN_PATHS.claudeContexts] })],
 			['text after the block', fullFacts({ claudeMd: { file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: `# Notes\n\n${INSTALLER_BLOCK}\nmore text\nthe make-custom-app skill\n`, mode: 0o644, utf8Exact: true } })],
 			['an unrelated secrets line', fullFacts({ secretsText: `jira-email: someone@make.com\n${SECRETS_SAME}` })],
@@ -2043,8 +2050,8 @@ describe('buildPlan: the digest', () => {
 				const env = { PINECONE_API_KEY: FAKE.pinecone, OPENAI_API_KEY: FAKE.openai, PINECONE_INDEX_NAME: 'other-index' };
 				return fullFacts({
 					secretsText: swap(SECRETS_SAME),
-					claudeEnv: { path: PLAN_PATHS.claudeEnv, text: swap(INSTALLER_ENV_TEXT), mode: 0o644, utf8Exact: true },
-					cursorEnv: { path: PLAN_PATHS.cursorEnv, text: swap(INSTALLER_ENV_TEXT), mode: 0o644, utf8Exact: true },
+					claudeEnv: { path: PLAN_PATHS.claudeEnv, text: swap(INSTALLER_ENV_TEXT), mode: 0o644, utf8Exact: true, insideSkill: true },
+					cursorEnv: { path: PLAN_PATHS.cursorEnv, text: swap(INSTALLER_ENV_TEXT), mode: 0o644, utf8Exact: true, insideSkill: true },
 					claudeEntry: claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill, { env })),
 					cursorMembers: cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill, { env }) }),
 				});
@@ -2066,7 +2073,7 @@ describe('buildPlan: the digest', () => {
 			['an env name of the entry', fullFacts({ claudeEntry: claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill, { env: { OPENAI_API_KEY: FAKE.openai } })) })],
 			['the Cursor member', fullFacts({ cursorMembers: cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill, { args: [path.join(PLAN_PATHS.cursorSkill, 'mcp-server', 'other.js')] }) }) })],
 			['the key of the Cursor member', fullFacts({ cursorMembers: cursorFileFacts({ other: registrationOf(PLAN_PATHS.cursorSkill) }) })],
-			['an assignment name of an .env', fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: `${INSTALLER_ENV_TEXT}EXTRA_FLAG=\n`, mode: 0o644, utf8Exact: true } })],
+			['an assignment name of an .env', fullFacts({ claudeEnv: { path: PLAN_PATHS.claudeEnv, text: `${INSTALLER_ENV_TEXT}EXTRA_FLAG=\n`, mode: 0o644, utf8Exact: true, insideSkill: true } })],
 			['a path', fullFacts({ claudeSkill: skillFacts(path.join(PLAN_HOME, '.claude', 'skills', 'make-custom-app-2')) })],
 			['a status (CLAUDE_CONFIG_DIR)', fullFacts({ configDirIsDefault: false })],
 			['an action (a conflicting secrets value)', fullFacts({ secretsText: `openai-api-key: ${FAKE.otherToken}\n` })],
@@ -2110,7 +2117,7 @@ describe('planLines', () => {
 		const edited = `# Notes\n\n${SENTINEL_OPEN}\n# Make Custom App Skill\n\nMy own words.\n${SENTINEL_CLOSE}\n`;
 		const facts = fullFacts({
 			claudeMd: { file: PLAN_PATHS.claudeMd, realPath: PLAN_PATHS.claudeMd, text: edited, mode: 0o644, utf8Exact: true },
-			claudeEnv: { path: PLAN_PATHS.claudeEnv, text: `${INSTALLER_ENV_TEXT}OTHER_TOKEN=${FAKE.otherToken}\n`, mode: 0o644, utf8Exact: true },
+			claudeEnv: { path: PLAN_PATHS.claudeEnv, text: `${INSTALLER_ENV_TEXT}OTHER_TOKEN=${FAKE.otherToken}\n`, mode: 0o644, utf8Exact: true, insideSkill: true },
 			cursorSkill: skillFacts(PLAN_PATHS.cursorSkill, { symlink: true, linkTarget: target }),
 		});
 		assert.deepEqual(planLines(buildPlan(facts)), [
@@ -2249,13 +2256,15 @@ describe('restoreDecision', () => {
 		}
 	});
 
-	it('restoreDecision: a step that never ran, failed, or is already restored is left alone, and a step without a state counts as running', () => {
+	it('restoreDecision: a step that never ran, failed, is already restored, has no state, or has an unknown state is left alone', () => {
 		for (const state of ['pending', 'failed', 'restored', 'restore-skipped']) {
 			assert.equal(restoreDecision({ type: 'directory', state }, reality({ backupExists: true })), 'skip', state);
 			assert.equal(restoreDecision({ type: 'text-block', state }, reality()), 'skip', state);
 			assert.equal(restoreDecision({ type: 'env-file', action: 'delete', state }, reality()), 'skip', state);
 		}
-		assert.equal(restoreDecision({ type: 'directory' }, reality({ backupExists: true })), 'restore');
+		assert.equal(restoreDecision({ type: 'directory' }, reality({ backupExists: true })), 'skip');
+		assert.equal(restoreDecision({ type: 'directory', state: null }, reality({ backupExists: true })), 'skip');
+		assert.equal(restoreDecision({ type: 'text-block', state: 'unknown' }, reality()), 'skip');
 	});
 
 	it('restoreDecision refuses an unknown type, an unknown action, and missing arguments', () => {
@@ -2331,9 +2340,10 @@ describe('the plan: odd facts and hand-made plans', () => {
 		assert.equal(windows.backupRoot, 'C:\\Users\\someone\\.make-custom-app');
 		const trailing = buildPlan({ home: `${PLAN_HOME}/` });
 		assert.equal(trailing.backupRoot, path.join(PLAN_HOME, '.make-custom-app'));
-		const root = buildPlan(fullFacts({ home: '/' }));
+		const rootPaths = oldInstallPaths('/');
+		const root = buildPlan({ home: '/', claudeSkill: skillFacts(rootPaths.claudeSkill) });
 		assert.equal(root.backupRoot, '/.make-custom-app');
-		assert.ok(root.lines.some((line) => line.includes(PLAN_PATHS.claudeSkill)), 'a home of / shortens nothing');
+		assert.ok(root.lines.includes('  move    /.claude/skills/make-custom-app (old skill folder, version 2.3.13, 12 files)'), 'a home of / shortens nothing');
 	});
 
 	it('buildPlan: a symbolic link without a target and an empty context entry still give notices that name no value', () => {
@@ -2356,8 +2366,351 @@ describe('the plan: odd facts and hand-made plans', () => {
 		]);
 	});
 
+	it('buildPlan: a members list that is not a list, and members that are not objects or have no key, give no Cursor item', () => {
+		const base = cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) });
+		const noList = buildPlan(fullFacts({ cursorMembers: { ...base, members: 'none' } }));
+		assert.equal(idsOf(noList).some((id) => id.startsWith('cursor.mcp-entry')), false);
+		const junk = buildPlan(fullFacts({ cursorMembers: { ...base, members: [null, 5, 'x', { entry: registrationOf(PLAN_PATHS.cursorSkill), withoutOwn: judged(registrationOf(PLAN_PATHS.cursorSkill)) }, { key: 7, withoutOwn: judged(registrationOf(PLAN_PATHS.cursorSkill)) }] } }));
+		assert.equal(idsOf(junk).some((id) => id.startsWith('cursor.mcp-entry')), false);
+		assert.deepEqual(secretSources(fullFacts({ cursorMembers: { ...base, members: [null] }, claudeEntry: null, claudeEnv: null, cursorEnv: null })), []);
+	});
+
 	it('restoreDecision reads the type from a step that names it kind', () => {
-		assert.equal(restoreDecision({ kind: 'text-block' }, { markerPresent: true }), 'skip');
-		assert.equal(restoreDecision({ kind: 'json-member' }, { keyPresent: false }), 'restore');
+		assert.equal(restoreDecision({ kind: 'text-block', state: 'done' }, { markerPresent: true }), 'skip');
+		assert.equal(restoreDecision({ kind: 'json-member', state: 'running' }, { keyPresent: false }), 'restore');
+	});
+});
+
+describe('fix round 1: registration arguments never reach the plan', () => {
+	const SEED = FAKE.otherToken;
+	const OLD_CLAUDE = path.join(PLAN_PATHS.claudeSkill, 'mcp-server', 'dist', 'index.js');
+	const OLD_CURSOR = path.join(PLAN_PATHS.cursorSkill, 'mcp-server', 'dist', 'index.js');
+	const variants = (oldPath) => ({
+		'npx with a space-separated flag': [{ command: 'npx', args: ['-y', '@acme/mcp', '--api-key', SEED] }, false],
+		'mcp-remote with a header string': [{ command: 'npx', args: ['-y', 'mcp-remote', 'https://mcp.example.test/sse', '--header', `Authorization: Bearer ${SEED}`] }, false],
+		'a positional secret after an absolute command': [{ command: '/usr/local/bin/acme-mcp', args: [SEED] }, false],
+		'url userinfo': [{ command: 'npx', args: ['mcp-remote', `https://user:${SEED}@example.test/mcp`] }, false],
+		'a secret in the url path': [{ command: 'npx', args: ['mcp-remote', `https://example.test/mcp/${SEED}`] }, false],
+		'a command string that holds the secret': [{ command: `TOKEN ${SEED}` }, false],
+		'a shell string that holds the secret': [{ command: 'sh', args: ['-c', `node /opt/x.js --key ${SEED}`] }, false],
+		'the secret as the command': [{ command: SEED }, false],
+		'type, url, headers, and env': [{ type: 'http', url: `https://example.test/?key=${SEED}`, headers: { Authorization: `Bearer ${SEED}` }, env: { OPENAI_API_KEY: SEED } }, false],
+		'a secret after an old path': [{ command: '/usr/bin/node', args: [oldPath, '--token', SEED] }, true],
+		'a header after an old path': [{ command: '/usr/bin/node', args: [oldPath, '--header', `Authorization: Bearer ${SEED}`] }, true],
+		'an option with the old path inside': [{ command: '/usr/bin/node', args: [`--entry=${oldPath}`, '--token', SEED] }, true],
+	});
+	const everywhere = (plan) => [JSON.stringify(plan), plan.lines.join('\n'), util.inspect(plan, { depth: 20 }), ...plan.items.map((item) => `${item.reason}\n${item.fix}\n${JSON.stringify(item.fingerprint)}`)].join('\n');
+
+	it('a Claude registration with a secret in any argument form shows no seed in the plan, its lines, or its fingerprint', () => {
+		for (const [name, [entry, isOld]] of Object.entries(variants(OLD_CLAUDE))) {
+			let plan;
+			assert.doesNotThrow(() => {
+				plan = buildPlan(fullFacts({ claudeEntry: claudeEntryFacts(entry) }));
+			}, name);
+			const item = itemOf(plan, 'claude.mcp-entry');
+			assert.equal(item.status, isOld ? 'ready' : 'manual', name);
+			assert.ok(!everywhere(plan).includes(SEED), `${name} shows the seed`);
+			assert.ok(!util.inspect(fingerprint({ kind: 'claude-mcp-entry', entry }), { depth: 20 }).includes(SEED), name);
+			assert.match(item.fingerprint, /^[0-9a-f]{64}$/, name);
+		}
+	});
+
+	it('an old Cursor member with a secret in any argument form shows no seed anywhere', () => {
+		for (const [name, [entry, isOld]] of Object.entries(variants(OLD_CURSOR))) {
+			const members = { 'make-app-context': entry, legacy: registrationOf(PLAN_PATHS.cursorSkill) };
+			let plan;
+			assert.doesNotThrow(() => {
+				plan = buildPlan(fullFacts({ cursorMembers: cursorFileFacts(members), cursorEnv: null }));
+			}, name);
+			const item = itemOf(plan, 'cursor.mcp-entry.make-app-context');
+			assert.equal(item !== undefined, isOld, name);
+			if (isOld) assert.equal(item.status, 'ready', name);
+			assert.ok(!everywhere(plan).includes(SEED), `${name} shows the seed`);
+		}
+	});
+
+	it('serverPath shows only an absolute path: a fallback has no space, equals sign, or at sign, and an old path may hold spaces', () => {
+		const show = (entry, secretsText = '') => itemOf(buildPlan(fullFacts({ claudeEntry: claudeEntryFacts(entry), secretsText })), 'claude.mcp-entry');
+		const windows = 'C:\\Users\\John Smith\\.claude\\skills\\make-custom-app\\mcp-server\\dist\\index.js';
+		const spaced = show({ command: 'C:\\Program Files\\nodejs\\node.exe', args: [windows] });
+		assert.equal(spaced.status, 'ready');
+		assert.equal(spaced.serverPath, windows);
+		assert.equal(show({ command: '/usr/bin/node', args: ['/opt/my dir/server.js'] }).serverPath, '/usr/bin/node');
+		assert.equal(show({ command: '/usr/bin/node', args: ['/opt/a@b/server.js'] }).serverPath, '/usr/bin/node');
+		assert.equal(show({ command: '/usr/bin/node', args: ['/opt/a=b/server.js'] }).serverPath, '/usr/bin/node');
+		assert.equal(show({ command: 'node', args: ['server.js', 'relative/dir/x.js'] }).serverPath, null);
+		const home = show({ command: '/usr/bin/node', args: [`${PLAN_PATHS.claudeSkill}/mcp-server@1/index.js`] });
+		assert.equal(home.status, 'ready');
+		assert.equal(home.serverPath, '/usr/bin/node');
+		const unknown = show({ command: SEED, args: [SEED] });
+		assert.equal(unknown.serverPath, null);
+		assert.match(unknown.reason, /\(server unknown\)\.$/);
+		assert.ok(!JSON.stringify(unknown).includes(SEED));
+		const planned = buildPlan(fullFacts({ claudeEntry: claudeEntryFacts({ command: SEED, args: [SEED] }) }));
+		assert.ok(planned.lines.some((line) => line.includes('(server unknown)')));
+	});
+});
+
+describe('fix round 1: a plugin installed as a skills folder is never planned', () => {
+	const labelsOf = (facts) => secretSources(facts).map((source) => source.label);
+	const noFolderItems = (plan, group, paths) => {
+		assert.equal(itemOf(plan, `${group}.skill-dir`), undefined);
+		assert.equal(itemOf(plan, `${group}.env-file`), undefined);
+		for (const item of plan.items) for (const dir of paths) assert.ok(item.path !== dir && !item.path.startsWith(dir + path.sep), `${item.id} lies in ${dir}`);
+		assert.ok(!plan.notices.some((notice) => notice.kind === 'symlink-target'));
+	};
+
+	it('a Claude skills folder with a plugin marker or the running plugin inside is no item, no source, and its registration is manual', () => {
+		const entry = registrationOf(PLAN_PATHS.claudeSkill);
+		const cases = [
+			['.claude-plugin', { claudeSkill: skillFacts(PLAN_PATHS.claudeSkill, { topNames: ['.claude-plugin', 'skills', 'shared', 'mcp'] }) }],
+			['.cursor-plugin', { claudeSkill: skillFacts(PLAN_PATHS.claudeSkill, { topNames: ['.cursor-plugin', 'skills'] }) }],
+			['the running plugin inside', { pluginRoot: path.join(PLAN_PATHS.claudeSkill, 'plugin') }],
+			['the running plugin as the folder', { pluginRoot: PLAN_PATHS.claudeSkill }],
+		];
+		for (const [name, extra] of cases) {
+			const facts = fullFacts({ claudeEntry: claudeEntryFacts(entry), ...extra });
+			const plan = buildPlan(facts);
+			noFolderItems(plan, 'claude', [PLAN_PATHS.claudeSkill]);
+			assert.equal(itemOf(plan, 'claude.mcp-entry').status, 'manual', name);
+			assert.deepEqual(labelsOf(facts).filter((label) => label.startsWith('claude')), [], name);
+			assert.equal(itemOf(plan, 'cursor.skill-dir').status, 'ready', name);
+			assert.ok(!plan.notices.some((notice) => notice.kind === 'claude-backup-copy'), name);
+		}
+	});
+
+	it('a Cursor skills folder or rules folder that is a plugin, or holds the running plugin, is no item, no source, and its member is not listed', () => {
+		const server = { 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) };
+		const skillCases = [
+			['.cursor-plugin', { cursorSkill: skillFacts(PLAN_PATHS.cursorSkill, { topNames: ['.cursor-plugin'] }) }],
+			['.claude-plugin', { cursorSkill: skillFacts(PLAN_PATHS.cursorSkill, { topNames: ['.claude-plugin'] }) }],
+			['the running plugin inside', { pluginRoot: path.join(PLAN_PATHS.cursorSkill, 'plugin') }],
+		];
+		for (const [name, extra] of skillCases) {
+			const facts = fullFacts({ cursorMembers: cursorFileFacts(server), ...extra });
+			const plan = buildPlan(facts);
+			noFolderItems(plan, 'cursor', [PLAN_PATHS.cursorSkill]);
+			assert.equal(idsOf(plan).some((id) => id.startsWith('cursor.mcp-entry')), false, name);
+			assert.deepEqual(labelsOf(facts).filter((label) => label.startsWith('cursor')), [], name);
+		}
+		const rulesCases = [
+			['.cursor-plugin', { cursorRules: { path: PLAN_PATHS.cursorRules, names: ['.cursor-plugin', 'a.mdc'], fileCount: 2, sizeBytes: 1 } }],
+			['.claude-plugin', { cursorRules: { path: PLAN_PATHS.cursorRules, names: ['.claude-plugin'], fileCount: 1, sizeBytes: 1 } }],
+			['the running plugin inside', { pluginRoot: path.join(PLAN_PATHS.cursorRules, 'plugin') }],
+		];
+		for (const [name, extra] of rulesCases) {
+			const plan = buildPlan(fullFacts(extra));
+			assert.equal(itemOf(plan, 'cursor.rules-dir'), undefined, name);
+			assert.equal(itemOf(plan, 'cursor.skill-dir').status, 'ready', name);
+		}
+	});
+
+	it('a folder with an ordinary name and no plugin marker is still planned', () => {
+		const plan = buildPlan(fullFacts({ pluginRoot: path.join(PLAN_PATHS.claudeSkill, '..', 'make-custom-app-2', 'plugin') }));
+		assert.equal(itemOf(plan, 'claude.skill-dir').status, 'ready');
+		const unrelated = buildPlan(fullFacts({ pluginRoot: undefined }));
+		assert.equal(itemOf(unrelated, 'claude.skill-dir').status, 'ready');
+	});
+});
+
+describe('fix round 1: an .env that is not inside the old skill folder', () => {
+	const linked = (insideSkill) => fullFacts({
+		claudeEntry: null,
+		cursorMembers: null,
+		cursorEnv: null,
+		secretsText: '',
+		claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill },
+	});
+
+	it('insideSkill false, missing, or not true gives no env-file item and no path outside the old install, and the keys still count', () => {
+		const allowed = new Set(Object.values(PLAN_PATHS));
+		for (const insideSkill of [false, undefined, 'yes', 1, null]) {
+			const facts = linked(insideSkill);
+			const plan = buildPlan(facts);
+			assert.equal(itemOf(plan, 'claude.env-file'), undefined, String(insideSkill));
+			assert.ok(!JSON.stringify(plan).includes(PLAN_PATHS.claudeEnv), String(insideSkill));
+			for (const item of plan.items) assert.ok(allowed.has(item.path), item.path);
+			assert.deepEqual(secretSources(facts).map((source) => source.label), ['claude-env']);
+			assert.deepEqual(plan.secrets.copy, ['pinecone-api-key', 'openai-api-key', 'pinecone-index-name']);
+			assert.equal(itemOf(plan, 'claude.skill-dir').status, 'ready');
+		}
+		assert.equal(itemOf(buildPlan(linked(true)), 'claude.env-file').action, 'delete');
+	});
+
+	it('the same holds for the Cursor .env', () => {
+		const facts = fullFacts({ claudeEntry: null, cursorMembers: null, claudeEnv: null, cursorEnv: { path: PLAN_PATHS.cursorEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: false } });
+		const plan = buildPlan(facts);
+		assert.equal(itemOf(plan, 'cursor.env-file'), undefined);
+		assert.ok(!JSON.stringify(plan).includes(PLAN_PATHS.cursorEnv));
+		assert.deepEqual(secretSources(facts).map((source) => source.label), ['cursor-env']);
+	});
+});
+
+describe('fix round 1: secret sources need the skill folder they come from', () => {
+	const labels = (facts) => secretSources(facts).map((source) => source.label);
+
+	it('secretSources ignores a Claude or Cursor .env when the matching skill facts are null, and keeps it for a symbolic link', () => {
+		assert.deepEqual(labels(fullFacts({ claudeSkill: null })), ['claude-registration', 'cursor-registration:make-app-context', 'cursor-env']);
+		assert.deepEqual(labels(fullFacts({ cursorSkill: null })), ['claude-registration', 'claude-env', 'cursor-registration:make-app-context']);
+		assert.deepEqual(labels(fullFacts({ claudeSkill: null, cursorSkill: null })), ['claude-registration', 'cursor-registration:make-app-context']);
+		const linkedBoth = fullFacts({ claudeSkill: skillFacts(PLAN_PATHS.claudeSkill, { symlink: true, linkTarget: path.join(TEST_ROOT, 'a') }), cursorSkill: skillFacts(PLAN_PATHS.cursorSkill, { symlink: true, linkTarget: path.join(TEST_ROOT, 'b') }) });
+		assert.deepEqual(labels(linkedBoth), ['claude-registration', 'claude-env', 'cursor-registration:make-app-context', 'cursor-env']);
+		assert.throws(() => secretSources({}), TypeError);
+	});
+
+	it('buildPlan does not copy a key from an .env whose skill folder is not planned', () => {
+		const plan = buildPlan(fullFacts({ claudeSkill: null, cursorSkill: null, claudeEntry: null, cursorMembers: null, secretsText: '' }));
+		assert.deepEqual(plan.secrets, { copy: [], conflicts: [] });
+	});
+});
+
+describe('fix round 1: an unusable plugin', () => {
+	const UNUSABLE = 'The plugin is not usable in this session, so nothing will be removed.';
+	const usable = { recorded: true, userScope: true, enabled: true, installPath: PLAN_PLUGIN_ROOT, version: '3.0.0', runningFromInstall: true };
+
+	it('each missing condition makes confirmRequired false and puts one line first, without changing the items or the digest', () => {
+		const good = buildPlan(fullFacts());
+		assert.equal(good.confirmRequired, true);
+		assert.ok(!good.lines.includes(UNUSABLE));
+		for (const flag of ['recorded', 'userScope', 'enabled', 'runningFromInstall']) {
+			for (const value of [false, undefined]) {
+				const plan = buildPlan(fullFacts({ plugin: { ...usable, [flag]: value } }));
+				assert.equal(plan.confirmRequired, false, `${flag} ${value}`);
+				assert.equal(plan.lines[0], UNUSABLE, flag);
+				assert.deepEqual(plan.lines.slice(1), good.lines, flag);
+				assert.equal(plan.lines.filter((line) => line === UNUSABLE).length, 1);
+				assert.equal(plan.digest, good.digest, flag);
+				assert.deepEqual(plan.items, good.items, flag);
+			}
+		}
+		for (const plugin of [null, undefined, {}]) {
+			const plan = buildPlan(fullFacts({ plugin }));
+			assert.equal(plan.confirmRequired, false);
+			assert.equal(plan.lines[0], UNUSABLE);
+		}
+	});
+
+	it('an empty plan stays the single line, and a hand-made plan without a plugin block gets no extra line', () => {
+		const empty = buildPlan({ home: PLAN_HOME, plugin: { recorded: false } });
+		assert.deepEqual(empty.lines, ['Nothing to remove.']);
+		assert.equal(empty.confirmRequired, false);
+		const items = [{ id: 'claude.skill-dir', group: 'claude', kind: 'directory', path: PLAN_PATHS.claudeSkill, action: 'move', status: 'ready', symlink: false, version: '1', fileCount: 1 }];
+		assert.ok(!planLines({ home: PLAN_HOME, items }).includes(UNUSABLE));
+		assert.equal(planLines({ home: PLAN_HOME, items, plugin: { recorded: true, userScope: true, enabled: false, runningFromInstall: true } })[0], UNUSABLE);
+	});
+});
+
+describe('fix round 1: planLines names the keys that differ', () => {
+	const only = { claudeEntry: null, cursorMembers: null };
+
+	it('a source value that differs from the secrets file gives one note line with the key and the source, no value', () => {
+		const plan = buildPlan(fullFacts({ ...only, secretsText: `openai-api-key: ${FAKE.otherToken}\n` }));
+		assert.deepEqual(plan.lines.slice(0, 4), [
+			'Claude Code items:',
+			'  copy    pinecone-api-key, pinecone-index-name into ~/.make-custom-app-skill-secrets (values already there win)',
+			'  note    openai-api-key: the value in claude-env, cursor-env differs from your secrets file; the secrets file value stays, and the old value is kept in the backup',
+			'  remove  the old skill block from ~/.claude/CLAUDE.md (lines 3 to 7)',
+		]);
+		assert.ok(plan.lines.includes('  keep    ~/.claude/skills/make-custom-app/mcp-server/.env in the backup (it holds a value that is not in your secrets file)'));
+		for (const seed of SECRET_SEEDS) assert.ok(!plan.lines.join('\n').includes(seed));
+	});
+
+	it('two sources that differ with no secrets file value give one note line naming who is copied', () => {
+		const other = INSTALLER_ENV_TEXT.replace(FAKE.pinecone, FAKE.conflictPinecone);
+		const plan = buildPlan(fullFacts({ ...only, secretsText: '', cursorEnv: { path: PLAN_PATHS.cursorEnv, text: other, mode: 0o644, utf8Exact: true, insideSkill: true } }));
+		assert.ok(plan.lines.includes('  note    pinecone-api-key: claude-env and cursor-env hold different values; the value in claude-env is copied and the others are kept in the backup'));
+		assert.equal(plan.lines.filter((line) => line.startsWith('  note    ')).length, 1);
+		for (const seed of SECRET_SEEDS) assert.ok(!plan.lines.join('\n').includes(seed));
+	});
+
+	it('the note lines go under the first group with a ready item, after the copy line, and are absent without a conflict', () => {
+		const plan = buildPlan(fullFacts({ claudeEntry: null, claudeMd: null, claudeSkill: null, claudeEnv: null, cursorMembers: null, secretsText: `openai-api-key: ${FAKE.otherToken}\n` }));
+		assert.equal(plan.lines[0], 'Cursor items (ask separately):');
+		assert.ok(plan.lines[1].startsWith('  copy    '));
+		assert.ok(plan.lines[2].startsWith('  note    openai-api-key:'));
+		assert.ok(!buildPlan(fullFacts()).lines.some((line) => line.startsWith('  note    ')));
+	});
+});
+
+describe('fix round 1: the digest, paths, keys, and formats', () => {
+	it('reformats is in the digest: a canonical Cursor file that turns compact changes it', () => {
+		const server = { 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) };
+		const canonical = buildPlan(fullFacts({ cursorMembers: cursorFileFacts(server) }));
+		const compact = buildPlan(fullFacts({ cursorMembers: cursorFileFacts(server, { compact: true }) }));
+		assert.equal(itemOf(canonical, 'cursor.mcp-entry.make-app-context').reformats, false);
+		assert.equal(itemOf(compact, 'cursor.mcp-entry.make-app-context').reformats, true);
+		assert.notEqual(canonical.digest, compact.digest);
+		assert.equal(buildPlan(fullFacts({ cursorMembers: cursorFileFacts(server, { compact: true }) })).digest, compact.digest);
+	});
+
+	it('format jsonc makes the member manual even when the text is valid JSON', () => {
+		const server = { 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) };
+		const item = itemOf(buildPlan(fullFacts({ cursorMembers: { ...cursorFileFacts(server), format: 'jsonc' } })), 'cursor.mcp-entry.make-app-context');
+		assert.equal(item.status, 'manual');
+		assert.equal(item.reason, '~/.cursor/mcp.json has comments or trailing commas, which the cleanup does not rewrite.');
+		for (const format of ['missing', 'unreadable', undefined]) assert.equal(itemOf(buildPlan(fullFacts({ cursorMembers: { ...cursorFileFacts(server), format } })), 'cursor.mcp-entry.make-app-context').status, 'manual');
+	});
+
+	it('an item path that is not an old install location is replaced by a manual item with a fixed reason, and the foreign path never appears', () => {
+		const REASON = 'The facts name a path that is not an old install location, so the cleanup does not touch it.';
+		const FIX = 'Run the plan again; if this stays, remove the old install by hand.';
+		const server = { 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) };
+		const cases = [
+			['claude.skill-dir', PLAN_PATHS.claudeSkill, { claudeSkill: skillFacts('/etc/skill') }],
+			['claude.mcp-entry', PLAN_PATHS.claudeJson, { claudeEntry: { ...claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill)), file: '/etc/passwd' } }],
+			['claude.sentinel', PLAN_PATHS.claudeMd, { claudeMd: { file: '/etc/hosts', realPath: '/etc/hosts', text: `${INSTALLER_BLOCK}\n`, mode: 0o644, utf8Exact: true } }],
+			['claude.env-file', PLAN_PATHS.claudeEnv, { claudeEnv: { path: '/etc/shadow', text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true } }],
+			['cursor.mcp-entry.make-app-context', PLAN_PATHS.cursorMcp, { cursorMembers: { ...cursorFileFacts(server), file: '/etc/cursor.json' } }],
+			['cursor.skill-dir', PLAN_PATHS.cursorSkill, { cursorSkill: skillFacts('/etc/cursor-skill') }],
+			['cursor.env-file', PLAN_PATHS.cursorEnv, { cursorEnv: { path: '/etc/cursor.env', text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true } }],
+			['cursor.rules-dir', PLAN_PATHS.cursorRules, { cursorRules: { path: '/etc/rules', names: ['make-custom-app.mdc'], fileCount: 1, sizeBytes: 1 } }],
+		];
+		const allowed = new Set(Object.values(PLAN_PATHS));
+		for (const [id, expected, extra] of cases) {
+			const facts = fullFacts({ contextsDirs: ['/etc', PLAN_PATHS.claudeContexts], ...extra });
+			const plan = buildPlan(facts);
+			const item = itemOf(plan, id);
+			if (id === 'claude.env-file' || id === 'cursor.env-file') {
+				assert.equal(item.status, 'manual', id);
+			} else if (id !== 'claude.skill-dir' && id !== 'cursor.skill-dir') {
+				assert.equal(item.status, 'manual', id);
+			} else {
+				assert.equal(item.status, 'manual', id);
+			}
+			assert.equal(item.path, expected, id);
+			assert.equal(item.reason, REASON, id);
+			assert.equal(item.fix, FIX, id);
+			assert.equal(item.group, id.split('.')[0]);
+			assert.ok(!JSON.stringify(plan).includes('/etc'), id);
+			for (const entry of plan.items) assert.ok(allowed.has(entry.path), `${id}: ${entry.path}`);
+			assert.deepEqual(plan.notices.filter((notice) => notice.kind === 'contexts').map((notice) => notice.file), [PLAN_PATHS.claudeContexts], id);
+			assert.ok(plan.lines.includes(`  ${id}: ${REASON} Fix: ${FIX}`), id);
+			assert.equal(plan.digest, buildPlan(facts).digest);
+		}
+	});
+
+	it('a registration, an .env, or a CLAUDE.md at a foreign path is no secret source and no own-line notice', () => {
+		const foreignEntry = { ...claudeEntryFacts(registrationOf(PLAN_PATHS.claudeSkill)), file: '/etc/passwd' };
+		const foreignEnv = { path: '/etc/shadow', text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true };
+		const foreignMembers = { ...cursorFileFacts({ 'make-app-context': registrationOf(PLAN_PATHS.cursorSkill) }), file: '/etc/cursor.json' };
+		const facts = fullFacts({ claudeEntry: foreignEntry, claudeEnv: foreignEnv, cursorEnv: foreignEnv, cursorMembers: foreignMembers, secretsText: '' });
+		assert.deepEqual(secretSources(facts), []);
+		const md = { file: '/etc/hosts', realPath: '/etc/hosts', text: 'the make-custom-app skill\n', mode: 0o644, utf8Exact: true };
+		assert.deepEqual(buildPlan(fullFacts({ claudeMd: md })).notices.filter((notice) => notice.kind === 'own-line'), []);
+	});
+
+	it('env-file keys list only the three known names; every other assignment name is counted, never shown, and a change of one changes the digest', () => {
+		const text = `${INSTALLER_ENV_TEXT}${FAKE.otherToken}=\nB_NAME=1\n`;
+		const facts = (envText) => fullFacts({ claudeEntry: null, cursorMembers: null, cursorEnv: null, claudeEnv: { path: PLAN_PATHS.claudeEnv, text: envText, mode: 0o644, utf8Exact: true, insideSkill: true } });
+		const plan = buildPlan(facts(text));
+		const item = itemOf(plan, 'claude.env-file');
+		assert.deepEqual(item.keys, ['PINECONE_API_KEY', 'PINECONE_INDEX_NAME', 'OPENAI_API_KEY']);
+		assert.equal(item.other, 2);
+		assert.equal(item.action, 'keep-in-backup');
+		for (const seed of SECRET_SEEDS) assert.ok(!JSON.stringify(plan).includes(seed), seed);
+		assert.ok(!JSON.stringify(plan).includes('B_NAME'));
+		assert.notEqual(buildPlan(facts(text.replace('B_NAME', 'C_NAME'))).digest, plan.digest);
+		assert.equal(buildPlan(facts(text.replace('B_NAME=1', 'B_NAME=2'))).digest, plan.digest);
+		assert.equal(itemOf(buildPlan(facts(INSTALLER_ENV_TEXT)), 'claude.env-file').other, 0);
 	});
 });

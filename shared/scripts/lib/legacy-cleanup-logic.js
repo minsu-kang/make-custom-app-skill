@@ -9,7 +9,7 @@
  * A new rule goes here with a unit test in lib/__tests__/legacy-cleanup-logic.test.js.
  */
 const crypto = require('crypto');
-const { SENTINEL_OPEN, SENTINEL_CLOSE, isOldRegistration } = require('./legacy-install');
+const { SENTINEL_OPEN, SENTINEL_CLOSE, isOldRegistration, liesInside, oldInstallPaths } = require('./legacy-install');
 const { isPlaceholder } = require('./settings');
 
 const ENV_TO_KEY = Object.freeze({ PINECONE_API_KEY: 'pinecone-api-key', OPENAI_API_KEY: 'openai-api-key', PINECONE_INDEX_NAME: 'pinecone-index-name' });
@@ -480,14 +480,62 @@ function secretsValue(text, key) {
 	return null;
 }
 
-/** The entry of a facts holder with the plugin's own parts dropped (gatherFacts supplies it as `withoutOwn`), or null when it is missing. */
-function judgedEntry(holder) {
-	return isPlainObject(holder) && isPlainObject(holder.withoutOwn) ? holder.withoutOwn : null;
+const PLUGIN_MARKERS = Object.freeze(['.claude-plugin', '.cursor-plugin']);
+const FOREIGN_REASON = 'The facts name a path that is not an old install location, so the cleanup does not touch it.';
+const FOREIGN_FIX = 'Run the plan again; if this stays, remove the old install by hand.';
+
+function isDirFacts(dir) {
+	return isPlainObject(dir) && typeof dir.path === 'string';
+}
+
+/** The old install locations under the home of the facts. A plan never names any other path. */
+function pathsOf(facts, name) {
+	if (!isPlainObject(facts) || typeof facts.home !== 'string' || facts.home === '') throw new TypeError(`${name} needs facts with home`);
+	return oldInstallPaths(facts.home);
+}
+
+/**
+ * True when a folder is a plugin installed as a skills or rules folder (it lists `.claude-plugin` or `.cursor-plugin`)
+ * or holds the running plugin (`facts.pluginRoot` lies inside it). Removing it would remove the plugin.
+ */
+function isLookalike(facts, folder, names) {
+	if (Array.isArray(names) && PLUGIN_MARKERS.some((marker) => names.includes(marker))) return true;
+	return typeof facts.pluginRoot === 'string' && facts.pluginRoot !== '' && liesInside(facts.pluginRoot, folder);
+}
+
+/** `none` (no facts), `lookalike` (a plugin, never planned), `foreign` (not at the old install location), or `ok`. */
+function dirState(facts, dir, expectedPath, names) {
+	if (!isDirFacts(dir)) return 'none';
+	if (isLookalike(facts, dir.path, names)) return 'lookalike';
+	return dir.path === expectedPath ? 'ok' : 'foreign';
+}
+
+/** The folders that no registration part may point into: the running plugin and every folder that is a plugin. */
+function ownFoldersOf(facts) {
+	const folders = [];
+	if (typeof facts.pluginRoot === 'string' && facts.pluginRoot !== '') folders.push(facts.pluginRoot);
+	for (const dir of [facts.claudeSkill, facts.cursorSkill]) if (isDirFacts(dir) && isLookalike(facts, dir.path, dir.topNames)) folders.push(dir.path);
+	if (isDirFacts(facts.cursorRules) && isLookalike(facts, facts.cursorRules.path, facts.cursorRules.names)) folders.push(facts.cursorRules.path);
+	return folders;
+}
+
+/**
+ * The entry of a facts holder with the plugin's own parts dropped (gatherFacts supplies it as `withoutOwn`), and again
+ * without every part inside the running plugin or a folder that is a plugin (checked here from the facts, so a plan does
+ * not depend on gatherFacts for that), or null when `withoutOwn` is missing.
+ */
+function judgedEntry(holder, facts) {
+	if (!isPlainObject(holder) || !isPlainObject(holder.withoutOwn)) return null;
+	const folders = ownFoldersOf(facts);
+	if (folders.length === 0) return holder.withoutOwn;
+	const outside = (part) => typeof part === 'string' && !folders.some((folder) => liesInside(part, folder));
+	const { command, args } = holder.withoutOwn;
+	return { command: outside(command) ? command : undefined, args: Array.isArray(args) ? args.filter(outside) : args };
 }
 
 /** True when the Claude `make-custom-app` registration counts as the old skill's (Ruling 28). Without the judged entry it does not. */
 function isOldClaudeEntry(facts) {
-	const judged = judgedEntry(facts.claudeEntry);
+	const judged = judgedEntry(facts.claudeEntry, facts);
 	return judged !== null && isOldRegistration(judged, secretsValue(facts.secretsText, 'mcp-server-path'));
 }
 
@@ -496,7 +544,10 @@ function oldCursorMembers(facts) {
 	const holder = facts.cursorMembers;
 	if (!isPlainObject(holder) || !Array.isArray(holder.members)) return [];
 	return holder.members
-		.filter((member) => isPlainObject(member) && typeof member.key === 'string' && judgedEntry(member) !== null && isOldRegistration(judgedEntry(member)))
+		.filter((member) => {
+			const judged = isPlainObject(member) && typeof member.key === 'string' ? judgedEntry(member, facts) : null;
+			return judged !== null && isOldRegistration(judged);
+		})
 		.sort((a, b) => (a.key < b.key ? -1 : 1));
 }
 
@@ -514,24 +565,31 @@ function envOf(entry) {
 	return isPlainObject(entry) ? entry.env : undefined;
 }
 
-function envTextOf(holder) {
-	return isPlainObject(holder) && typeof holder.text === 'string' ? holder.text : null;
+/** The text of an old `.env` that may be a secret source: its skill folder is planned and both paths are the old install locations. */
+function sourceEnvText(facts, skill, skillPath, env, envPath) {
+	if (dirState(facts, skill, skillPath, isDirFacts(skill) ? skill.topNames : undefined) !== 'ok') return null;
+	return isPlainObject(env) && env.path === envPath && typeof env.text === 'string' ? env.text : null;
 }
 
 /**
  * Where an old install keeps its keys, in the order of Ruling 7: `claude-registration` (only when the entry counts as an
  * old registration), `claude-env`, `cursor-registration:<key>` (old members only, by key), `cursor-env`. `values` is
  * keyed by the three names of ENV_TO_KEY and holds only usable values, trimmed. A source exists when its file does, even
- * with no usable value. The values stay in memory: no other function copies them into a plan.
+ * with no usable value. A registration or `.env` counts only at its old install location; an `.env` counts only when
+ * the skill folder it belongs to is a planned folder (not null, not a plugin, even when it is a symbolic link; the `.env`
+ * need not lie inside it). The values stay in memory: no other function copies them into a plan.
  */
 function secretSources(facts) {
-	if (!isPlainObject(facts)) throw new TypeError('secretSources needs facts');
+	const paths = pathsOf(facts, 'secretSources');
 	const sources = [];
-	if (isPlainObject(facts.claudeEntry) && isOldClaudeEntry(facts)) sources.push({ label: 'claude-registration', values: usableEnvValues(envOf(facts.claudeEntry.entry)) });
-	const claudeEnv = envTextOf(facts.claudeEnv);
+	const claudeEntry = facts.claudeEntry;
+	if (isPlainObject(claudeEntry) && claudeEntry.file === paths.claudeJson && isOldClaudeEntry(facts)) sources.push({ label: 'claude-registration', values: usableEnvValues(envOf(claudeEntry.entry)) });
+	const claudeEnv = sourceEnvText(facts, facts.claudeSkill, paths.claudeSkill, facts.claudeEnv, paths.claudeEnv);
 	if (claudeEnv !== null) sources.push({ label: 'claude-env', values: usableEnvValues(parseEnvTemplate(claudeEnv, () => null).values) });
-	for (const member of oldCursorMembers(facts)) sources.push({ label: `cursor-registration:${member.key}`, values: usableEnvValues(envOf(member.entry)) });
-	const cursorEnv = envTextOf(facts.cursorEnv);
+	if (isPlainObject(facts.cursorMembers) && facts.cursorMembers.file === paths.cursorMcp) {
+		for (const member of oldCursorMembers(facts)) sources.push({ label: `cursor-registration:${member.key}`, values: usableEnvValues(envOf(member.entry)) });
+	}
+	const cursorEnv = sourceEnvText(facts, facts.cursorSkill, paths.cursorSkill, facts.cursorEnv, paths.cursorEnv);
 	if (cursorEnv !== null) sources.push({ label: 'cursor-env', values: usableEnvValues(parseEnvTemplate(cursorEnv, () => null).values) });
 	return sources;
 }
@@ -615,10 +673,11 @@ function sortedNames(names, dropDsStore) {
  * The identity of one item, so a plan that changed can be told from the one the user saw. It holds names, hashes, and
  * links, never a value, a size, a status, a count of files, or the path of the claude binary. `item.kind` selects the
  * form: a skill folder gives `{ symlink, linkTarget, skillName, version, topNames }` (`.DS_Store` out, names sorted), the
- * rules folder (id cursor.rules-dir) its sorted names, an env-file `{ names, lineCount }`, a registration or member
- * `nameOnlyEntry(entry)` reduced to its identity (entryIdentity: option values, urls, and headers are left out), a block
- * `sha256(removedText):lineStart`. The input carries these identity fields next to the public ones; buildPlan fills
- * them from the facts.
+ * rules folder (id cursor.rules-dir) its sorted names, an env-file `{ names, others, lineCount }` (the three known names,
+ * and a hash of the other assignment names), a registration or member the sha256 of the canonical JSON of its identity
+ * (entryIdentity: option values, urls, and headers are left out; the hash is all that is printed, because an argument
+ * can be a secret), a block `sha256(removedText):lineStart`. The input carries these identity fields next to the
+ * public ones; buildPlan fills them from the facts.
  */
 function fingerprint(item) {
 	if (!isPlainObject(item)) throw new TypeError('fingerprint needs an item');
@@ -632,11 +691,20 @@ function fingerprint(item) {
 				version: item.version ?? null,
 				topNames: sortedNames(item.topNames, true),
 			};
-		case 'env-file':
-			return { names: sortedNames(item.names, false), lineCount: Number.isInteger(item.lineCount) ? item.lineCount : 0 };
+		case 'env-file': {
+			const names = sortedNames(item.names, false);
+			const others = names.filter((name) => !Object.hasOwn(ENV_TO_KEY, name));
+			return {
+				names: names.filter((name) => Object.hasOwn(ENV_TO_KEY, name)),
+				others: others.length === 0 ? null : sha256(canonicalJson(others)),
+				lineCount: Number.isInteger(item.lineCount) ? item.lineCount : 0,
+			};
+		}
 		case 'claude-mcp-entry':
-		case 'json-member':
-			return entryIdentity(item.entry);
+		case 'json-member': {
+			const identity = entryIdentity(item.entry);
+			return identity === null ? null : sha256(canonicalJson(identity));
+		}
 		case 'text-block':
 			return typeof item.removedText === 'string' ? `${sha256(item.removedText)}:${item.lineStart}` : String(item.blockStatus ?? 'none');
 		default:
@@ -646,7 +714,7 @@ function fingerprint(item) {
 
 /**
  * The 16 hexadecimal characters that identify a plan: the first 16 of sha256 over the canonical JSON of every item in plan
- * order. An item counts with its id, kind, path, action, and status besides its fingerprint, so a plan that would touch
+ * order. An item counts with its id, kind, path, action, status, and `reformats` besides its fingerprint, so a plan that would touch
  * another file, do something else with it, or move an item from `manual` to `ready` has another digest. `blocked` counts
  * as `ready`: it only means that no `claude` binary was looked for or found, and a plan made without that search (as
  * check-setup makes it) must give the digest of the plan the user confirmed. `--apply <digest>` refuses when the digest it
@@ -654,7 +722,7 @@ function fingerprint(item) {
  */
 function planDigest(items) {
 	if (!Array.isArray(items)) throw new TypeError('planDigest needs a list of items');
-	const rows = items.map((item) => [item.id, item.kind ?? null, item.path ?? null, item.action ?? null, item.status === 'blocked' ? 'ready' : (item.status ?? null), item.fingerprint ?? null]);
+	const rows = items.map((item) => [item.id, item.kind ?? null, item.path ?? null, item.action ?? null, item.status === 'blocked' ? 'ready' : (item.status ?? null), item.reformats ?? null, item.fingerprint ?? null]);
 	return sha256(canonicalJson({ schema: SCHEMA, items: rows })).slice(0, 16);
 }
 
@@ -678,41 +746,46 @@ const BLOCK_FIX = `Remove the lines from ${SENTINEL_OPEN} to ${SENTINEL_CLOSE} b
 const BLOCK_WORDS = Object.freeze({ unclosed: 'unclosed', reversed: 'in the wrong order', multiple: 'repeated' });
 const BACKUP_COPY_TEXT = 'Claude Code keeps its own copy of ~/.claude.json at ~/.claude/backups/ that still holds the removed registration; this cleanup does not touch it.';
 
-function isDirFacts(dir) {
-	return isPlainObject(dir) && typeof dir.path === 'string';
-}
-
 function hasClaudeBinary(facts) {
 	return isPlainObject(facts.claude) && typeof facts.claude.binary === 'string' && facts.claude.binary !== '';
 }
 
-const OPTION_LIKE = /^-|=/;
+const SAFE_OLD_PATH = /^(?:\/|[A-Za-z]:[\\/])[^=@]*$/;
+const SAFE_FALLBACK_PATH = /^(?:\/|[A-Za-z]:[\\/])[^\s=@]*$/;
 
 /**
- * The first part of a registration that points into an old skill folder or under `mcp-server-path`, else the first
- * argument, else the command, else null. An argument that looks like an option (`-x`, `--token=...`, `NAME=value`) is
- * never the fallback, because an argument can carry a secret and the plan must not show one.
+ * The part of a registration that the plan shows as its server, and only an absolute path: the first part that points
+ * into an old skill folder or under `mcp-server-path` (it may hold spaces but no `=` or `@`), else the first argument
+ * that is an absolute path without whitespace, `=`, or `@`, else the command under the same rule, else null. Any other
+ * argument or command string is never shown, because it can carry a secret (`--api-key <value>`, a header, a URL with
+ * credentials, a bare token).
  */
 function serverPathOf(entry, judged, mcpServerPath) {
 	const partsOf = (value) => (isPlainObject(value) ? [...(Array.isArray(value.args) ? value.args : []), value.command].filter((part) => typeof part === 'string') : []);
-	const found = partsOf(judged).find((part) => isOldRegistration({ command: part }, mcpServerPath));
+	const found = partsOf(judged).find((part) => SAFE_OLD_PATH.test(part) && isOldRegistration({ command: part }, mcpServerPath));
 	if (found !== undefined) return found;
 	if (!isPlainObject(entry)) return null;
-	const argument = Array.isArray(entry.args) ? entry.args.find((part) => typeof part === 'string' && !OPTION_LIKE.test(part)) : undefined;
+	const argument = Array.isArray(entry.args) ? entry.args.find((part) => typeof part === 'string' && SAFE_FALLBACK_PATH.test(part)) : undefined;
 	if (argument !== undefined) return argument;
-	return typeof entry.command === 'string' ? entry.command : null;
+	return typeof entry.command === 'string' && SAFE_FALLBACK_PATH.test(entry.command) ? entry.command : null;
 }
 
 function envKeysOf(entry) {
 	return isPlainObject(entry) && isPlainObject(entry.env) ? Object.keys(entry.env) : [];
 }
 
-function claudeEntryItem(facts) {
+/** What replaces an item whose facts name a path that is not an old install location: a manual item at the expected path. */
+function foreignItem(id, kind, action, expectedPath) {
+	return { id, group: id.split('.')[0], kind, path: expectedPath, action, status: 'manual', reason: FOREIGN_REASON, fix: FOREIGN_FIX, fingerprint: null };
+}
+
+function claudeEntryItem(facts, paths) {
 	const holder = facts.claudeEntry;
 	if (!isPlainObject(holder) || typeof holder.file !== 'string') return null;
+	if (holder.file !== paths.claudeJson) return foreignItem('claude.mcp-entry', 'claude-mcp-entry', 'remove-entry', paths.claudeJson);
 	const entry = holder.entry;
 	const mcpServerPath = secretsValue(facts.secretsText, 'mcp-server-path');
-	const judged = judgedEntry(holder);
+	const judged = judgedEntry(holder, facts);
 	const serverPath = serverPathOf(entry, judged, mcpServerPath);
 	let status = 'ready';
 	let reason = null;
@@ -746,11 +819,12 @@ function claudeEntryItem(facts) {
 	};
 }
 
-function sentinelItem(facts) {
+function sentinelItem(facts, paths) {
 	const holder = facts.claudeMd;
 	if (!isPlainObject(holder) || typeof holder.file !== 'string' || typeof holder.text !== 'string') return null;
 	const block = findSentinelBlock(holder.text);
 	if (block.status === 'none') return null;
+	if (holder.file !== paths.claudeMd) return foreignItem('claude.sentinel', 'text-block', 'remove-block', paths.claudeMd);
 	let status = 'ready';
 	let reason = null;
 	let fix = null;
@@ -781,13 +855,18 @@ function sentinelItem(facts) {
 /**
  * The `.env` inside an old skill folder. `delete` only when the file is a template of the secrets file (Ruling 36): no
  * other assignment with a value, every usable key line equals the final secrets value, the bytes are UTF-8 exact, and a
- * render gives back the same text. Otherwise it stays in the folder, which moves into the backup. A skill folder that is
- * a symbolic link has no item: only the link moves (Ruling 38).
+ * render gives back the same text. Otherwise it stays in the folder, which moves into the backup. No item when the skill
+ * folder is not planned, is a symbolic link (only the link moves, Ruling 38), or the `.env` does not lie inside it
+ * (`insideSkill` is not true: `mcp-server` may link to a folder elsewhere, and the cleanup would unlink or change a file
+ * outside the old install). `keys` lists the known names; the other assignment names are only counted.
  */
-function envFileItem(group, skill, env, compared) {
-	if (!isDirFacts(skill) || skill.symlink === true || !isPlainObject(env) || typeof env.path !== 'string' || typeof env.text !== 'string') return null;
+function envFileItem(group, facts, skill, skillPath, env, envPath, compared) {
+	if (dirState(facts, skill, skillPath, isDirFacts(skill) ? skill.topNames : undefined) !== 'ok' || skill.symlink === true) return null;
+	if (!isPlainObject(env) || typeof env.path !== 'string' || typeof env.text !== 'string' || env.insideSkill !== true) return null;
+	if (env.path !== envPath) return foreignItem(`${group}.env-file`, 'env-file', 'keep-in-backup', envPath);
 	const parsed = parseEnvTemplate(env.text, compared.finalValue);
 	const deletable = parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
+	const keys = parsed.names.filter((name) => Object.hasOwn(ENV_TO_KEY, name));
 	return {
 		id: `${group}.env-file`,
 		group,
@@ -798,13 +877,16 @@ function envFileItem(group, skill, env, compared) {
 		reason: null,
 		fix: null,
 		fingerprint: fingerprint({ kind: 'env-file', names: parsed.names, lineCount: parsed.template.length }),
-		keys: [...parsed.names],
+		keys,
+		other: parsed.names.length - keys.length,
 		secrets: { ...compared.status },
 	};
 }
 
-function skillDirItem(group, dir) {
-	if (!isDirFacts(dir)) return null;
+function skillDirItem(group, facts, dir, expectedPath) {
+	const state = dirState(facts, dir, expectedPath, isDirFacts(dir) ? dir.topNames : undefined);
+	if (state === 'foreign') return foreignItem(`${group}.skill-dir`, 'directory', 'move', expectedPath);
+	if (state !== 'ok') return null;
 	return {
 		id: `${group}.skill-dir`,
 		group,
@@ -823,8 +905,10 @@ function skillDirItem(group, dir) {
 	};
 }
 
-function rulesDirItem(rules) {
-	if (!isPlainObject(rules) || typeof rules.path !== 'string') return null;
+function rulesDirItem(facts, rules, expectedPath) {
+	const state = dirState(facts, rules, expectedPath, isDirFacts(rules) ? rules.names : undefined);
+	if (state === 'foreign') return foreignItem(RULES_ID, 'directory', 'move', expectedPath);
+	if (state !== 'ok') return null;
 	return {
 		id: RULES_ID,
 		group: 'cursor',
@@ -853,9 +937,10 @@ function leavesLayoutAlone(text, key) {
 	}
 }
 
-function cursorMemberItems(facts) {
+function cursorMemberItems(facts, paths) {
 	const holder = facts.cursorMembers;
 	if (!isPlainObject(holder) || typeof holder.file !== 'string') return [];
+	if (holder.file !== paths.cursorMcp) return oldCursorMembers(facts).map((member) => foreignItem(`cursor.mcp-entry.${member.key}`, 'json-member', 'remove-entry', paths.cursorMcp));
 	return oldCursorMembers(facts).map((member) => {
 		const byHand = `Remove the "${member.key}" entry from ${CURSOR_JSON} by hand.`;
 		let status = 'ready';
@@ -887,17 +972,17 @@ function cursorMemberItems(facts) {
 			fix,
 			fingerprint: fingerprint({ kind: 'json-member', entry: member.entry }),
 			key: member.key,
-			serverPath: serverPathOf(member.entry, judgedEntry(member), undefined),
+			serverPath: serverPathOf(member.entry, judgedEntry(member, facts), undefined),
 			envKeys: envKeysOf(member.entry),
 			reformats,
 		};
 	});
 }
 
-function buildNotices(facts, items, short, home) {
+function buildNotices(facts, items, short, home, paths) {
 	const notices = [];
 	const holder = facts.claudeMd;
-	if (isPlainObject(holder) && typeof holder.text === 'string' && typeof holder.file === 'string') {
+	if (isPlainObject(holder) && typeof holder.text === 'string' && holder.file === paths.claudeMd) {
 		for (const line of findOwnLines(holder.text, findSentinelBlock(holder.text))) {
 			notices.push({
 				kind: 'own-line',
@@ -908,11 +993,11 @@ function buildNotices(facts, items, short, home) {
 		}
 	}
 	for (const dir of Array.isArray(facts.contextsDirs) ? facts.contextsDirs : []) {
-		if (typeof dir !== 'string' || dir === '') continue;
+		if (dir !== paths.claudeContexts && dir !== paths.cursorContexts) continue;
 		notices.push({ kind: 'contexts', file: dir, lines: [], text: `Old app contexts remain in ${short(dir)}; the plugin uses ~/.make-custom-app/contexts. The cleanup does not move or delete them.` });
 	}
-	for (const skill of [facts.claudeSkill, facts.cursorSkill]) {
-		if (!isDirFacts(skill) || skill.symlink !== true) continue;
+	for (const [skill, expectedPath] of [[facts.claudeSkill, paths.claudeSkill], [facts.cursorSkill, paths.cursorSkill]]) {
+		if (dirState(facts, skill, expectedPath, isDirFacts(skill) ? skill.topNames : undefined) !== 'ok' || skill.symlink !== true) continue;
 		const target = typeof skill.linkTarget === 'string' && skill.linkTarget !== '' ? skill.linkTarget : 'another folder';
 		notices.push({
 			kind: 'symlink-target',
@@ -926,29 +1011,40 @@ function buildNotices(facts, items, short, home) {
 	return notices;
 }
 
+/** True when the plugin is installed for the user, enabled, and this script runs from the install: the conditions of pluginGuard. */
+function pluginIsUsable(plugin) {
+	return isPlainObject(plugin) && plugin.recorded === true && plugin.userScope === true && plugin.enabled === true && plugin.runningFromInstall === true;
+}
+
 /**
  * The plan of the cleanup: what the facts about an old install allow it to remove, as the JSON that `--plan` prints
  * (schema, digest, home, editor, plugin, claude, groups, confirmRequired, secrets, items, notices, backupRoot, lines).
  * `secrets` holds the keys that would be copied into the secrets file and the conflicts, by name and label. It reads
- * nothing and holds no secret value. The facts carry each registration twice: `entry` (for the names of its env) and
- * `withoutOwn` (the same entry without the plugin's own parts, from dropOwnParts of ./legacy-install), and only
- * `withoutOwn` is judged; an entry without it is never old, so it is never `ready`. A file whose bytes are not UTF-8
- * exact (`utf8Exact` not true) is never rewritten or deleted.
+ * nothing and holds no secret value (a registration is shown only by an absolute path and a hash). The facts carry each
+ * registration twice: `entry` (for the names of its env) and `withoutOwn` (the same entry without the plugin's own
+ * parts, from dropOwnParts of ./legacy-install), and only `withoutOwn` is judged; an entry without it is never old, so
+ * it is never `ready`. A file whose bytes are not UTF-8 exact (`utf8Exact` not true) is never rewritten or deleted. A
+ * skill, rules, or plugin folder that is a plugin (a marker folder, or the running plugin inside it) is never planned,
+ * an `.env` is planned only when `insideSkill` is true, and an item whose path is not the old install location under
+ * `facts.home` becomes a manual item at that location. When the plugin is not usable (see pluginIsUsable) nothing is
+ * `confirmRequired`; the plan and its digest stay the same, so a plan made by check-setup without a search for `claude`
+ * has the digest of the plan the user confirmed, and `preflightApply` keeps the plugin guard as its own check.
  */
 function buildPlan(facts) {
 	if (!isPlainObject(facts) || typeof facts.home !== 'string' || facts.home === '') throw new TypeError('buildPlan needs facts with home');
 	const home = facts.home;
+	const paths = pathsOf(facts, 'buildPlan');
 	const short = makeShortener(home);
 	const compared = compareSecrets(secretSources(facts), typeof facts.secretsText === 'string' ? facts.secretsText : null);
 	const items = [
-		claudeEntryItem(facts),
-		sentinelItem(facts),
-		envFileItem('claude', facts.claudeSkill, facts.claudeEnv, compared),
-		skillDirItem('claude', facts.claudeSkill),
-		...cursorMemberItems(facts),
-		envFileItem('cursor', facts.cursorSkill, facts.cursorEnv, compared),
-		skillDirItem('cursor', facts.cursorSkill),
-		rulesDirItem(facts.cursorRules),
+		claudeEntryItem(facts, paths),
+		sentinelItem(facts, paths),
+		envFileItem('claude', facts, facts.claudeSkill, paths.claudeSkill, facts.claudeEnv, paths.claudeEnv, compared),
+		skillDirItem('claude', facts, facts.claudeSkill, paths.claudeSkill),
+		...cursorMemberItems(facts, paths),
+		envFileItem('cursor', facts, facts.cursorSkill, paths.cursorSkill, facts.cursorEnv, paths.cursorEnv, compared),
+		skillDirItem('cursor', facts, facts.cursorSkill, paths.cursorSkill),
+		rulesDirItem(facts, facts.cursorRules, paths.cursorRules),
 	].filter((item) => item !== null);
 	const count = (group, status) => items.filter((item) => item.group === group && item.status === status).length;
 	const plugin = isPlainObject(facts.plugin) ? facts.plugin : {};
@@ -966,15 +1062,24 @@ function buildPlan(facts) {
 		},
 		claude: { binary: hasClaudeBinary(facts) ? facts.claude.binary : null },
 		groups: GROUPS.filter((group) => items.some((item) => item.group === group.id)).map((group) => ({ id: group.id, confirm: group.confirm, ready: count(group.id, 'ready'), blocked: count(group.id, 'blocked'), manual: count(group.id, 'manual') })),
-		confirmRequired: items.some((item) => item.status === 'ready'),
+		confirmRequired: pluginIsUsable(plugin) && items.some((item) => item.status === 'ready'),
 		secrets: { copy: PLUGIN_KEYS.filter((key) => Object.hasOwn(compared.updates, key)), conflicts: compared.conflicts },
 		items,
-		notices: buildNotices(facts, items, short, home),
+		notices: buildNotices(facts, items, short, home, paths),
 		backupRoot: joinPath(home, '.make-custom-app'),
 		lines: [],
 	};
 	plan.lines = planLines(plan);
 	return plan;
+}
+
+const UNUSABLE_PLUGIN_LINE = 'The plugin is not usable in this session, so nothing will be removed.';
+
+/** One line about a key whose value differs between sources: the key, the source labels, and what happens; never a value. */
+function conflictLine(conflict) {
+	const others = conflict.others.join(', ');
+	if (conflict.used === SECRETS_FILE_LABEL) return `  note    ${conflict.key}: the value in ${others} differs from your secrets file; the secrets file value stays, and the old value is kept in the backup`;
+	return `  note    ${conflict.key}: ${conflict.used} and ${others} hold different values; the value in ${conflict.used} is copied and the others are kept in the backup`;
 }
 
 function readyLine(item, short) {
@@ -1004,15 +1109,18 @@ function planLines(plan) {
 	if (plan.items.length === 0) return ['Nothing to remove.'];
 	const short = makeShortener(plan.home);
 	const copy = isPlainObject(plan.secrets) && Array.isArray(plan.secrets.copy) ? plan.secrets.copy : [];
+	const conflicts = isPlainObject(plan.secrets) && Array.isArray(plan.secrets.conflicts) ? plan.secrets.conflicts.filter((conflict) => isPlainObject(conflict) && Array.isArray(conflict.others)) : [];
 	const lines = [];
-	let copyShown = copy.length === 0;
+	if (isPlainObject(plan.plugin) && !pluginIsUsable(plan.plugin)) lines.push(UNUSABLE_PLUGIN_LINE);
+	let extrasShown = copy.length === 0 && conflicts.length === 0;
 	for (const group of GROUPS) {
 		const ready = plan.items.filter((item) => item.group === group.id && item.status === 'ready');
 		if (ready.length === 0) continue;
 		lines.push(group.heading);
-		if (!copyShown) {
-			lines.push(`  copy    ${copy.join(', ')} into ~/.make-custom-app-skill-secrets (values already there win)`);
-			copyShown = true;
+		if (!extrasShown) {
+			if (copy.length > 0) lines.push(`  copy    ${copy.join(', ')} into ~/.make-custom-app-skill-secrets (values already there win)`);
+			for (const conflict of conflicts) lines.push(conflictLine(conflict));
+			extrasShown = true;
 		}
 		for (const item of ready) lines.push(readyLine(item, short));
 	}
@@ -1042,8 +1150,8 @@ function backupFolderName(now, exists) {
  * What the restore does with one manifest step, from what is on disk now (`reality`): `restore`, `skip` (it is back
  * already), or `missing` (nothing to restore from). The fields of `reality`: `originalExists` and `backupExists` for a
  * directory, `fileExists` for an env-file, `markerPresent` for a text-block (its open marker), `keyPresent` for a
- * registration or a Cursor member. Only a step in state `done` or `running` (or with no state) is restored; any other
- * state is `skip`, so a step that never ran, failed, or is restored already is never written. A `secrets` step restores
+ * registration or a Cursor member. Only a step in state `done` or `running` is restored; any other state, and no state,
+ * is `skip`, so a step that never ran, failed, or is restored already is never written. A `secrets` step restores
  * nothing (added keys stay), so it is `skip`.
  */
 function restoreDecision(step, reality) {
@@ -1051,7 +1159,7 @@ function restoreDecision(step, reality) {
 	const type = step.type ?? step.kind;
 	if (!['directory', 'env-file', 'text-block', 'claude-mcp-entry', 'json-member', 'secrets'].includes(type)) throw new TypeError('restoreDecision needs a step of a known type');
 	if (type === 'env-file' && step.action !== 'delete' && step.action !== 'keep-in-backup') throw new TypeError('restoreDecision needs an env-file step with an action');
-	if (step.state !== undefined && step.state !== 'done' && step.state !== 'running') return 'skip';
+	if (step.state !== 'done' && step.state !== 'running') return 'skip';
 	switch (type) {
 		case 'directory':
 			if (reality.originalExists === true) return 'skip';

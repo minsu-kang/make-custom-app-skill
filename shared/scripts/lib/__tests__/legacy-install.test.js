@@ -18,6 +18,7 @@ const {
 	pointsIntoOldSkill,
 	readMcpServers,
 	isOldRegistration,
+	liesInside,
 	readMcpConfig,
 	oldInstallPaths,
 	isLookalikeSkillDir,
@@ -1300,5 +1301,24 @@ describe('buildFakeLegacyHome', () => {
 			]);
 			assert.ok(snapshot(dir).has('skip-me/e.txt'));
 		});
+	});
+});
+
+describe('liesInside', () => {
+	it('liesInside: the folder itself, a path below it, either separator, and no sibling that shares a prefix', () => {
+		assert.equal(liesInside('/a/b', '/a/b'), true);
+		assert.equal(liesInside('/a/b/c/d', '/a/b'), true);
+		assert.equal(liesInside('/a/b/', '/a/b'), true);
+		assert.equal(liesInside('C:\\a\\b\\c', 'C:\\a\\b'), true);
+		assert.equal(liesInside('/a/bc', '/a/b'), false);
+		assert.equal(liesInside('/a', '/a/b'), false);
+		assert.equal(liesInside('/a/b/../c', '/a/b'), false);
+	});
+
+	it('liesInside: a path that is not absolute, and a filesystem root as the folder, never match', () => {
+		assert.equal(liesInside('a/b', 'a'), false);
+		assert.equal(liesInside('/a/b', 'a'), false);
+		assert.equal(liesInside('/a/b', '/'), false);
+		assert.equal(liesInside('C:/a', 'C:'), false);
 	});
 });

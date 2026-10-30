@@ -97,6 +97,7 @@ function absolutePath(value) {
 	return unified.length > 1 && unified.endsWith('/') ? unified.slice(0, -1) : unified;
 }
 
+/** True when the absolute path `file` is the folder or lies inside it (either separator; false for a path that is not absolute and for a filesystem root as the folder). */
 function liesInside(file, folder) {
 	const target = absolutePath(file);
 	const base = absolutePath(folder);
@@ -271,6 +272,7 @@ module.exports = {
 	SENTINEL_CLOSE,
 	OLD_SKILL_FOLDER,
 	pointsIntoOldSkill,
+	liesInside,
 	readMcpServers,
 	isOldRegistration,
 	readMcpConfig,
