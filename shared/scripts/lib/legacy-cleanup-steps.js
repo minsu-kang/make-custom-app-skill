@@ -973,7 +973,7 @@ function recheck(run, item, patch, extra = () => true) {
 	return fresh !== undefined && fresh.status === 'ready' && fresh.path === item.path && fresh.action === item.action && canonicalJson(fresh.fingerprint) === canonicalJson(item.fingerprint) && extra(fresh);
 }
 
-/** Writes `text` over `target` through a temp file in the same folder (flag `wx`, the old mode), unless the bytes of `target` are no longer `original`. Returns false then. */
+/** Writes `text` over `target` through a temp file in the same folder (flag `wx`, `mode`: the current mode of `target`, as the caller just read it), unless the bytes of `target` are no longer `original`. Returns false then. */
 function replaceFile(run, target, text, original, mode) {
 	const temp = `${target}.${process.pid}.tmp`;
 	let created = false;
@@ -1699,7 +1699,7 @@ function restoreTextBlock(run, entry) {
 	if (!utf8Exact) throw notUtf8(step.file);
 	const result = restoreBlock(text, step);
 	if (restoreDecision(step, { markerPresent: result.how === 'present' }) === 'skip') return skipped('the block is already there');
-	if (!replaceFile(run, entry.realPath, result.text, read.buffer, step.mode)) throw changedWhileRestoring('~/.claude/CLAUDE.md');
+	if (!replaceFile(run, entry.realPath, result.text, read.buffer, read.mode)) throw changedWhileRestoring('~/.claude/CLAUDE.md');
 	return restored(result.how === 'appended' ? APPENDED_TEXT : '');
 }
 
@@ -1712,7 +1712,7 @@ function restoreJsonMember(run, entry) {
 	if (restoreDecision(step, { keyPresent }) === 'skip') return skipped('the member exists again');
 	const layout = { position: step.position, indent: step.indent, eol: step.eol, trailingNewline: step.trailingNewline };
 	const next = insertJsonMember(text, step.key, resolveEntry(run, step.entry), layout);
-	if (!replaceFile(run, entry.realPath, next, read.buffer, step.mode)) throw changedWhileRestoring('~/.cursor/mcp.json');
+	if (!replaceFile(run, entry.realPath, next, read.buffer, read.mode)) throw changedWhileRestoring('~/.cursor/mcp.json');
 	return restored();
 }
 

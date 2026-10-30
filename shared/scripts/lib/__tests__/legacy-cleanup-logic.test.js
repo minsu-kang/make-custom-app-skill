@@ -589,6 +589,23 @@ describe('parseEnvTemplate and renderEnvTemplate', () => {
 		assert.equal(renderEnvTemplate(parsed, secretValue), text);
 	});
 
+	it('unknownLines counts a commented-out key, a colon form, and any other line that is not an assignment; empty lines, comments without =, and assignments are not counted', () => {
+		const counted = [`# OPENAI_API_KEY=${FAKE.otherToken}`, `  #PINECONE_API_KEY = ${FAKE.pinecone}`, `OPENAI_API_KEY: ${FAKE.otherToken}`, `PINECONE_API_KEY ${FAKE.pinecone}`, FAKE.otherToken, `1BAD=${FAKE.otherToken}`, '=x'];
+		for (const line of counted) {
+			const parsed = parseEnvTemplate(`${INSTALLER_ENV_TEXT}${line}\n`, secretValue);
+			assert.equal(parsed.unknownLines, 1, line);
+			assert.deepEqual(parsed.unknownAssignments, [], line);
+			assert.deepEqual(parsed.untemplatedSecretLines, [], line);
+			assert.equal(parsed.template.at(-1), line, `${line}: the line stays literal`);
+		}
+		const free = ['', '   ', '\t', '# Pinecone', '# OpenAI (for text-embedding-3-small)', '  # an indented comment', '#', 'EMPTY=', 'export EMPTY=  ', 'OPENAI_API_KEY=', 'PINECONE_API_KEY=your-pinecone-key', 'OPENAI_API_KEY=${env:OPENAI_API_KEY}'];
+		for (const line of free) assert.equal(parseEnvTemplate(`${line}\n${INSTALLER_ENV_TEXT}`, secretValue).unknownLines, 0, JSON.stringify(line));
+		assert.equal(parseEnvTemplate(INSTALLER_ENV_TEXT, secretValue).unknownLines, 0);
+		assert.equal(parseEnvTemplate(INSTALLER_ENV_TEXT.replace(/\n/g, '\r\n'), secretValue).unknownLines, 0);
+		assert.equal(parseEnvTemplate('', secretValue).unknownLines, 0);
+		assert.equal(parseEnvTemplate(`# a=1\nOPENAI_API_KEY: ${FAKE.otherToken}\n# b=2\n`, secretValue).unknownLines, 3);
+	});
+
 	it('a value with a line break inside it cannot be templated and is listed', () => {
 		const oneLine = `PINECONE_API_KEY=${FAKE.pinecone}\rOPENAI_API_KEY=${FAKE.openai}\r`;
 		const parsed = parseEnvTemplate(oneLine, secretValue);
@@ -1905,8 +1922,34 @@ describe('buildPlan: the .env files', () => {
 			['no final newline and a byte order mark', envFacts(`\uFEFFOPENAI_API_KEY=${FAKE.openai}`), 'delete'],
 			['a link to a file inside the folder (deleting the link would leave the file it names in the backup)', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true, linked: true } }), 'keep-in-backup'],
 			['a file that is no link', envFacts(INSTALLER_ENV_TEXT, { claudeEnv: { path: PLAN_PATHS.claudeEnv, text: INSTALLER_ENV_TEXT, mode: 0o644, utf8Exact: true, insideSkill: true, linked: false } }), 'delete'],
+			['a commented-out old key', envFacts(`${INSTALLER_ENV_TEXT}# OPENAI_API_KEY=${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a colon form', envFacts(`${INSTALLER_ENV_TEXT}OPENAI_API_KEY: ${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a bare value on its own line', envFacts(`${INSTALLER_ENV_TEXT}${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['a name that is not a valid name', envFacts(`${INSTALLER_ENV_TEXT}1BAD=${FAKE.otherToken}\n`), 'keep-in-backup'],
+			['more comments without =, an indented one, and lines of spaces', envFacts(`# keys of the old install\n  # kept by hand\n \t\n${INSTALLER_ENV_TEXT}\n`), 'delete'],
 		];
 		for (const [name, facts, expected] of cases) assert.equal(actionOf(facts), expected, name);
+	});
+
+	it('buildPlan: the .env each old installer writes, with its comments, gives delete', () => {
+		const root = path.join(__dirname, '..', '..', '..', '..');
+		const templates = {
+			'install-claude.sh': /<<ENVEOF\r?\n([\s\S]*?)\r?\nENVEOF/,
+			'install-cursor.sh': /<<ENVEOF\r?\n([\s\S]*?)\r?\nENVEOF/,
+			'install-claude.ps1': /@"\r?\n([\s\S]*?)\r?\n"@ \| Set-Content -Path \$envPath/,
+			'install-cursor.ps1': /@"\r?\n([\s\S]*?)\r?\n"@ \| Set-Content -Path \$envPath/,
+		};
+		const fakeValues = { PINECONE_API_KEY: FAKE.pinecone, PINECONE_INDEX_NAME: FAKE.index, OPENAI_API_KEY: FAKE.openai };
+		for (const [file, pattern] of Object.entries(templates)) {
+			const found = pattern.exec(fs.readFileSync(path.join(root, file), 'utf8'));
+			assert.ok(found, file);
+			const body = found[1].replace(/\r\n/g, '\n').replace(/^(PINECONE_API_KEY|PINECONE_INDEX_NAME|OPENAI_API_KEY)=\$\w+$/gm, (_, name) => `${name}=${fakeValues[name]}`);
+			const text = `${body}\n`;
+			assert.equal(text, INSTALLER_ENV_TEXT, `${file}: the fixture has the installer's comments`);
+			assert.equal(parseEnvTemplate(text, secretValue).unknownLines, 0, file);
+			assert.equal(actionOf(envFacts(text)), 'delete', file);
+			assert.equal(actionOf(envFacts(`\uFEFF${text.replace(/\n/g, '\r\n')}`)), 'delete', `${file}: with a byte order mark and CRLF, as Set-Content writes it`);
+		}
 	});
 
 	it('buildPlan: the env-file item holds names, statuses, and a line count, and a conflict is reported by key and source', () => {

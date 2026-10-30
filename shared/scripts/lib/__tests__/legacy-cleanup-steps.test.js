@@ -4317,6 +4317,34 @@ describe('applySteps: the env-file steps', () => {
 		assert.equal(fs.readFileSync(path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env'), 'utf8'), text);
 	});
 
+	it('a .env with a commented-out old key or a colon form is kept in the backup, and manifest.json holds no fake value; the installer comments alone still give a delete', POSIX_ONLY, () => {
+		const cases = {
+			'a commented-out old key': `${INSTALLER_ENV_TEXT}# OPENAI_API_KEY=${FAKE.otherToken}\n`,
+			'a colon form': `${INSTALLER_ENV_TEXT}OPENAI_API_KEY: ${FAKE.otherToken}\n`,
+			'the installer comments': INSTALLER_ENV_TEXT,
+		};
+		for (const [label, text] of Object.entries(cases)) {
+			const h = fakeHome('env-literal-lines', { editors: ['claude'], envText: text });
+			const prep = prepare(h);
+			const expected = text === INSTALLER_ENV_TEXT ? 'delete' : 'keep-in-backup';
+			assert.equal(prep.plan.items.find((item) => item.id === 'claude.env-file').action, expected, label);
+			const result = apply(h, prep, { groups: ['claude'] });
+			assert.equal(result.exitCode, 0, label);
+			const step = stepOf(manifestOf(result.backupDir), 'claude.env-file');
+			assert.equal(step.action, expected, label);
+			const kept = path.join(result.backupDir, 'claude', 'skill-dir', 'mcp-server', '.env');
+			if (expected === 'delete') {
+				assert.equal(fs.existsSync(kept), false, label);
+				assert.deepEqual(step.template.filter((line) => typeof line === 'string'), ['# Pinecone', '', '# OpenAI (for text-embedding-3-small)'], label);
+			} else {
+				assert.equal(fs.readFileSync(kept, 'utf8'), text, `${label}: the .env keeps its bytes in the backup`);
+				assert.equal(step.template, null, label);
+			}
+			const manifestText = fs.readFileSync(path.join(result.backupDir, 'manifest.json'), 'utf8');
+			for (const value of [FAKE.pinecone, FAKE.openai, FAKE.otherToken]) assert.equal(manifestText.includes(value), false, `${label}: manifest.json holds no fake value`);
+		}
+	});
+
 	it('a .env whose value changed after the plan fails its step with "the .env changed since the plan"', POSIX_ONLY, () => {
 		const cases = {
 			'a value changed': (text) => Buffer.from(text.replace(`OPENAI_API_KEY=${FAKE.openai}`, 'OPENAI_API_KEY=fake-openai-0002')),
@@ -6163,6 +6191,34 @@ describe('restoreSteps: more cases of the round trip', () => {
 		assert.equal(fs.statSync(h.paths.claudeMd).mode & 0o777, 0o640);
 		assert.equal(fs.statSync(h.paths.cursorMcp).mode & 0o777, 0o660);
 		assertBack(h, before, 'both files');
+	});
+
+	it('CLAUDE.md tightened to 0600 after the cleanup keeps 0600 through the restore, not the mode the manifest recorded', POSIX_ONLY, () => {
+		const h = fakeHome('restore-claude-md-tightened', { editors: ['claude'] });
+		fs.chmodSync(h.paths.claudeMd, 0o644);
+		const bytes = fs.readFileSync(h.paths.claudeMd);
+		const applied = apply(h, prepare(h), { groups: ['claude'] });
+		assert.equal(stepOf(manifestOf(applied.backupDir), 'claude.sentinel').mode, 0o644);
+		fs.chmodSync(h.paths.claudeMd, 0o600);
+		const result = restore(h, applied.backupDir);
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines.includes('restored claude.sentinel'), true);
+		assert.equal(fs.statSync(h.paths.claudeMd).mode & 0o777, 0o600);
+		assert.equal(bytes.equals(fs.readFileSync(h.paths.claudeMd)), true, 'the block is back');
+	});
+
+	it('~/.cursor/mcp.json tightened to 0600 after the cleanup keeps 0600 through the restore, not the mode the manifest recorded', POSIX_ONLY, () => {
+		const h = fakeHome('restore-cursor-mcp-tightened', { editors: ['cursor'] });
+		fs.chmodSync(h.paths.cursorMcp, 0o644);
+		const bytes = fs.readFileSync(h.paths.cursorMcp);
+		const applied = apply(h, prepare(h), { groups: ['cursor'] });
+		assert.equal(stepOf(manifestOf(applied.backupDir), 'cursor.mcp-entry.make-app-context').mode, 0o644);
+		fs.chmodSync(h.paths.cursorMcp, 0o600);
+		const result = restore(h, applied.backupDir);
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.lines.includes('restored cursor.mcp-entry.make-app-context'), true);
+		assert.equal(fs.statSync(h.paths.cursorMcp).mode & 0o777, 0o600);
+		assert.equal(bytes.equals(fs.readFileSync(h.paths.cursorMcp)), true, 'the member is back');
 	});
 
 	it('a Cursor file with tabs and CRLF, and one with four spaces and no final newline, come back byte-equal', POSIX_ONLY, () => {

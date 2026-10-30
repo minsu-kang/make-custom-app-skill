@@ -21,6 +21,7 @@ const INSTALLER_BLOCK_BODY =
 const OWN_LINE = /(?<![\w-])make-custom-app(?![\w-])`?\s+skill/i;
 const ENV_LINE = /^(\s*)(PINECONE_API_KEY|OPENAI_API_KEY|PINECONE_INDEX_NAME)(\s*=\s*)([\s\S]*)$/;
 const ANY_ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=([\s\S]*)$/;
+const COMMENT_WITHOUT_EQUALS = /^\s*#[^=]*$/;
 const CR_OR_LF = /[\r\n]/;
 const BOM = '\uFEFF';
 const DEFAULT_INDENT = '  ';
@@ -175,7 +176,9 @@ function usableValue(value) {
  * `names` lists every assignment name once, `unknownAssignments` the names other than the three that have a value, and
  * `untemplatedSecretLines` the names of the three whose value is usable but differs from the secrets file or has a line
  * break inside it: the file holds something the secrets file does not. An `export NAME=value` line counts as an
- * assignment of another name, because it cannot be templated.
+ * assignment of another name, because it cannot be templated. `unknownLines` counts the lines that are not an
+ * assignment, not empty, and not a comment without `=`: such a line (a commented-out key, a `NAME: value` line) may
+ * hold a value.
  * Line endings are CRLF when the text has one, so a text with mixed endings (`mixedEol`) does not render back to the same
  * bytes; rendersExactly tells a caller whether a render gives back the text it was read from.
  */
@@ -193,6 +196,7 @@ function parseEnvTemplate(text, secretValue) {
 	const names = new Set();
 	const unknownAssignments = new Set();
 	const untemplatedSecretLines = new Set();
+	let unknownLines = 0;
 	for (const line of lines) {
 		const secretLine = ENV_LINE.exec(line);
 		if (secretLine) {
@@ -214,6 +218,8 @@ function parseEnvTemplate(text, secretValue) {
 			if (other) {
 				names.add(other[1]);
 				if (other[2].trim() !== '') unknownAssignments.add(other[1]);
+			} else if (line.trim() !== '' && !COMMENT_WITHOUT_EQUALS.test(line)) {
+				unknownLines++;
 			}
 		}
 		template.push(line);
@@ -228,6 +234,7 @@ function parseEnvTemplate(text, secretValue) {
 		trailingNewline,
 		bom,
 		untemplatedSecretLines: [...untemplatedSecretLines],
+		unknownLines,
 		mixedEol,
 	};
 }
@@ -871,7 +878,8 @@ function sentinelItem(facts, paths) {
 
 /**
  * The `.env` inside an old skill folder. `delete` only when the file is a template of the secrets file (Ruling 36): no
- * other assignment with a value, every usable key line equals the final secrets value, the bytes are UTF-8 exact, and a
+ * other assignment with a value, every usable key line equals the final secrets value, every other line is empty or a
+ * comment without `=` (the template goes into the manifest, so it must hold no value), the bytes are UTF-8 exact, and a
  * render gives back the same text. Otherwise it stays in the folder, which moves into the backup. No item when the skill
  * folder is not planned, is a symbolic link (only the link moves, Ruling 38), or the `.env` does not lie inside it
  * (`insideSkill` is not true: `mcp-server` may link to a folder elsewhere, and the cleanup would unlink or change a file
@@ -883,7 +891,7 @@ function envFileItem(group, facts, skill, skillPath, env, envPath, compared) {
 	if (!isPlainObject(env) || typeof env.path !== 'string' || typeof env.text !== 'string' || env.insideSkill !== true) return null;
 	if (env.path !== envPath) return foreignItem(`${group}.env-file`, 'env-file', 'keep-in-backup', envPath);
 	const parsed = parseEnvTemplate(env.text, compared.finalValue);
-	const deletable = env.tooLarge !== true && env.linked !== true && parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
+	const deletable = env.tooLarge !== true && env.linked !== true && parsed.unknownAssignments.length === 0 && parsed.untemplatedSecretLines.length === 0 && parsed.unknownLines === 0 && env.utf8Exact === true && rendersExactly(parsed, compared.finalValue, env.text);
 	const keys = parsed.names.filter((name) => Object.hasOwn(ENV_TO_KEY, name));
 	return {
 		id: `${group}.env-file`,
