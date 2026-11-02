@@ -1,271 +1,174 @@
-# Make Custom App Skill for Cursor and Claude Code
+# Make Custom App plugin for Claude Code and Cursor
 
-An AI skill that helps you build and edit [Make.com](https://www.make.com/) custom apps using IMLJSON — directly inside [Cursor](https://cursor.sh/) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and the runtime internals of `imt-app-runtime`.
 
-Works with the **Make Apps SDK** VS Code/Cursor extension. The agent understands Make's IMLJSON format, module types, connections, RPCs, webhooks, pagination, error handling, and runtime internals.
+The plugin is for Make employees. The scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` does not check it because it only moves local files.
 
-## What It Does
+## What it does
 
-- **Write IMLJSON code** — modules (Action, Search, Trigger, Instant Trigger, Responder, Universal), connections (OAuth2, API Key, Basic), RPCs, webhooks, custom IML functions
-- **Auto-manage app context** — downloads and caches full app source code per app, persists across sessions
-- **Code review with Jira integration** — reviews uncommitted changes against Jira ticket acceptance criteria via Atlassian MCP
-- **Reference runtime internals** — knows the middleware chain, pagination logic, limits, error types, and edge cases from `imt-app-runtime`
-- **Provide real-world examples** — includes Instagram for Business (v5) as a complete reference app
+- **Nine task skills.** Each starts from one kind of request and loads only the workflow it needs: refine a ticket, investigate a bug, review code, add a feature, maintain an app, build an SDK Endpoint, answer a question, run an Endpoint or RPC live, and set up the tools.
+- **App context.** Downloads the full source of an app once, keeps it in `~/.make-custom-app/contexts` for both editors, and shares summaries through a Pinecone index.
+- **Jira integration.** Reads the ticket, reviews changes against its acceptance criteria, and writes Developer Notes, through the Atlassian MCP server.
+- **Safe writes.** Scripts that change an app run only after you have seen and approved the change. Dev work ends at the push: committing or compiling an app happens only when you ask for it.
 
 ## Prerequisites
 
-The skill is for Make employees. Every script confirms that the Atlassian account behind your Jira API token is a `@make.com` account and exits otherwise (see First Use).
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the plugin installs through it; Cursor can load the same install)
+- Node.js 20 or newer
+- The [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension, configured with an API key and an environment
+- A local clone of `integromat/imt-app-runtime` (Make internal)
+- A Jira API token of your `@make.com` Atlassian account
+- Optional: a Pinecone key and an OpenAI key for the shared app-context search
+
+## Install
+
+In your own terminal:
+
+```bash
+claude plugin marketplace add https://github.com/minsu-kang/make-custom-app-skill.git
+claude plugin install make-custom-app@make-custom-app
+```
+
+Restart Claude Code (or run `/reload-plugins`). Then:
+
+1. Ask Claude Code to set up the plugin. The `make-app-setup` skill runs `check-setup.js`, reports what is missing, and prints the interactive wizard command. Run that command **in your own terminal**: it asks for secrets, so the agent never runs it.
+2. Type `/mcp` and sign in to the `make` and `atlassian` servers of the plugin.
 
 ### Cursor
 
-- [Cursor](https://cursor.sh/) installed
-- [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension installed and configured (API key + environment)
-- Node.js (for the app download script)
-- *(Optional)* Pinecone API key + OpenAI API key — required for the shared app context MCP server (team-wide Pinecone vector DB)
-- *(Optional)* [Atlassian MCP Server](https://www.npmjs.com/package/@anthropic/atlassian-mcp-server) configured in Cursor — enables automatic Jira ticket fetching during code reviews
+Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. Cursor without Claude Code is not supported yet.
 
-### Claude Code
+## Update
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
-- Node.js (for the MCP server and app scripts)
-- [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension installed and configured (API key + environment)
-- *(Optional)* Pinecone API key + OpenAI API key — required for the shared app context MCP server (team-wide Pinecone vector DB)
-- *(Optional)* Atlassian MCP Server configured — enables Jira ticket fetching during code reviews
-
-## Installation
-
-### Cursor
-
-#### macOS / Linux
-
-**Option 1: One-liner**
+Third-party marketplaces do not update by themselves. Either turn on auto-update (`/plugin`, Marketplaces, `make-custom-app`, Enable auto-update), or update by hand with both commands, in this order:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash
+claude plugin marketplace update make-custom-app
+claude plugin update make-custom-app@make-custom-app
 ```
 
-**Option 2: Clone & install**
+The same two commands apply when Cursor loads the Claude install.
 
-```bash
-git clone https://github.com/minsu-kang/make-custom-app-skill.git
-cd make-custom-app-skill
-./install-cursor.sh
+`check-setup.js` prints an `UPDATE_AVAILABLE` line, without blocking your work, when master carries a newer version.
+
+## Coming from a 2.x install
+
+The old skill (`~/.claude/skills/make-custom-app`, or the Cursor copy) keeps working until you move. On Windows its auto-update may need a manual run of the installer.
+
+1. Release 2.4.0 of the old skill checks whether the plugin is installed. While it is not, it asks at most once a day whether to install it. Answer yes, and it runs `skill/scripts/migrate-to-plugin.js`: that runs `claude plugin marketplace add` and `claude plugin install`, copies the Pinecone and OpenAI keys of the old MCP registration and `mcp-server/.env` into `~/.make-custom-app-skill-secrets` (values already there win), and copies the app context files (`{slug}-v{n}.md` and `reviews/`) into `~/.make-custom-app/contexts`. It deletes nothing. Then restart Claude Code. If you install the plugin yourself, or 2.4.0 reaches you after the plugin, the old skill runs the same script before it hands over (it then installs nothing and only copies).
+2. In a plugin session, the `make-app-setup` skill lists the old install: the skill folder, its MCP registration in `~/.claude.json`, and the block in `~/.claude/CLAUDE.md`, and with a separate question the Cursor copy, its rule folder, and its entry in `~/.cursor/mcp.json`. It removes them only after you confirm. The folders and the removed config entries move to `~/.make-custom-app/migration-backup-<time>/`, and the old `mcp-server/.env` is deleted when it holds only keys that are in your secrets file (any other `.env` stays in its folder, in the backup). If the old skill folder is a link, only the link moves; the files the link points to, an `.env` included, stay where they are. `cleanup-legacy.js --restore` puts everything back. Claude Code keeps its own copy of `~/.claude.json` as a hidden file, `~/.claude/backups/.claude.json.backup.<time>`; that copy can still hold the old Pinecone and OpenAI keys and the tokens of your other MCP servers, and the cleanup does not touch it. If you say no, `check-setup.js` replaces its warning with a short `OLD_INSTALL_KEPT` notice for 7 days, and the question comes back after that.
+3. Your own paragraph in `~/.claude/CLAUDE.md` that says to invoke the `make-custom-app` skill is never edited: the cleanup names the line to change. The plugin's skills trigger without it.
+4. Limits of `--restore`: when it cannot finish (a folder and its backup are both gone, or the old skill path is now a link), the backup stays `partially-restored` and a bare `--restore` picks it again, so name another one with `--restore <name>` or delete that folder. A removed `.env` is written back to its old place even when you created a new skill folder there, but never into a skill folder that is now a link. When a folder has to be copied across devices, a failed copy removes the half-copied target, so files another program wrote there at that moment are lost, and on Node 22 that copy may not keep folder permissions.
+
+In Cursor, on a machine without Claude Code, release 2.4.0 says once a month that installing the plugin for Cursor alone is not supported yet; the old skill keeps working there. If the plugin is installed but disabled, the old skill says so once a day and prints `claude plugin enable make-custom-app@make-custom-app` for you to run in your own terminal; `migrate-to-plugin.js` never enables it. If you used the `mcp-server-path` option or a manual clone of the context server, the plugin's server reads the `MAKE_APP_CONTEXT_*` variables or the secrets-file keys instead (see [MCP servers](#mcp-servers)). The Windows route is not verified.
+
+## Skills
+
+| Skill | Use it for |
+|---|---|
+| `make-app-task-refinement` | Read-only feasibility study and implementation plan for a ticket in Preparation status |
+| `make-app-bug-investigation` | Root cause and fix of a bug, regression, or returned ticket, with a failing test first |
+| `make-app-code-review` | Review of a developer's changes against the Jira acceptance criteria |
+| `make-app-feature-request` | New module, RPC, webhook, connection, custom function, or app |
+| `make-app-task` | Refactor, label or UX change, metadata edit, deprecation, cleanup |
+| `make-app-endpoint` | Create or update an SDK Endpoint |
+| `make-app-question` | Questions about an app or an IMLJSON file; the default skill for any other Make app request |
+| `make-app-run-live` | Run an Endpoint or RPC once against the real vendor API with your own connection |
+| `make-app-setup` | Check and fix credentials, paths, MCP servers, and leftovers of a 2.x install |
+
+Claude Code shows them as `make-custom-app:make-app-*`, Cursor as `make-app-*`. Every skill file carries the same hard rules, generated from `shared/hard-rules.md`. Workflows, references, and the component tables are in `shared/` (start at [shared/index.md](shared/index.md)); a skill loads them on demand.
+
+## Scripts
+
+Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/shared/scripts/<name>.js"`.
+
+| Script | Description |
+|---|---|
+| `check-setup.js` | One-screen setup diagnosis: `imt-app-runtime-path`, Make API credentials, mockup path, default team id, the `@make.com` account check, MCP keys, leftovers of a 2.x install, and an update notice. Exit 1 when a required item is missing. |
+| `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back, `--decline <digest>` records a no for 7 days. Run by the `make-app-setup` skill; `check-setup.js` prints `LEGACY_INSTALL:` while the old install is there and `OLD_INSTALL_KEPT:` after a no. |
+| `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. Run it in your own terminal, never through the agent. |
+| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts` |
+| `update-app.js` | Pushes code changes to Make through the SDK Admin API |
+| `review-changes.js` | Fetches the uncommitted changes of an app for a code review |
+| `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition |
+| `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint |
+| `update-component.js` | Updates component metadata |
+| `delete-component.js` | Deletes a component (public apps: RPCs and functions only) |
+| `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`) |
+| `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework |
+| `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection |
+| `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis |
+| `post-review-transition.js` | Moves a Jira ticket after a code review is concluded |
+
+The scripts take `--editor claude|cursor` when no editor variable reaches them. The `lib/` folder holds their shared code and its tests.
+
+## Configuration
+
+`~/.make-custom-app-skill-secrets` holds one `key: value` per line (mode 600, never inside the plugin, never read by the agent). The wizard writes the file; `make-app-setup` adds the `editor` line when the editor cannot be told:
+
+| Key | Meaning |
+|---|---|
+| `imt-app-runtime-path` | Local clone of `imt-app-runtime` (required) |
+| `make-api-key`, `make-api-url` | Make API token (Claude Code only; Cursor reads the Make Apps SDK settings) and its address |
+| `jira-api-token`, `jira-email`, `jira-base-url` | Jira API token, and the account it belongs to (filled from `GET /rest/api/3/myself`) |
+| `make-apps-mockup-path` | Local clone of `make-apps-mockup` (optional; `test-component.js`) |
+| `make-team-id` | Default team for `run-component.js` (optional) |
+| `pinecone-api-key`, `pinecone-index-name`, `openai-api-key` | Keys of the shared app-context server (optional; the index name defaults to `make-app-contexts`) |
+| `editor` | `claude` or `cursor`, used only when no editor variable is set |
+
+Create the Make token at https://eu1.make.com/user/api. Scopes: `apps:read apps:write sdk-apps:read sdk-apps:write`, plus any admin scope you have. `run-component.js` needs more: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection, and optionally `endpoints:run` and `credential-requests:write`. Create the Jira token at https://id.atlassian.com/manage-profile/security/api-tokens (choose **Create API token**, not the one with scopes).
+
+## MCP servers
+
+`mcp.json` declares three servers.
+
+| Server | What it is |
+|---|---|
+| `make-app-context` | Local server (a committed bundle, `mcp/index.mjs`) for the shared Pinecone app context |
+| `make` | The Make MCP server, `https://mcp.make.com/v2` (sign in with `/mcp`) |
+| `atlassian` | The Atlassian MCP server, `https://mcp.atlassian.com/v1/mcp`; left out when you already configured the same address yourself |
+
+The context server reads its keys from `MAKE_APP_CONTEXT_PINECONE_API_KEY`, `MAKE_APP_CONTEXT_OPENAI_API_KEY`, and `MAKE_APP_CONTEXT_PINECONE_INDEX` first, then from the secrets file. The generic names `PINECONE_API_KEY` and `OPENAI_API_KEY` are not read.
+
+In Claude Code the tools are named `mcp__plugin_make-custom-app_make-app-context__<tool>`. A plugin cannot ship permission rules, so the first call of each tool asks. To stop that for the three read tools, add these to `permissions.allow` in your own settings (`~/.claude/settings.json`, or a project settings file), and nothing broader (no wildcard, and not `upsert_app_context` or `upsert_jira_ticket`, which write to the shared index and need your approval):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_make-custom-app_make-app-context__search_app_knowledge",
+      "mcp__plugin_make-custom-app_make-app-context__get_app_summary",
+      "mcp__plugin_make-custom-app_make-app-context__list_apps"
+    ]
+  }
+}
 ```
 
-#### Windows (PowerShell)
+If the file already has a `permissions.allow` list, add the three names to it.
 
-**Option 1: One-liner**
-
-```powershell
-irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex
-```
-
-**Option 2: Clone & install**
-
-```powershell
-git clone https://github.com/minsu-kang/make-custom-app-skill.git
-cd make-custom-app-skill
-.\install-cursor.ps1
-```
-
-> **Note:** If you get an execution policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` first.
-
-Both methods install skill files to `~/.cursor/skills/make-custom-app/` and one trigger rule to `~/.cursor/rules/make-custom-app/`. The one-liner downloads the repository archive once and copies `skill/`, `rules/`, and `mcp-server/` wholesale — there is no per-file list to keep in sync. Scripts under `skill/scripts/` auto-detect the editor at runtime via `process.argv[1]`, so the same files resolve to either `~/.cursor/...` or `~/.claude/...` paths without modification. The installer also removes rule files from 1.x releases and prunes the legacy stop hook from `~/.cursor/hooks/` + `~/.cursor/hooks.json`.
-
-After installation, **restart Cursor**, then run `node ~/.cursor/skills/make-custom-app/scripts/setup-secrets.js` in your own terminal to fill `~/.make-custom-app-skill-secrets` (and optionally `mcp-server/.env`). Check remaining gaps with `node ~/.cursor/skills/make-custom-app/scripts/check-setup.js`. User config is one `key: value` per line, mode 600 — never inside the skill directory, so API keys are never loaded into the agent's context. Installs older than 2.0 kept these lines at the tail of `SKILL.md`; the installer moves them automatically. The skill activates automatically when you ask about Make custom apps or open IMLJSON files.
-
-### Claude Code
-
-#### macOS / Linux
-
-**Option 1: One-liner**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.sh | bash
-```
-
-**Option 2: Clone & install**
-
-```bash
-git clone https://github.com/minsu-kang/make-custom-app-skill.git
-cd make-custom-app-skill
-./install-claude.sh
-```
-
-Re-run with `--update` to overwrite skill files while preserving your config, or `--force` for a clean reinstall:
-
-```bash
-./install-claude.sh --update
-./install-claude.sh --force
-```
-
-#### Windows (PowerShell)
-
-**Option 1: One-liner**
-
-```powershell
-irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-claude.ps1 | iex
-```
-
-**Option 2: Clone & install**
-
-```powershell
-git clone https://github.com/minsu-kang/make-custom-app-skill.git
-cd make-custom-app-skill
-.\install-claude.ps1
-```
-
-Use `-Mode update` or `-Mode force` for the equivalent update/clean-install behaviour.
-
-The installer places files under `~/.claude/` and **does not touch your Cursor installation**. After installation, **restart Claude Code**, then run `node ~/.claude/skills/make-custom-app/scripts/setup-secrets.js` in your own terminal to fill `~/.make-custom-app-skill-secrets` (Make API key is required for Claude Code). The skill activates automatically when you ask about Make custom apps.
-
-## What Gets Installed
-
-### Cursor
-
-Skill files to `~/.cursor/skills/make-custom-app/` and the trigger rule to `~/.cursor/rules/make-custom-app/make-custom-app.mdc` (see tables below — the skill inventory is identical for both editors).
-
-### Claude Code
-
-| Target | Location |
-|--------|----------|
-| Skill files | `~/.claude/skills/make-custom-app/` |
-| MCP server | `~/.claude/skills/make-custom-app/mcp-server/` |
-| MCP registration | `~/.claude.json` (key: `make-custom-app`) |
-| Routing note | rewritten in `~/.claude/CLAUDE.md` |
-
-The routing note tells the Claude Code main session to invoke the `make-custom-app` skill for Make app work — the same model as Cursor's trigger rule. Make work is not delegated to a sub-agent. `--update` replaces the sentinel block and deletes a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0.0 installs.
-
-> **Editor-aware paths:** Markdown workflow and reference files use `${SKILL_ROOT}` and `${CONTEXTS_DIR}` placeholders that resolve to either the `~/.cursor/...` or `~/.claude/...` tree depending on which editor invokes them. Node scripts share the same auto-detection through `skill/scripts/lib/skill-root.js`.
-
-### Skill Files (`skill/` → `~/.cursor/skills/make-custom-app/` or `~/.claude/skills/make-custom-app/`)
-
-| File | Description |
-|------|-------------|
-| `SKILL.md` | ≤ 9 KB always-loaded contract: first action (`check-setup.js`), workflow routing, hard rules, component/module tables, reference index |
-| **Workflows** | |
-| `workflows/lifecycle.md` | Shared skeleton for every task — app identification, code sync, context load, Jira fetch, write-script confirmation, close-out (Dev Notes, context file, Pinecone) |
-| `workflows/code-review.md` | Review-specific: reviewer assignment, `approved`-state interpretation, skip rules #1–#5, runtime/vendor-doc gates, output format, disposition gate |
-| `workflows/bug-investigation.md` | Root cause analysis, reproduce, fix, verify, developer notes |
-| `workflows/feature-request.md` | Design, create new components, implement, test, push |
-| `workflows/app-task.md` | UX updates, refactoring, metadata changes, deprecation, cleanup |
-| `workflows/task-refinement.md` | Read `Preparation`-status Jira ticket, evaluate feasibility, draft implementation plan, optionally create `Investigation` subtask |
-| `workflows/create-endpoint.md` | Create or update SDK Endpoints (Arbitrary Call or regular) |
-| **References** | |
-| `references/builtin-iml-functions.md` | All built-in IML functions + runtime extras (jwt, cryptoSign, errorFactory) |
-| `references/communication-reference.md` | Full `api.imljson` spec — pagination, iterate, output, temp, RPC, file upload/download |
-| `references/parameters-reference.md` | Parameters, Interface, RPC Dynamic Options, Conditional RPCs, nested inheritance |
-| `references/component-patterns-reference.md` | Base, Connection, Error Handling, Webhook, Trigger, Responder patterns. Main file plus parts in `component-patterns-reference/` (install params, OAuth2, aliased connections, webhooks, agency modules) |
-| `references/custom-functions-reference.md` | Custom IML function code conventions, test.js requirements, size limits |
-| `references/developer-notes-templates.md` | Developer Notes templates for Bug Fix and Feature tickets |
-| `references/app-ux-best-practices.md` | App UX best practices — naming, hints, fields, messages, patterns. Main file (naming, writing) plus parts in `app-ux-best-practices/` |
-| `references/polling-trigger-guide.md` | Polling trigger implementation — order selection, date filtering, epoch, examples |
-| `references/examples.md` | Real-world Instagram for Business app examples |
-| `references/runtime-reference.md` | `imt-app-runtime` internals — middleware chain, execution flow, limits, edge cases. Main file plus parts in `runtime-reference/` (pagination, ISC, `api.endpoint`, environment, OAuth variables) |
-| `references/component-test-guide.md` | Component integration tests — `make-apps-mockup` architecture, test.js structure, debugging |
-| `references/code-review-criteria.md` | Detailed review criteria — ES6+, code quality, test coverage, UX, runtime verification. Main file plus parts in `code-review-criteria/` (functions, UX, `api.imljson` and connections) |
-| `references/security-reference.md` | Security checklist — credentials, OAuth flow, webhook signature, SSRF, injection, data exposure (cited as `[SECURITY][1.2]`) |
-| `references/code-smells-reference.md` | Quantitative quality thresholds (function length, complexity) + IMLJSON-specific smells (cited as `[QUALITY][A-01]`) |
-| `references/app-compilation-and-deployment-reference.md` | How SDK/DB code becomes a compiled PKR file package — compile pipeline, IPM registry, per-zone install, runtime resolution, and why `review-changes` is 0 for non-approved apps |
-| `references/component-scaffold-templates.md` | Default SDK component scaffolds (from the `model` app) — match a change's `old_value` against these to detect new components (then skip the old→new diff + Breaking Changes) |
-| `references/endpoints-reference.md` | SDK Endpoints (Endpoints RFC) — entity structure, admin API surface, Forman input/output schemas, `context.md`, annotations, runtime validation caveats, review guidance. Main file plus parts in `endpoints-reference/` (`api.imljson` shape, pure wrapper, Forman schemas, Arbitrary Call, code review) |
-
-### Script Files (`skill/scripts/` → `…/make-custom-app/scripts/`)
-
-| File | Description |
-|------|-------------|
-| `check-setup.js` | One-screen setup diagnosis — skill version, `imt-app-runtime-path`, Make API credentials, mockup path, default team id, the `@make.com` account check, MCP server. Exit 1 when a required item is missing; prints `setup-secrets.js` as the fix. Run once per conversation (the skill's first action). |
-| `setup-secrets.js` | Interactive terminal wizard. Writes `~/.make-custom-app-skill-secrets` (mode 600) and optionally `mcp-server/.env`. Run in your own terminal, never via the agent. |
-| `download-app.js` | Downloads full app source code from Make API |
-| `update-app.js` | Pushes code changes directly to Make via SDK Admin API |
-| `review-changes.js` | Fetches uncommitted changes for code review |
-| `commit-changes.js` | Commits pending changes (`commit`), discards them (`rollback --confirm`), or enqueues a compile (`compile`). `--issue=KEY` chains the Jira transition. |
-| `create-component.js` | Creates new components (module, rpc, function, connection, webhook) via POST |
-| `update-component.js` | Updates component metadata (label, description, connection, etc.) via PATCH |
-| `delete-component.js` | Deletes components via DELETE (public apps: rpc/function only) |
-| `test-function.js` | Runs custom IML function tests (code.js + test.js) using `@integromat/iml`. Default timezone: UTC. Use `--tz=` to override. |
-| `test-component.js` | Runs component integration tests (module, RPC, connection, webhook, endpoint) via `make-apps-mockup` framework. Supports `--format=json` for AI agent output. |
-| `run-component.js` | Entry script: runs one SDK Endpoint or RPC live through the public API (Modules are not supported), in one step with the user's own Make connection. It does all the I/O (API calls, the `--input` file, the `make-team-id` write, exit codes) and leaves every decision to `lib/run-component-logic.js`. `--dry-run` sends no execution or credential request. Scopes and default team: see First Use. Tests: `lib/__tests__/run-component.test.js` (against a mock API server). |
-| `download-jira-ticket-attachment.js` | Downloads Jira ticket attachments (images, videos) for agent analysis. Requires `jira-email` and `jira-api-token` in `~/.make-custom-app-skill-secrets`. |
-| `post-review-transition.js` | Transitions a Jira ticket after a code review is concluded (e.g. move to QA on commit, back to In Progress on changes-requested). |
-| `lib/skill-root.js` | Shared utility — derives the skill root and editor dot-dir (`.cursor` / `.claude`) from `process.argv[1]`. Used by all scripts so they work identically under both editors. |
-| `lib/settings.js` | Shared settings loader — reads `~/.make-custom-app-skill-secrets` (paths, Make/Jira credentials; legacy SKILL.md tail as fallback) and Cursor `settings.json`. |
-| `lib/run-component-logic.js` | The decisions behind `run-component.js` as pure functions: argument parsing, request building, connection choice, response classification, the messages it prints. No network, file or `process` access. Tests: `lib/__tests__/run-component-logic.test.js`. |
-| `lib/version-guard.js` | Shared version guard — enforces the SKILL.md version check in code. Runs at the top of **every** entry script; on an outdated install it auto-runs the installer `--update` and blocks work until the skill is current (fail-open on network errors, cached hourly). `ensureFreshSkill()` then calls `lib/access-guard.js`; `{ access: false }` skips that (`check-setup.js`, `setup-secrets.js`). |
-| `lib/access-guard.js` | Account gate: the skill is for Make employees. Asks Jira `GET /rest/api/3/myself` (in a child process, token over stdin) and exits 1 unless the account email is `@make.com`. A verdict is cached for 24 hours per credentials; an older entry is accepted while Jira is unreachable. With `http://` or `https://` proxy variables set, the child gets `NODE_USE_ENV_PROXY=1` (Node's fetch ignores them otherwise). Tests: `lib/__tests__/access-guard.test.js` (mock Jira in a separate process). |
-| `lib/access-guard-logic.js` | The decisions behind `access-guard.js` as pure functions: the `@make.com` test, cache key and state, verdict mapping, the refusal messages. Tests: `lib/__tests__/access-guard-logic.test.js`. |
-
-### Rule File (`rules/` → `~/.cursor/rules/make-custom-app/`, Cursor only)
-
-| File | When loaded | Description |
-|------|-------------|-------------|
-| `make-custom-app.mdc` | always (~600 bytes) | Trigger only: when the conversation involves a Make app, IMLJSON, the SDK, `make-app-contexts`, or an IEN app ticket, load the `make-custom-app` skill first. All behavioural rules live in `SKILL.md` § Hard rules and the workflows, so nothing else is loaded globally. |
-
-Claude Code does not install a rule file — the installer writes the same trigger into `~/.claude/CLAUDE.md` so the main session invokes `make-custom-app`.
-
-## Repository Structure
+## Repository
 
 ```
-make-custom-app-skill/
-├── README.md
-├── install-cursor.sh                  # Cursor installer (macOS/Linux)
-├── install-cursor.ps1                 # Cursor installer (Windows)
-├── install-claude.sh                  # Claude Code installer (macOS/Linux)
-├── install-claude.ps1                 # Claude Code installer (Windows)
-├── skill/                              # → installed to skills/make-custom-app/
-│   ├── SKILL.md                        #   Core domain knowledge + workflow routing
-│   ├── workflows/                      #   Workflow instructions (trigger-based)
-│   │   ├── lifecycle.md                #     Shared skeleton, read first
-│   │   ├── code-review.md
-│   │   ├── bug-investigation.md
-│   │   ├── feature-request.md
-│   │   ├── app-task.md
-│   │   ├── task-refinement.md
-│   │   └── create-endpoint.md
-│   ├── references/                     #   Reference documents (on-demand); the five largest are a main file plus topic parts in a same-named folder
-│   └── scripts/                        #   Automation scripts (editor auto-detected)
-│       ├── check-setup.js              #     Setup diagnosis (first action)
-│       ├── setup-secrets.js            #     Interactive secrets / MCP .env wizard
-│       └── lib/skill-root.js           #     Shared skill-root + editor-dir resolver
-├── rules/                              # → installed to ~/.cursor/rules/make-custom-app/ (Cursor only)
-│   └── make-custom-app.mdc             #   Trigger rule (~600 bytes)
-└── mcp-server/                         # → installed to skills/make-custom-app/mcp-server/
-    ├── index.ts                        #   MCP server entry point
-    ├── lib/                            #   Pinecone + embeddings helpers
-    └── tools/                          #   MCP tool implementations
+.claude-plugin/    plugin.json (Claude Code), marketplace.json
+.cursor-plugin/    plugin.json (Cursor)
+skills/            the nine make-app-* skills (SKILL.md each)
+shared/            hard-rules.md, workflows/, references/, scripts/ (and their tests)
+mcp/               index.mjs, the built context server
+mcp-server/        TypeScript source of that server
+mcp.json           the three MCP servers
+hooks/             the Cursor sessionStart hook (Cursor only)
+tools/             repo tools: hard-rules sync, MCP bundle build, install verification, trigger test, migration test, installer shim drafts
+.github/           CI and the content checks
 ```
 
-### Skill vs Rules (Cursor)
+Contributor notes (commands, rules for scripts, how a version is released) are in [CLAUDE.md](CLAUDE.md).
 
-| | Skill (`skill/`) | Rules (`rules/`) |
-|---|---|---|
-| **Install path** | `~/.cursor/skills/make-custom-app/` | `~/.cursor/rules/make-custom-app/` |
-| **When loaded** | On-demand (when Make app work is detected) | Always active |
-| **Purpose** | Operating contract (SKILL.md), workflows, reference docs, scripts | Trigger: load the skill |
-| **Size** | SKILL.md ≤ 9 KB always; workflows/references on demand | ~600 bytes |
+## Usage examples
 
-## Claude Code routing
-
-Claude Code has no separate rule file and no sub-agent. The installer writes a trigger into `~/.claude/CLAUDE.md` so the **main session** invokes `make-custom-app` for Make app work — the same contract Cursor loads via `rules/make-custom-app.mdc`. `--update` rewrites that sentinel block and deletes a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0.0 installs.
-
-## First Use
-
-The skill's first action in every conversation is `scripts/check-setup.js`. If anything required is missing it prints `scripts/setup-secrets.js` and stops — run that wizard **in your own terminal**:
-
-1. **Make API key** — create a token at https://eu1.make.com/user/api (`make-api-url` defaults to `https://eu1.make.com/api/v2/admin`). Scopes for `run-component.js`: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection (`user:read` finds your own connections), and optionally `endpoints:run` (without it Endpoints use the legacy route) and `credential-requests:write` (an authorization link when you have no connection yet)
-2. **Clone `imt-app-runtime`** (Make internal repo; HTTPS or SSH) and paste the local path
-3. **Jira API token**: create it at https://id.atlassian.com/manage-profile/security/api-tokens with your `@make.com` Atlassian account (choose **Create API token**, not **Create API token with scopes**). The wizard fills `jira-email` from [`GET /rest/api/3/myself`](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/#api-rest-api-3-myself-get), and every script repeats that call (cached for 24 hours) and refuses any other account
-4. Optionally: `make-apps-mockup` path, a default Make team id (`make-team-id`, for `run-component.js`; the agent can store it with `--team=<id> --save-team`), and MCP `PINECONE_*` / `OPENAI_API_KEY` into `mcp-server/.env`
-
-App source code is downloaded automatically (`download-app.js`) when you ask about a specific app.
-
-## Usage Examples
-
-Just ask naturally:
+Ask naturally:
 
 - *"Create an Action module that calls the /users endpoint"*
 - *"How does pagination work for cursor-based APIs?"*
 - *"Add error handling for 429 rate limits"*
-- *"Set up an OAuth2 connection"*
-- *"Review my code changes — slug: slack, version: 4"*
-- *"What does the Instagram app's base.imljson look like?"*
+- *"Review my code changes: slug slack, version 4"*
+- *"Refine this ticket: https://make.atlassian.net/browse/IEN-12345, app monday"*

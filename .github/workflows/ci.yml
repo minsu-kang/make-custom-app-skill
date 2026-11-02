@@ -33,6 +33,21 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      - name: Committed bundle is current
+        run: node ../tools/build-mcp.js --check
+
+  legacy-bridge:
+    name: Old installer still works
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: node tools/legacy-bridge.js
 
   skill-scripts:
     name: Skill scripts (Node ${{ matrix.node }})
@@ -49,15 +64,76 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
-      - name: Unit tests with coverage
+      - name: Unit tests with coverage (old tree)
         run: >-
           node --test --experimental-test-coverage
           --test-coverage-exclude="**/__tests__/**"
           --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90
           "skill/scripts/lib/__tests__/*.test.js"
+      - name: Unit tests with coverage (shared)
+        run: >-
+          node --test --experimental-test-coverage
+          --test-coverage-exclude="**/__tests__/**"
+          --test-coverage-exclude="shared/scripts/*.js"
+          --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90
+          "shared/scripts/lib/__tests__/*.test.js"
 
   skill-check:
     name: Skill consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node .github/scripts/check-skill.js
+      - name: Old tree changes only in the bridge files (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          base=$(git merge-base origin/master HEAD)
+          mode=branch
+          if [ "$BASE_REF" = master ]; then mode=release; fi
+          node .github/scripts/old-tree-guard.js --mode="$mode" --base="$base"
+      - name: Old tree changes only in the bridge files (pushes to master)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/old-tree-guard.js --mode=release --base="$BEFORE"
+
+  plugin-check:
+    name: Plugin content consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node --test ".github/scripts/__tests__/*.test.js" "tools/__tests__/*.test.js"
+      - run: node .github/scripts/plugin-check.js
+      - name: Plugin version is higher than on master when the payload changed (pull requests into master)
+        if: github.event_name == 'pull_request' && github.base_ref == 'master'
+        run: |
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          node .github/scripts/plugin-check.js --release-base=origin/master
+      - name: Plugin version is higher than before the push when the payload changed (pushes to master)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/plugin-check.js --release-base="$BEFORE"
+
+  plugin-validate:
+    name: claude plugin validate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -67,7 +143,23 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: node .github/scripts/check-skill.js
+      - run: npm install --global @anthropic-ai/claude-code@2.1.312
+      - run: claude plugin validate .
+
+  migration:
+    name: Migration from a 2.x install (real Claude CLI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --global @anthropic-ai/claude-code@2.1.312
+      - run: node tools/migration-test.js
 
   lint-misc:
     name: shellcheck, actionlint
@@ -78,6 +170,6 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck
-        run: shellcheck --severity=warning install-claude.sh install-cursor.sh
+        run: shellcheck --severity=warning install-claude.sh install-cursor.sh tools/shims/install-claude.sh tools/shims/install-cursor.sh
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12

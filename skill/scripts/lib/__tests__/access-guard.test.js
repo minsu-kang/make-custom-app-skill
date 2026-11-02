@@ -289,7 +289,7 @@ function closedPort() {
 }
 
 describe('guard wiring', () => {
-	it('every entry script calls ensureFreshSkill, and only the two setup scripts skip the account check', () => {
+	it('every entry script calls ensureFreshSkill, and only the two setup scripts and migrate-to-plugin.js skip the account check', () => {
 		const scripts = fs.readdirSync(path.join(SKILL_DIR, 'scripts')).filter((f) => f.endsWith('.js'));
 		assert.ok(scripts.length >= 14, `found ${scripts.length} scripts`);
 		const skipping = [];
@@ -298,7 +298,7 @@ describe('guard wiring', () => {
 			assert.match(text, /ensureFreshSkill\(/, `${file} does not call ensureFreshSkill`);
 			if (/ensureFreshSkill\(\{\s*access:\s*false/.test(text)) skipping.push(file);
 		}
-		assert.deepEqual(skipping.sort(), ['check-setup.js', 'setup-secrets.js']);
+		assert.deepEqual(skipping.sort(), ['check-setup.js', 'migrate-to-plugin.js', 'setup-secrets.js']);
 	});
 });
 

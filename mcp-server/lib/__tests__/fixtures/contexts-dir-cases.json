@@ -1,0 +1,62 @@
+[
+	{
+		"name": "plugin cache, Claude Code",
+		"argv1": "/home/u/.claude/plugins/cache/make-custom-app/make-custom-app/3.0.0/mcp/index.mjs",
+		"home": "/home/u",
+		"expected": [".make-custom-app", "contexts"],
+		"plugin": true
+	},
+	{
+		"name": "plugin directory, Cursor",
+		"argv1": "/home/u/.cursor/plugins/local/make-custom-app/mcp/index.mjs",
+		"home": "/home/u",
+		"expected": [".make-custom-app", "contexts"],
+		"plugin": true
+	},
+	{
+		"name": "repository clone that holds a built dist",
+		"argv1": "/home/u/Documents/GitHub/make-custom-app-skill/mcp-server/dist/index.js",
+		"home": "/home/u",
+		"expected": [".make-custom-app", "contexts"],
+		"plugin": true
+	},
+	{
+		"name": "no script path",
+		"argv1": "",
+		"home": "/home/u",
+		"expected": [".make-custom-app", "contexts"],
+		"plugin": true
+	},
+	{
+		"name": "old install, Claude Code",
+		"argv1": "/home/u/.claude/skills/make-custom-app/mcp-server/dist/index.js",
+		"home": "/home/u",
+		"expected": [".claude", "make-app-contexts"]
+	},
+	{
+		"name": "old install, Cursor",
+		"argv1": "/home/u/.cursor/skills/make-custom-app/mcp-server/dist/index.js",
+		"home": "/home/u",
+		"expected": [".cursor", "make-app-contexts"]
+	},
+	{
+		"name": "old install, Windows separators",
+		"argv1": "C:\\Users\\u\\.cursor\\skills\\make-custom-app\\mcp-server\\dist\\index.js",
+		"home": "C:\\Users\\u",
+		"expected": [".cursor", "make-app-contexts"]
+	},
+	{
+		"name": "old install in an unknown location, Claude folder exists",
+		"argv1": "/opt/skills/make-custom-app/mcp-server/dist/index.js",
+		"home": "/home/u",
+		"claudeDirExists": true,
+		"expected": [".claude", "make-app-contexts"]
+	},
+	{
+		"name": "old install in an unknown location, no Claude folder",
+		"argv1": "/opt/skills/make-custom-app/mcp-server/dist/index.js",
+		"home": "/home/u",
+		"claudeDirExists": false,
+		"expected": [".cursor", "make-app-contexts"]
+	}
+]

@@ -1,6 +1,6 @@
 ---
 name: make-custom-app
-version: 2.3.14
+version: 2.4.0
 description: Build, review, and edit Make.com custom app IMLJSON code. Use for Make Apps SDK, make-app-contexts, Make Internal App extension, IMLJSON, modules, connections, RPCs, webhooks, SDK Endpoints, code review, bug investigation, feature requests, task refinement (Jira Preparation status), IEN Jira app tickets, or any Make custom app work. Triggers on imljson files, Make app references, or IML expressions.
 ---
 
@@ -16,6 +16,10 @@ Run `node ${SKILL_ROOT}/scripts/check-setup.js` (Shell, `required_permissions: [
 
 - Exit `0` → continue. Exit `3` → skill just updated; re-read this file, then **re-run check-setup.js** (the guard exits before config checks).
 - Exit `1` → show its output and **stop** (no app code, scripts, or MCP calls) until fixed, then re-run check-setup.js. On "Auto-update failed" or "Update did not take", relay the printed manual update command. A `make account` refusal for a non-`@make.com` account is final: offer no workaround. Other `make account` failures follow their printed fix. For MISSING config only, tell the user to run `node ${SKILL_ROOT}/scripts/setup-secrets.js` **in their own terminal**, never run it yourself (interactive, writes secrets). Exception: to add a config line check-setup reports as not set, append it with Bash (`printf '\n%s\n' 'key: value' >> ~/.make-custom-app-skill-secrets`; last match wins). Never Read/Edit/Write that file.
+
+## Plugin migration
+
+check-setup.js can print one `PLUGIN_MIGRATION: <state> | <text>` line. Act on it before other work, also when check-setup exits 1 (the plugin needs the same setup). `ask`: ask the user once, yes or no: "Install the make-custom-app plugin? It replaces this skill and copies your MCP keys and app contexts; nothing is deleted." Never answer for the user. On yes, run the `migrate-to-plugin.js` command printed on the line (Shell, `required_permissions: ["all"]`, `block_until_ms: 120000` in Cursor or `timeout: 120000` in a Claude Bash call); on no, continue. `handoff`: do the steps of the line in order. Other states: tell the user the text once, then continue. `migrate-to-plugin.js` exit 0: relay its last lines. Exit 3: this skill was just updated; re-read this file, then run the command again. Exit 1, 4, or 5: relay its output; this skill keeps working. Then continue the user's task. Do the steps of a `handoff` line once per conversation.
 
 ## Workflows
 

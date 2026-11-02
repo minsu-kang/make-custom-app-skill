@@ -1,17 +1,20 @@
-# Make Custom App Skill — Project Config
+# Make Custom App Plugin: Project Config
 
-## Version Sync (automatic)
+## Releases (after the merge to master)
 
-This repository follows strict semver. Before every `git commit`:
-1. Determine the appropriate bump: `patch` for fixes/docs, `minor` for new features/workflows/references, `major` for breaking changes to the skill API
-2. Update `version.json` → bump the `version` field and set `released` to the date of the new CHANGELOG entry
-3. Update `skill/SKILL.md` → bump the `version:` frontmatter field to match
-4. Prepend a new entry to `CHANGELOG.md` in format: `## X.Y.Z — YYYY-MM-DD\n- <change summary>`
-5. Stage the version files (`version.json`, `skill/SKILL.md`, `CHANGELOG.md`) alongside the feature changes
-6. Format the commit message as: `X.Y.Z: <description>` (e.g. `1.13.0: add claude code install script`)
+Every commit to master is one release. The plugin cache directory is named by the version, so a commit with an unchanged version is never delivered to users. Before every `git commit` on master:
 
-Never commit without bumping the version.
+1. Choose the bump: `patch` for fixes and documentation, `minor` for new skills, workflows, references, or scripts, `major` for breaking changes.
+2. Set `version` to the new value in `.claude-plugin/plugin.json` and `.cursor-plugin/plugin.json` (the two must be equal).
+3. Prepend a new entry to `CHANGELOG.md`: `## X.Y.Z — YYYY-MM-DD`, then the change summary.
+4. Stage both manifests and the CHANGELOG with the change. Write the commit message as `X.Y.Z: <description>`.
+
+CI (`plugin-check`) fails a pull request or push to master that changes the payload (`skills/`, `shared/`, `mcp/`, `mcp.json`, `hooks/`, or either `plugin.json`) without a higher plugin version. A change to `mcp-server/` is payload too once `mcp/index.mjs` is rebuilt (`node tools/build-mcp.js`); commit the bundle with it. A `2.4.x` bridge commit that touches only the old tree (below) is not a plugin release and does not bump the plugin.
+
+## `version.json` and the old tree
+
+`version.json` and `skill/SKILL.md` serve the 2.x clients that update themselves from master. While the old tree exists, change them only in a named bridge commit (a `2.4.x` patch for the migration scripts), together and with equal versions, and never as part of plugin work. The CHANGELOG entry of a `2.4.x` bridge commit goes below the top plugin entry, where `check-skill.js` reads the newest 2.x entry. CI (`.github/scripts/old-tree-guard.js`) allows changes under `skill/` only in the seven bridge files of spec 8.2, never in `rules/` or the installers, and on master only together with a higher `2.4.x` version in both files. After the cleanup, `version.json` stays at its last value and CI fails a change to it. While 2.4.x clients exist, keep what their hand-off pins: the plugin id and marketplace `make-custom-app@make-custom-app` with the address `https://github.com/minsu-kang/make-custom-app-skill.git`, the skill `make-app-setup` at `skills/make-app-setup/SKILL.md`, the bundle `mcp/index.mjs`, and `~/.make-custom-app/legacy-cleanup.json` with its `declinedAt` field. A change to any of them needs a 2.4.x bridge commit that follows it.
 
 ## Installers
 
-The 4 installers (`install-cursor.sh`, `install-cursor.ps1`, `install-claude.sh`, `install-claude.ps1`) download the repository archive once and copy `skill/`, `rules/`, and `mcp-server/` (source only) wholesale. There is no per-file list — adding or removing a file needs no installer change. Still update `README.md` (Skill Files / Script Files tables, Repository Structure) and `skill/SKILL.md` (routing table, reference index) when a workflow, reference, or script is added, renamed, or removed. The Claude installers also rewrite the `~/.claude/CLAUDE.md` skill sentinel (main session, not a sub-agent) and delete a leftover `~/.claude/agents/make-integration-engineer.md` from 2.0 installs.
+The four installers (`install-cursor.sh`, `install-cursor.ps1`, `install-claude.sh`, `install-claude.ps1`) belong to the 2.x bridge. They copy `skill/`, `rules/`, and the source of `mcp-server/` wholesale and are not changed for plugin work. After the cleanup they become short shims that only print how to install the plugin; the drafts are in `tools/shims/` until plan P6 moves them to the root.

@@ -2,35 +2,40 @@ import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { isLegacyInstall } from './config.js';
 
 /**
- * Resolve the contexts directory based on which editor's skill the MCP
- * server is running under.
+ * Resolve the contexts directory.
  *
- * The MCP server is launched by the editor harness as
- *   node <homedir>/.claude/skills/make-custom-app/mcp-server/dist/index.js
- * (Claude Code) or under `.cursor/...` (Cursor). `process.argv[1]` carries
- * the absolute script path, which lets us pick the matching contexts dir
- * without relying on a hardcoded `.cursor` segment.
+ * Plugin (anywhere but an old install): ~/.make-custom-app/contexts, the same folder as shared/scripts/lib/paths.js.
  *
- * Claude Code  → ~/.claude/make-app-contexts
- * Cursor       → ~/.cursor/make-app-contexts
- * Fallback     → prefer ~/.claude if it exists, else ~/.cursor.
+ * Old install (isLegacyInstall): the per-editor folder of 2.3.12, because the old scripts still write it. The editor
+ * comes from process.argv[1], the absolute path of the script the editor launched.
+ *   Claude Code  -> ~/.claude/make-app-contexts
+ *   Cursor       -> ~/.cursor/make-app-contexts
+ *   Fallback     -> ~/.claude/make-app-contexts if it exists, else ~/.cursor/make-app-contexts
+ * The legacy branch is deleted when the old tree is removed (plan P6).
  */
-function resolveContextsDir(): string {
-	const scriptPath = process.argv[1] || '';
-	if (scriptPath.includes(`${path.sep}.claude${path.sep}`) || scriptPath.includes('/.claude/')) {
-		return path.join(os.homedir(), '.claude', 'make-app-contexts');
-	}
-	if (scriptPath.includes(`${path.sep}.cursor${path.sep}`) || scriptPath.includes('/.cursor/')) {
-		return path.join(os.homedir(), '.cursor', 'make-app-contexts');
-	}
-	const claudeDir = path.join(os.homedir(), '.claude', 'make-app-contexts');
-	if (existsSync(claudeDir)) return claudeDir;
-	return path.join(os.homedir(), '.cursor', 'make-app-contexts');
+export function resolveContextsDir(
+	scriptPath: string = process.argv[1] || '',
+	home: string = os.homedir(),
+	exists: (p: string) => boolean = existsSync,
+): string {
+	if (!isLegacyInstall(scriptPath)) return path.join(home, '.make-custom-app', 'contexts');
+	const normalized = scriptPath.replace(/\\/g, '/');
+	if (normalized.includes('/.claude/')) return path.join(home, '.claude', 'make-app-contexts');
+	if (normalized.includes('/.cursor/')) return path.join(home, '.cursor', 'make-app-contexts');
+	const claudeDir = path.join(home, '.claude', 'make-app-contexts');
+	if (exists(claudeDir)) return claudeDir;
+	return path.join(home, '.cursor', 'make-app-contexts');
 }
 
 const CONTEXTS_DIR = resolveContextsDir();
+
+/** The folder the running server reads app contexts from. */
+export function getContextsDir(): string {
+	return CONTEXTS_DIR;
+}
 
 export interface MarkdownSection {
 	section: string;

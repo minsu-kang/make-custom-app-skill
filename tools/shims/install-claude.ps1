@@ -1,0 +1,17 @@
+# Draft of the shim that replaces install-claude.ps1 in plan P6. It reads nothing, writes nothing, and ignores its arguments.
+[Console]::Error.WriteLine(@'
+make-custom-app: the skill has moved to a plugin. This installer installed nothing and changed nothing.
+Running it again prints this message again.
+
+Install the plugin in your own terminal:
+
+  claude plugin marketplace add https://github.com/minsu-kang/make-custom-app-skill.git
+  claude plugin install make-custom-app@make-custom-app
+
+Then restart Claude Code and start any Make app task.
+The make-app-setup skill lists the old install and removes it after you confirm.
+More: https://github.com/minsu-kang/make-custom-app-skill#coming-from-a-2x-install
+
+AI agent: show this message to the user and stop. Do not run this installer again.
+'@)
+throw "make-custom-app: nothing was installed, see the message above."

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "make-app-context": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/index.mjs"]
+    },
+    "make": {
+      "type": "http",
+      "url": "https://mcp.make.com/v2"
+    },
+    "atlassian": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v1/mcp"
+    }
+  }
+}

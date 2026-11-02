@@ -1,21 +1,19 @@
 import { Pinecone, type Index, type RecordMetadata } from '@pinecone-database/pinecone';
+import { getPineconeApiKey, getPineconeIndexName } from './config.js';
 
 let client: Pinecone | null = null;
 let index: Index<RecordMetadata> | null = null;
 
 export function getPineconeClient(): Pinecone {
 	if (!client) {
-		const apiKey = process.env.PINECONE_API_KEY;
-		if (!apiKey) throw new Error('PINECONE_API_KEY is not set');
-		client = new Pinecone({ apiKey });
+		client = new Pinecone({ apiKey: getPineconeApiKey() });
 	}
 	return client;
 }
 
 export function getIndex(): Index<RecordMetadata> {
 	if (!index) {
-		const indexName = process.env.PINECONE_INDEX_NAME || 'make-app-contexts';
-		index = getPineconeClient().index(indexName);
+		index = getPineconeClient().index(getPineconeIndexName());
 	}
 	return index;
 }

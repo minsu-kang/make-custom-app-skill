@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { chunkApp, mergeWorkHistory } from '../lib/chunker.js';
+import { chunkApp, getContextsDir, mergeWorkHistory } from '../lib/chunker.js';
 import { embedBatch } from '../lib/embeddings.js';
 import { getIndex } from '../lib/pinecone.js';
 
@@ -22,7 +22,7 @@ export function registerUpsertTool(server: McpServer): void {
 						content: [
 							{
 								type: 'text' as const,
-								text: `No context files found for ${slug}-v${version}. Ensure ~/.claude/make-app-contexts/${slug}-v${version}.md (Claude Code) or ~/.cursor/make-app-contexts/${slug}-v${version}.md (Cursor), plus ${slug}-v${version}/metadata.json, exists.`,
+								text: `No context files found for ${slug}-v${version}. Ensure ${getContextsDir()}/${slug}-v${version}.md, plus ${getContextsDir()}/${slug}-v${version}/metadata.json, exists.`,
 							},
 						],
 					};

@@ -3,6 +3,7 @@ import { createTestServer } from '../../lib/__tests__/test-helpers.js';
 
 vi.mock('../../lib/chunker.js', () => ({
 	chunkApp: vi.fn(),
+	getContextsDir: vi.fn(() => '/home/u/.make-custom-app/contexts'),
 }));
 
 vi.mock('../../lib/embeddings.js', () => ({
@@ -35,6 +36,8 @@ describe('upsert_app_context tool', () => {
 		const result = await callTool('upsert_app_context', { slug: 'nonexistent', version: '1' });
 		expect(result.content[0].text).toContain('No context files found');
 		expect(result.content[0].text).toContain('nonexistent-v1');
+		expect(result.content[0].text).toContain('/home/u/.make-custom-app/contexts/nonexistent-v1.md');
+		expect(result.content[0].text).toContain('/home/u/.make-custom-app/contexts/nonexistent-v1/metadata.json');
 		expect(mockUpsert).not.toHaveBeenCalled();
 	});
 
