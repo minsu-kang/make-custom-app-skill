@@ -17,9 +17,8 @@ Every commit to master is one release:
 
 A change to the payload (`skills/`, `shared/`, `mcp/`, `mcp.json`, `hooks/`, either `plugin.json`) without a higher version fails CI. Rebuild `mcp/index.mjs` (`node tools/build-mcp.js`) after a change to `mcp-server/` and commit it.
 
-## Integration branch and the old tree
+## The old tree
 
-- On the branch `plugin`, versions and CHANGELOG release entries change only in the release commit, the last commit before the pull request into master. The top CHANGELOG entry is `## 3.0.0 (unreleased)` until then.
 - `version.json` and `skill/SKILL.md` are for the 2.x clients: change them only in a named bridge commit, together, with equal versions. Never change them for plugin work. A `2.4.x` bridge commit that touches only the old tree does not bump the plugin.
 
 ## CHANGELOG format

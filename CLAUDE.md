@@ -19,7 +19,6 @@ tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-brid
 tools/trigger-test/   maintainer trigger test (spec 11 item 8): run-claude.js, run-cursor.js, jira-stub.js, prompts.json
 tools/shims/      drafts of the four installer shims (inactive until plan P6)
 .github/          workflows and the content checks (plugin-check.js, check-skill.js, old-tree-guard.js)
-docs/superpowers/ design spec and implementation plans (local files, git-ignored)
 skill/ rules/ install-*.sh install-*.ps1 version.json   the 2.x bridge: do not change except as named in the spec
 ```
 
@@ -41,7 +40,7 @@ node ../tools/build-mcp.js             # writes ../mcp/index.mjs (add --check to
 # Old tree, while it exists
 node --test "skill/scripts/lib/__tests__/*.test.js"
 node .github/scripts/check-skill.js
-node .github/scripts/old-tree-guard.js --mode=branch --base=df148e5   # old-tree changes only in the bridge files
+node .github/scripts/old-tree-guard.js --mode=release --base="$(git merge-base origin/master HEAD)"   # what pull requests into master run
 
 # Migration from a 2.x install with the real CLI (it refuses to run outside a container or CI)
 docker run --rm -v "$PWD:/src:ro" node:22 bash -c 'set -e; git config --global --add safe.directory "*"; git clone -q /src /w/repo; cd /w/repo; npm install --global --silent @anthropic-ai/claude-code@2.1.312; node tools/migration-test.js'
@@ -112,4 +111,4 @@ Plain Node CommonJS. No `package.json`, no build, no TypeScript. Cursor loads th
 
 ## Releases
 
-See `.claude/CLAUDE.md`: after the merge to master every commit bumps `version` in both `plugin.json` files and the CHANGELOG (a `2.4.x` bridge commit that touches only the old tree is the exception); until then versions change only in the release commit, the last commit on the branch before the pull request into master.
+See `.claude/CLAUDE.md`: after the merge to master every commit bumps `version` in both `plugin.json` files and the CHANGELOG (a `2.4.x` bridge commit that touches only the old tree is the exception).
