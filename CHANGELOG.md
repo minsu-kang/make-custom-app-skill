@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.0.0 (unreleased)
+## 3.0.0 — 2026-11-02
 
 The make-custom-app skill becomes one plugin for Claude Code and Cursor.
 
@@ -11,6 +11,14 @@ The make-custom-app skill becomes one plugin for Claude Code and Cursor.
 - **Update notice.** `check-setup.js` prints an `UPDATE_AVAILABLE` line, with the two update commands, when master carries a newer plugin version.
 - **Cleanup of a 2.x install.** The `make-app-setup` skill runs `cleanup-legacy.js`: it lists the old skill folders, their MCP registrations, the block in `~/.claude/CLAUDE.md`, and the old Cursor rule folder, moves them to `~/.make-custom-app/migration-backup-<time>/` only after you confirm, and puts them back with `--restore`.
 - **Checks.** `plugin-check` guards the manifests, `mcp.json`, the skills, and the shared content; `tools/build-mcp.js --check` guards the bundle; `old-tree-guard.js` limits the old tree to the 2.4.x bridge files, and `tools/migration-test.js` runs the migration from a 2.x install with the real Claude CLI.
+
+## 2.4.0 — 2026-11-02
+
+The last 2.x feature release. It offers to move this install to the make-custom-app plugin.
+
+- **Plugin prompt.** `check-setup.js` prints a `PLUGIN_MIGRATION` line while the plugin is not installed, and `SKILL.md` asks you at most once a day whether to install it. Once the plugin is installed, the line first copies your MCP keys and app contexts with the same script and then hands the work to the plugin's `make-app-setup` skill, which removes this install after you confirm.
+- **Migration script.** `migrate-to-plugin.js` runs `claude plugin marketplace add` and `claude plugin install`, copies the Pinecone and OpenAI keys into `~/.make-custom-app-skill-secrets` and the app context files into `~/.make-custom-app/contexts`, and deletes nothing.
+- **Cursor without Claude Code.** Not supported yet: `check-setup.js` says so once a month and changes nothing.
 
 ## 2.3.14 — 2026-10-30
 
