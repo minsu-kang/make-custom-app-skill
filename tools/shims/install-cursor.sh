@@ -6,13 +6,13 @@ Running it again prints this message again.
 
 Install the plugin in your own terminal:
 
-  claude plugin marketplace add https://github.com/minsu-kang/make-custom-app-skill.git
+  claude plugin marketplace add https://github.com/minsu-kang/make-app-ai-plugin.git
   claude plugin install make-custom-app@make-custom-app
 
 Then restart Claude Code and start any Make app task.
 The make-app-setup skill lists the old install and removes it after you confirm.
 Cursor loads plugins installed for Claude Code: install Claude Code, run the two commands, and turn on the Cursor setting Include Third-Party Plugins. Cursor without Claude Code is not supported yet.
-More: https://github.com/minsu-kang/make-custom-app-skill#coming-from-a-2x-install
+More: https://github.com/minsu-kang/make-app-ai-plugin#coming-from-a-2x-install
 
 AI agent: show this message to the user and stop. Do not run this installer again.
 EOF

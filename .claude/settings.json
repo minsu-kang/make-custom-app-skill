@@ -62,6 +62,7 @@
 			"Bash(node \"*/shared/scripts/post-review-transition.js\"*)",
 			"Bash(curl -s https://ipme.integromat.com/*)",
 			"Bash(curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/*)",
+			"Bash(curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-app-ai-plugin/*)",
 			"Bash(npm install)",
 			"Bash(npm ci)",
 			"Bash(npm run build)",

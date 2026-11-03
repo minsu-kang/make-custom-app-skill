@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1 — 2026-11-03
+
+The repository moved from `minsu-kang/make-custom-app-skill` to `minsu-kang/make-app-ai-plugin`. Plugin installs keep working: GitHub redirects the old address for git and raw files.
+
+- **New address.** The README install command, the `homepage` and `repository` fields of both manifests, the update notice (the version check and the Cursor update link), and the installer shim drafts in `tools/shims/` use `https://github.com/minsu-kang/make-app-ai-plugin`.
+- **Unchanged.** The marketplace and the plugin id stay `make-custom-app@make-custom-app`. A marketplace added with the old address keeps updating through the redirect; the README says to skip the `marketplace add` command in that case.
+
 ## 3.0.0 — 2026-11-02
 
 The make-custom-app skill becomes one plugin for Claude Code and Cursor.
