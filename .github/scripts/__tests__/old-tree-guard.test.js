@@ -184,7 +184,7 @@ test('branch: no old-tree change passes', () => {
 	});
 });
 
-test('branch: each of the seven allowed paths passes (A for the four new files, M for the three changed ones)', () => {
+test('branch: each of the seven bridge files of spec 8.2 passes (A for the four new files, M for the three changed ones)', () => {
 	assert.deepEqual(guard.OLD_TREE_PATHS, ['skill', 'rules', 'install-claude.sh', 'install-claude.ps1', 'install-cursor.sh', 'install-cursor.ps1', 'version.json']);
 	assert.deepEqual(guard.ALLOWED_PATHS, [
 		'skill/SKILL.md',
@@ -194,6 +194,10 @@ test('branch: each of the seven allowed paths passes (A for the four new files, 
 		'skill/scripts/lib/migrate-logic.js',
 		'skill/scripts/lib/__tests__/migrate-logic.test.js',
 		'skill/scripts/lib/__tests__/migrate-to-plugin.test.js',
+		'install-claude.sh',
+		'install-claude.ps1',
+		'install-cursor.sh',
+		'install-cursor.ps1',
 	]);
 	const entries = [...CHANGED_FILES.map((p) => entry('M', p)), ...NEW_FILES.map((p) => entry('A', p))];
 	for (const one of entries) assert.deepEqual(check('branch', [one], BASE, BASE), [], one.path);
@@ -270,11 +274,18 @@ test('branch: a version.json change fails', () => {
 	});
 });
 
-test('both modes: skill/scripts/download-app.js, rules/make-custom-app.mdc, and install-claude.sh fail', () => {
+test('both modes: the four installers pass, and release mode still needs the 2.4.x bump', () => {
+	const installers = ['install-claude.sh', 'install-claude.ps1', 'install-cursor.sh', 'install-cursor.ps1'].map((p) => entry('M', p));
+	assert.deepEqual(check('branch', installers, BASE, BASE), []);
+	assert.deepEqual(check('release', installers, BASE, pair('2.4.0')), []);
+	assert.notDeepEqual(check('release', installers, BASE, BASE), []);
+	assert.deepEqual(check('branch', [entry('D', 'install-claude.sh')], BASE, BASE), [notAllowed('install-claude.sh', 'D')]);
+});
+
+test('both modes: skill/scripts/download-app.js and rules/make-custom-app.mdc fail', () => {
 	const entries = [
 		entry('M', 'skill/scripts/download-app.js'),
 		entry('M', 'rules/make-custom-app.mdc'),
-		entry('M', 'install-claude.sh'),
 		entry('A', 'skill/scripts/lib/__tests__/migrate-logic-more.test.js'),
 	];
 	const expected = entries.map((e) => notAllowed(e.path, e.status));
@@ -285,10 +296,9 @@ test('both modes: skill/scripts/download-app.js, rules/make-custom-app.mdc, and 
 		const r = cli(root, ['--mode=branch', '--base=base']);
 		assert.equal(r.status, 1);
 		assert.deepEqual(r.lines, [
-			`old-tree-guard: ${notAllowed('install-claude.sh', 'M')}`,
 			`old-tree-guard: ${notAllowed('rules/make-custom-app.mdc', 'M')}`,
 			`old-tree-guard: ${notAllowed('skill/scripts/download-app.js', 'M')}`,
-			summary(3, 'branch', 'base'),
+			summary(2, 'branch', 'base'),
 		]);
 	});
 });

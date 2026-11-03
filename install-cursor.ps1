@@ -5,11 +5,11 @@
 # ============================================================
 # Usage:
 #   Fresh install / Update:
-#     irm https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.ps1 | iex
+#     irm https://raw.githubusercontent.com/minsu-kang/make-app-ai-plugin/master/install-cursor.ps1 | iex
 #
 #   Clone & install:
-#     git clone https://github.com/minsu-kang/make-custom-app-skill.git
-#     cd make-custom-app-skill; .\install-cursor.ps1
+#     git clone https://github.com/minsu-kang/make-app-ai-plugin.git
+#     cd make-app-ai-plugin; .\install-cursor.ps1
 #
 #   Flags:
 #     -Mode update    Skip confirmation prompt (for scripted updates)
@@ -31,7 +31,7 @@ $ErrorActionPreference = "Stop"
 # Force TLS 1.2 for HTTPS — required for GitHub on PowerShell 5.1.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$REPO = "minsu-kang/make-custom-app-skill"
+$REPO = "minsu-kang/make-app-ai-plugin"
 $BRANCH = "master"
 $SKILL_DIR = Join-Path $env:USERPROFILE ".cursor\skills\make-custom-app"
 $RULES_DIR = Join-Path $env:USERPROFILE ".cursor\rules\make-custom-app"

@@ -20,7 +20,7 @@ const FAKE = {
 const SECRET_NAMES = ['pinecone', 'openai', 'otherToken', 'cursorToken', 'conflictPinecone'];
 const GENERIC_FAKE = /fake-[a-z-]+-\d{4}/g;
 
-const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-custom-app-skill.git';
+const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-app-ai-plugin.git';
 const SCENARIOS = ['full', 'hand-installed', 'disabled', 'no-claude', 'edited-sentinel', 'rerun-a'];
 
 const isFolder = (value) => typeof value === 'string' && value !== '';

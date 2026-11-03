@@ -6,11 +6,11 @@ set -e
 # ============================================================
 # Usage:
 #   Fresh install / Update:
-#     curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/install-cursor.sh | bash
+#     curl -fsSL https://raw.githubusercontent.com/minsu-kang/make-app-ai-plugin/master/install-cursor.sh | bash
 #
 #   Clone & install:
-#     git clone https://github.com/minsu-kang/make-custom-app-skill.git
-#     cd make-custom-app-skill && ./install-cursor.sh
+#     git clone https://github.com/minsu-kang/make-app-ai-plugin.git
+#     cd make-app-ai-plugin && ./install-cursor.sh
 #
 #   Flags:
 #     --update    Skip confirmation prompt (for scripted updates)
@@ -21,7 +21,7 @@ set -e
 # no file list is maintained here.
 # ============================================================
 
-REPO="minsu-kang/make-custom-app-skill"
+REPO="minsu-kang/make-app-ai-plugin"
 BRANCH="master"
 SKILL_DIR="$HOME/.cursor/skills/make-custom-app"
 RULES_DIR="$HOME/.cursor/rules/make-custom-app"
