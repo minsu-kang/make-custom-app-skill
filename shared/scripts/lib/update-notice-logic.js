@@ -5,11 +5,11 @@
  * The fetch and the cache file are in lib/update-notice.js. A new rule goes here with a unit test in
  * lib/__tests__/update-notice-logic.test.js.
  */
-const UPDATE_URL = 'https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/.claude-plugin/plugin.json';
+const UPDATE_URL = 'https://raw.githubusercontent.com/minsu-kang/make-app-ai-plugin/master/.claude-plugin/plugin.json';
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
-const README_URL = 'https://github.com/minsu-kang/make-custom-app-skill#update';
+const README_URL = 'https://github.com/minsu-kang/make-app-ai-plugin#update';
 
 /** The `version` of a plugin.json text, or null when the text is not JSON or the version is not X.Y.Z. */
 function parseVersion(text) {

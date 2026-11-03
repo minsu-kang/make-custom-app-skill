@@ -154,7 +154,7 @@ describe('constants', () => {
 	it('exports the fixed values of the plan', () => {
 		assert.equal(logic.PLUGIN_ID, ID);
 		assert.equal(logic.MARKETPLACE_NAME, 'make-custom-app');
-		assert.equal(logic.MARKETPLACE_URL, 'https://github.com/minsu-kang/make-custom-app-skill.git');
+		assert.equal(logic.MARKETPLACE_URL, 'https://github.com/minsu-kang/make-app-ai-plugin.git');
 		assert.equal(logic.MIN_PLUGIN_VERSION, '3.0.0');
 		assert.deepEqual(logic.PROMPT_INTERVAL_MS, { ask: DAY, inactive: DAY, unsupported: 30 * DAY });
 		assert.equal(logic.DECLINE_TTL_MS, 7 * DAY);
@@ -1202,13 +1202,13 @@ describe('parseJsonc', () => {
 });
 
 describe('parseMarketplaceList', () => {
-	const GIT = { name: 'make-custom-app', source: 'git', url: 'https://github.com/minsu-kang/make-custom-app-skill.git', installLocation: '/h/.claude/plugins/marketplaces/make-custom-app' };
+	const GIT = { name: 'make-custom-app', source: 'git', url: 'https://github.com/minsu-kang/make-app-ai-plugin.git', installLocation: '/h/.claude/plugins/marketplaces/make-custom-app' };
 	const DIRECTORY = { name: 'make-custom-app', source: 'directory', path: '/work/clone', installLocation: '/work/clone' };
 
 	it('parseMarketplaceList: the flat shape of M1 gives the url of a git entry and the path of a directory entry', () => {
-		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT])), [{ name: 'make-custom-app', source: 'https://github.com/minsu-kang/make-custom-app-skill.git' }]);
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT])), [{ name: 'make-custom-app', source: 'https://github.com/minsu-kang/make-app-ai-plugin.git' }]);
 		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([DIRECTORY])), [{ name: 'make-custom-app', source: '/work/clone' }]);
-		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT, DIRECTORY, { name: 'third', source: 'github', repo: 'o/r' }])).map((entry) => entry.source), ['https://github.com/minsu-kang/make-custom-app-skill.git', '/work/clone', 'o/r']);
+		assert.deepEqual(logic.parseMarketplaceList(JSON.stringify([GIT, DIRECTORY, { name: 'third', source: 'github', repo: 'o/r' }])).map((entry) => entry.source), ['https://github.com/minsu-kang/make-app-ai-plugin.git', '/work/clone', 'o/r']);
 	});
 
 	it('parseMarketplaceList: an entry with only a string source gives that string, and an entry with nothing gives null', () => {
@@ -3120,7 +3120,7 @@ describe('nextLines, summaryLines, and jsonReport', () => {
 	const NEXT_HANDOFF = 'Next: continue with the make-app-setup skill of the plugin; it lists the old install and removes it after you confirm.';
 	const NOTHING_DELETED = 'Nothing was deleted. The old skill keeps working until the cleanup.';
 	const DISABLED = 'The plugin is installed but disabled; this script does not enable it. To use it, run in your own terminal: claude plugin enable make-custom-app@make-custom-app';
-	const ADDRESS = 'https://github.com/minsu-kang/make-custom-app-skill.git';
+	const ADDRESS = 'https://github.com/minsu-kang/make-app-ai-plugin.git';
 
 	function baseReport(over = {}) {
 		return {
@@ -3285,10 +3285,10 @@ describe('nextLines, summaryLines, and jsonReport', () => {
 	});
 
 	it('summaryLines and jsonReport: an address with a user name or a token in front of the host is shown without it', () => {
-		const url = 'https://someone:fake-other-token-1111@github.com/minsu-kang/make-custom-app-skill.git';
+		const url = 'https://someone:fake-other-token-1111@github.com/minsu-kang/make-app-ai-plugin.git';
 		const report = baseReport({ marketplace: { action: 'present', source: url } });
-		assert.equal(logic.summaryLines(report)[1], 'Marketplace make-custom-app was already there (https://github.com/minsu-kang/make-custom-app-skill.git); it was kept.');
-		assert.equal(logic.jsonReport(report).marketplace.source, 'https://github.com/minsu-kang/make-custom-app-skill.git');
+		assert.equal(logic.summaryLines(report)[1], 'Marketplace make-custom-app was already there (https://github.com/minsu-kang/make-app-ai-plugin.git); it was kept.');
+		assert.equal(logic.jsonReport(report).marketplace.source, 'https://github.com/minsu-kang/make-app-ai-plugin.git');
 		assert.equal(logic.jsonReport(baseReport({ marketplace: { action: 'present', source: 'git@github.com:minsu-kang/x.git' } })).marketplace.source, 'git@github.com:minsu-kang/x.git');
 	});
 

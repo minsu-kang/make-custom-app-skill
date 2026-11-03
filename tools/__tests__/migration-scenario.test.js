@@ -74,7 +74,7 @@ test('the test process sees a temporary home', () => {
 
 test('the constants name the six scenarios, the marketplace address, and the fake values of the shared test helper', () => {
 	assert.deepEqual(SCENARIOS, ['full', 'hand-installed', 'disabled', 'no-claude', 'edited-sentinel', 'rerun-a']);
-	assert.equal(MARKETPLACE_URL, 'https://github.com/minsu-kang/make-custom-app-skill.git');
+	assert.equal(MARKETPLACE_URL, 'https://github.com/minsu-kang/make-app-ai-plugin.git');
 	assert.deepEqual(Object.keys(FAKE).sort(), ['conflictPinecone', 'cursorToken', 'index', 'openai', 'otherToken', 'pinecone']);
 	const helper = fs.readFileSync(path.join(REPO, 'shared', 'scripts', 'lib', '__tests__', 'fake-legacy-home.js'), 'utf8');
 	for (const [name, value] of Object.entries(FAKE)) assert.ok(helper.includes(`${name}: '${value}',`), `FAKE.${name} differs from fake-legacy-home.js`);
@@ -209,7 +209,7 @@ test('buildEnv has no CLAUDE_CONFIG_DIR, sets HOME and USERPROFILE, puts fakebin
 		TMPDIR: path.join('/h/home', 'tmp'),
 		GIT_CONFIG_COUNT: '2',
 		GIT_CONFIG_KEY_0: 'url./h/bare.git.insteadOf',
-		GIT_CONFIG_VALUE_0: 'https://github.com/minsu-kang/make-custom-app-skill.git',
+		GIT_CONFIG_VALUE_0: 'https://github.com/minsu-kang/make-app-ai-plugin.git',
 		GIT_CONFIG_KEY_1: 'url.https://blocked.invalid/.insteadOf',
 		GIT_CONFIG_VALUE_1: 'https://github.com/',
 		CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',

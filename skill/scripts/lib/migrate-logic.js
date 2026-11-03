@@ -16,7 +16,7 @@ const { isPlaceholder } = require('./settings');
 
 const PLUGIN_ID = 'make-custom-app@make-custom-app';
 const MARKETPLACE_NAME = 'make-custom-app';
-const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-custom-app-skill.git';
+const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-app-ai-plugin.git';
 const MIN_PLUGIN_VERSION = '3.0.0';
 const DAY_MS = 86400000;
 const PROMPT_INTERVAL_MS = { ask: DAY_MS, inactive: DAY_MS, unsupported: 30 * DAY_MS };

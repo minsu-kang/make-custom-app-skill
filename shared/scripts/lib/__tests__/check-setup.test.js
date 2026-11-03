@@ -705,7 +705,7 @@ describe('check-setup update notice', () => {
 		save(fullConfig());
 		cacheVersion('99.0.0');
 		const r = run([], { CURSOR_AGENT: '1', ...NOTICE });
-		assert.match(r.stdout, /How to update in Cursor: https:\/\/github\.com\/minsu-kang\/make-custom-app-skill#update/);
+		assert.match(r.stdout, /How to update in Cursor: https:\/\/github\.com\/minsu-kang\/make-app-ai-plugin#update/);
 		assert.doesNotMatch(r.stdout, /claude plugin update/);
 	});
 

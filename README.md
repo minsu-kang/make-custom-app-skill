@@ -25,9 +25,11 @@ The plugin is for Make employees. The scripts refuse to run when the Atlassian a
 In your own terminal:
 
 ```bash
-claude plugin marketplace add https://github.com/minsu-kang/make-custom-app-skill.git
+claude plugin marketplace add https://github.com/minsu-kang/make-app-ai-plugin.git
 claude plugin install make-custom-app@make-custom-app
 ```
+
+If `claude plugin marketplace list` already shows `make-custom-app` (added from the old `make-custom-app-skill` address), skip the first command: the old address still works, and adding the new one fails while the old entry exists.
 
 Restart Claude Code (or run `/reload-plugins`). Then:
 

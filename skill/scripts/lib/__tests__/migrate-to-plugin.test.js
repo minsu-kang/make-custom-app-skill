@@ -150,7 +150,7 @@ function readBaseSkillMd() {
 const BASE_SKILL_MD = readBaseSkillMd();
 
 const MARKETPLACE_NAME = 'make-custom-app';
-const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-custom-app-skill.git';
+const MARKETPLACE_URL = 'https://github.com/minsu-kang/make-app-ai-plugin.git';
 const PLUGIN_ID = ID;
 const FAKE_CLAUDE_VERSION = '2.1.312';
 const FAKE_PLUGIN_VERSION = '3.0.0';

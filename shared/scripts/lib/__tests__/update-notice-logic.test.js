@@ -4,7 +4,7 @@ const { UPDATE_URL, CACHE_TTL_MS, FETCH_TIMEOUT_MS, parseVersion, isNewer, isFre
 
 describe('constants', () => {
 	it('fetch only the plugin.json of master, wait at most 5 seconds, and keep an answer for an hour', () => {
-		assert.equal(UPDATE_URL, 'https://raw.githubusercontent.com/minsu-kang/make-custom-app-skill/master/.claude-plugin/plugin.json');
+		assert.equal(UPDATE_URL, 'https://raw.githubusercontent.com/minsu-kang/make-app-ai-plugin/master/.claude-plugin/plugin.json');
 		assert.equal(FETCH_TIMEOUT_MS, 5000);
 		assert.equal(CACHE_TTL_MS, 3600000);
 	});
@@ -64,6 +64,6 @@ describe('noticeLines', () => {
 	it('gives Cursor a pointer to the README and no command', () => {
 		const lines = noticeLines({ editor: 'cursor', installed: '3.0.0', available: '3.1.0' });
 		assert.equal(lines.length, 2);
-		assert.equal(lines[1], 'How to update in Cursor: https://github.com/minsu-kang/make-custom-app-skill#update');
+		assert.equal(lines[1], 'How to update in Cursor: https://github.com/minsu-kang/make-app-ai-plugin#update');
 	});
 });

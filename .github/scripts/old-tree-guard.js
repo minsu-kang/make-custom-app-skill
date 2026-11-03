@@ -3,7 +3,7 @@
 
 // CI guard for the 2.x old tree (skill/, rules/, the four installers, version.json) while the bridge release exists. Not part of the plugin payload.
 // Usage: node .github/scripts/old-tree-guard.js --mode=branch|release --base=<ref> [repoRoot]
-// Both modes allow changes only in the seven bridge files of ALLOWED_PATHS, and skill/SKILL.md may differ from the base only in its
+// Both modes allow changes only in the bridge files of ALLOWED_PATHS (the seven of spec 8.2, and since 2.4.1 the four installers), and skill/SKILL.md may differ from the base only in its
 // version line and its "## Plugin migration" section. Branch mode (pull requests into an integration branch) also keeps both versions as
 // they are. Release mode (pull requests into master and pushes to master) lets version.json change, and when the old tree changed at all it
 // needs a higher 2.4.x version in version.json and skill/SKILL.md together.
@@ -22,6 +22,10 @@ const ALLOWED_PATHS = [
 	'skill/scripts/lib/migrate-logic.js',
 	'skill/scripts/lib/__tests__/migrate-logic.test.js',
 	'skill/scripts/lib/__tests__/migrate-to-plugin.test.js',
+	'install-claude.sh',
+	'install-claude.ps1',
+	'install-cursor.sh',
+	'install-cursor.ps1',
 ];
 const MODES = ['branch', 'release'];
 const SKILL_MD = 'skill/SKILL.md';
