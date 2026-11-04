@@ -36,6 +36,7 @@ Once per conversation, run `node "<plugin root>/shared/scripts/check-setup.js"` 
 - Exit 1: show its output and stop (no app code, scripts, or MCP calls) until the user has fixed it, then run it again. The setup steps are in the `make-app-setup` skill: in Claude Code call the Skill tool with `make-custom-app:make-app-setup`; in Cursor read `<plugin root>/skills/make-app-setup/SKILL.md` and follow it.
 - A line that starts with `LEGACY_INSTALL:` in the output: hand off to `make-app-setup` the same way before the task, and continue the task when that is done or declined.
 - A line that starts with `UPDATE_AVAILABLE:` in the output: tell the user once per conversation what it says, including the update commands printed under it, then continue the task.
+- A line that starts with `MODE:` in the output: `MODE: public` means employee-only steps (Jira ticket, compile, component tests, ownership transfer) are not available; when a step needs one, tell the user.
 
 ## Load order
 

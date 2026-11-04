@@ -20,14 +20,14 @@
  *
  * Requires:
  *   - make-apps-mockup repo path configured in ~/.make-custom-app-skill-secrets (make-apps-mockup-path: /path/to/repo)
- *   - MAKE_API_KEY environment variable set
+ *   - the Make API token: the saved one in Claude Code; in Cursor MAKE_API_KEY, the mockup .env, or the active Make Apps SDK environment
  */
 
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getMakeApiKey, readCursorEnvironments, readSkillConfig, requireEditor, SECRETS_PATH } = require('./lib/settings');
+const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 function getMockupPath() {
@@ -64,6 +64,8 @@ if (!validTypes.includes(componentType)) {
 	process.exit(1);
 }
 
+const settings = require('./lib/mode').requireMode({ employeeOnly: true });
+
 const mockupPath = getMockupPath();
 
 if (!mockupPath || !fs.existsSync(mockupPath)) {
@@ -90,13 +92,11 @@ try {
 }
 
 // Resolve MAKE_API_KEY for the child ts-node process.
-//   Claude Code → ~/.make-custom-app-skill-secrets `make-api-key:` (getMakeApiKey
-//                 exits with a setup guide if missing).
-//   Cursor      → process env, then mockup `.env`, then Cursor settings.json via
-//                 lib/settings.getMakeApiKey() as a final fallback.
+//   Claude Code → `make-api-key:` of ~/.make-custom-app-skill-secrets (read by requireMode).
+//   Cursor      → process env, then mockup `.env`, then the key of the active Make Apps SDK environment.
 const envFile = path.join(mockupPath, '.env');
-if (requireEditor() === 'claude') {
-	process.env.MAKE_API_KEY = getMakeApiKey();
+if (settings.editor === 'claude') {
+	process.env.MAKE_API_KEY = settings.apikey;
 } else {
 	if (!process.env.MAKE_API_KEY && fs.existsSync(envFile)) {
 		const envContent = fs.readFileSync(envFile, 'utf-8');
@@ -105,19 +105,7 @@ if (requireEditor() === 'claude') {
 			if (match) process.env[match[1]] = match[2];
 		}
 	}
-	if (!process.env.MAKE_API_KEY && readCursorEnvironments().ok) {
-		try {
-			process.env.MAKE_API_KEY = getMakeApiKey();
-		} catch (_) {
-			// fall through to error below
-		}
-	}
-	if (!process.env.MAKE_API_KEY) {
-		console.error('MAKE_API_KEY not found. Set it in:');
-		console.error(`  - ${envFile}`);
-		console.error('  - or export MAKE_API_KEY=your-api-key');
-		process.exit(1);
-	}
+	if (!process.env.MAKE_API_KEY) process.env.MAKE_API_KEY = settings.apikey;
 }
 
 const formatFlag = flags.find(f => f.startsWith('--format='));
@@ -145,8 +133,6 @@ if (debug) {
 }
 
 const cmd = cmdParts.join(' ');
-
-require('./lib/access-guard').ensureInternalUser();
 
 try {
 	const output = execSync(cmd, {

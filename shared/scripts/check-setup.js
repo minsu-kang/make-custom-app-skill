@@ -5,12 +5,18 @@
  * The agent runs this once per conversation; a non-zero exit means a REQUIRED item is
  * missing and work must stop until the printed fix is applied.
  *
- *   node check-setup.js                          human-readable report
- *   node check-setup.js --json                   machine-readable report
+ *   node check-setup.js                          human-readable report; the first line is MODE: employee, public or unknown
+ *   node check-setup.js --json                   machine-readable report (with mode and zone)
  *   node check-setup.js --editor claude|cursor   (or --editor=cursor) when no editor variable is set and the secrets file has no editor: line
  *   node check-setup.js --skip-update-check      do not look for a newer version on master (also: MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK set to any non-empty value)
  *
- * Exit codes: 0 = every required item OK, 1 = a required item is missing or the editor cannot be told.
+ * With a saved Make API token, every run checks it again (GET users/me, then the admin API probe of lib/mode.js) and
+ * caches the mode for the entry scripts. Without a token it sends no request to Make.
+ * Items in both modes: the Make API token and mode (required), make-team-id and mcp-server (optional).
+ * Employee mode adds imt-app-runtime-path and make account (required) and make-apps-mockup-path (optional).
+ *
+ * Exit codes: 0 = every required item OK, 1 = a required item is missing (also a rejected token or a check that got
+ * no answer) or the editor cannot be told.
  * Leftovers of an old 2.x install (a LEGACY_INSTALL warning) and a newer version on master (an UPDATE_AVAILABLE notice)
  * never change the exit code.
  * After the user declines the cleanup, OLD_INSTALL_KEPT replaces the LEGACY_INSTALL warning for 7 days.
@@ -18,10 +24,13 @@
 const fs = require('fs');
 const os = require('os');
 const { PLUGIN_ROOT, setupCommand } = require('./lib/paths');
-const { readSkillConfig, readCursorEnvironments, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
+const { readSkillConfig, readMakeCredentials, readClaudeHost, requireEditor, takeEditorFlagOrExit, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { isValidId } = require('./lib/run-component-logic');
 const { checkAccess } = require('./lib/access-guard');
-const { denyMessage } = require('./lib/access-guard-logic');
+const { denyMessage, proxyEnv } = require('./lib/access-guard-logic');
+const { detectMode, probeSync, saveVerdict } = require('./lib/mode');
+const { verdictFrom, cursorAdminWarning } = require('./lib/mode-logic');
+const { credentialItem, modeItem, reportedMode, modeLine } = require('./lib/check-setup-logic');
 const { detectLegacyInstall, legacyInstallLines, keptInstallLines } = require('./lib/legacy-install');
 const { readDecline, gatherFacts } = require('./lib/legacy-cleanup-steps');
 const { buildPlan, declineState } = require('./lib/legacy-cleanup-logic');
@@ -30,7 +39,6 @@ const { checkForUpdate, installedVersion } = require('./lib/update-notice');
 takeEditorFlagOrExit(process.argv);
 const argv = process.argv.slice(2);
 const editor = requireEditor();
-const isClaude = editor === 'claude';
 const items = [];
 const SETUP_CMD = setupCommand(editor);
 const SETUP_HINT = `Run this in your own terminal (do not run it via the agent — it is interactive and writes secrets):\n  ${SETUP_CMD}`;
@@ -43,8 +51,8 @@ function isPlaceholder(value, markers) {
 	return !value || markers.some((m) => value.includes(m));
 }
 
-// 1. imt-app-runtime-path (required, both editors)
-{
+// imt-app-runtime-path (required, employee mode)
+function checkRuntimePath() {
 	const v = readSkillConfig('imt-app-runtime-path');
 	if (isPlaceholder(v, ['/path/provided/by/user'])) {
 		add(
@@ -65,43 +73,8 @@ function isPlaceholder(value, markers) {
 	}
 }
 
-// 2. Make API credentials (required)
-if (isClaude) {
-	const key = readSkillConfig('make-api-key');
-	if (!key || /^<.*>$/.test(key)) {
-		add(
-			'make-api-key',
-			'missing',
-			'not set (Claude Code reads it from ~/.make-custom-app-skill-secrets)',
-			`${SETUP_HINT}\nCreate a token at https://eu1.make.com/user/api (scopes: apps:read apps:write sdk-apps:read sdk-apps:write, plus any admin scope you have; for run-component.js also teams:read organizations:read imt-forms:read, plus connections:read user:read for components with a connection; optional endpoints:run credential-requests:write).`,
-		);
-	} else {
-		add('make-api-key', 'ok', `set (${readSkillConfig('make-api-url') || 'https://eu1.make.com/api/v2/admin'})`);
-	}
-} else {
-	const cursor = readCursorEnvironments();
-	if (cursor.ok) {
-		add('make-api (Cursor settings.json)', 'ok', 'apps-sdk.environments present');
-	} else if (cursor.reason === 'unreadable') {
-		const line = /near line (\d+)/.exec(cursor.detail);
-		add(
-			'make-api (Cursor settings.json)',
-			'missing',
-			`cannot read the file: ${cursor.detail}`,
-			`Fix the JSON in ${CURSOR_SETTINGS_PATH}${line ? `, near line ${line[1]}` : ''}, then run check-setup again.`,
-		);
-	} else {
-		add(
-			'make-api (Cursor settings.json)',
-			'missing',
-			cursor.detail,
-			'Install the Make Apps SDK extension in Cursor and add an environment with your API key (Command Palette → "Make Apps: Add environment").',
-		);
-	}
-}
-
-// 3. make-apps-mockup-path (optional — test-component.js)
-{
+// make-apps-mockup-path (optional, employee mode — test-component.js)
+function checkMockupPath() {
 	const v = readSkillConfig('make-apps-mockup-path');
 	if (isPlaceholder(v, ['/path/to'])) {
 		add(
@@ -117,8 +90,8 @@ if (isClaude) {
 	}
 }
 
-// 4. Make account (required): the plugin is for Make employees; the Atlassian account behind the saved Jira token must be @make.com
-{
+// Make account (required, employee mode): the Atlassian account behind the saved Jira token must be @make.com
+function checkMakeAccount() {
 	const access = checkAccess();
 	if (access.ok) {
 		add('make account', 'ok', access.email);
@@ -128,8 +101,8 @@ if (isClaude) {
 	}
 }
 
-// 4b. make-team-id (optional — default team for run-component.js)
-{
+// make-team-id (optional — default team for run-component.js)
+function checkTeamId() {
 	const v = readSkillConfig('make-team-id');
 	if (!v) {
 		add(
@@ -145,10 +118,10 @@ if (isClaude) {
 	}
 }
 
-// 5. MCP server (optional — shared Pinecone context). The plugin's server is not recorded in ~/.claude.json or
+// MCP server (optional — shared Pinecone context). The plugin's server is not recorded in ~/.claude.json or
 // ~/.cursor/mcp.json, so registration cannot be checked. The server reads the two keys from the MAKE_APP_CONTEXT_*
 // variables first and then from the secrets file; the index name has a default and is not required.
-{
+function checkMcpServer() {
 	const keys = [
 		{ key: 'pinecone-api-key', variable: 'MAKE_APP_CONTEXT_PINECONE_API_KEY' },
 		{ key: 'openai-api-key', variable: 'MAKE_APP_CONTEXT_OPENAI_API_KEY' },
@@ -170,7 +143,19 @@ if (isClaude) {
 	}
 }
 
-const ok = items.every((i) => i.status !== 'missing');
+/**
+ * Checks the saved token and caches the verdict; null without a usable token. Node's fetch in this process ignores
+ * HTTPS_PROXY unless NODE_USE_ENV_PROXY was set at start, so with a proxy the calls run in probeSync's child, which
+ * honours it but returns no account name.
+ */
+async function probeToken(creds) {
+	if (!creds.ok) return null;
+	const result = proxyEnv(process.env).NODE_USE_ENV_PROXY ? probeSync(creds.host, creds.apikey) : await detectMode(creds.host, creds.apikey);
+	const verdict = verdictFrom(result);
+	saveVerdict(creds.host, creds.apikey, verdict);
+	return { me: result.me, admin: result.admin, verdict };
+}
+
 const legacyInstall = detectLegacyInstall();
 let declined = null;
 try {
@@ -183,15 +168,43 @@ try {
 const skipUpdateCheck = argv.includes('--skip-update-check') || Boolean(process.env.MAKE_CUSTOM_APP_SKIP_UPDATE_CHECK);
 
 async function main() {
-	const update = skipUpdateCheck ? null : await checkForUpdate({ editor, installed: installedVersion(PLUGIN_ROOT) });
+	const creds = readMakeCredentials(editor);
+	const [probe, update] = await Promise.all([probeToken(creds), skipUpdateCheck ? null : checkForUpdate({ editor, installed: installedVersion(PLUGIN_ROOT) })]);
+	const mode = reportedMode(probe);
+	const known = !creds.ok && editor === 'claude' && creds.reason === 'no-key' ? readClaudeHost() : null;
+	items.push(credentialItem({ editor, creds, probe, tokenHost: known?.ok ? known.host : null, setupHint: SETUP_HINT, setupCommand: SETUP_CMD, cursorSettingsPath: CURSOR_SETTINGS_PATH }));
+	items.push(modeItem({ creds, probe }));
+	if (mode === 'employee') {
+		checkRuntimePath();
+		checkMockupPath();
+		checkMakeAccount();
+	}
+	checkTeamId();
+	checkMcpServer();
+	const warning = cursorAdminWarning({ cursorAdmin: creds.ok ? creds.cursorAdmin : null, mode });
+	const warnings = warning ? [warning] : [];
+	const ok = items.every((i) => i.status !== 'missing');
 	if (argv.includes('--json')) {
-		const report = { ok, editor, pluginRoot: PLUGIN_ROOT, setupCommand: SETUP_CMD, items, legacyInstall, legacyDeclinedAt: declined ? new Date(declined.declinedAt).toISOString() : null };
+		const report = {
+			ok,
+			editor,
+			mode,
+			zone: creds.ok ? creds.host : null,
+			pluginRoot: PLUGIN_ROOT,
+			setupCommand: SETUP_CMD,
+			items,
+			warnings,
+			legacyInstall,
+			legacyDeclinedAt: declined ? new Date(declined.declinedAt).toISOString() : null,
+		};
 		report.update = update ? { installed: update.installed, available: update.available } : null;
 		process.stdout.write(JSON.stringify(report, null, 2) + '\n');
 	} else {
 		const mark = { ok: 'OK      ', missing: 'MISSING ', 'optional-missing': 'OPTIONAL' };
+		console.log(modeLine(mode));
 		console.log(`make-custom-app setup — ${editor} — ${PLUGIN_ROOT}\n`);
 		for (const i of items) console.log(`${mark[i.status]} ${i.key}: ${i.detail}`);
+		if (warnings.length) console.log(`\n${warnings.join('\n')}`);
 		const fixes = items.filter((i) => i.fix);
 		if (fixes.length) {
 			console.log('\nFixes:');

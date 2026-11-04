@@ -7,9 +7,9 @@ const { getEditor, readSkillConfig } = require('./settings');
 const logic = require('./access-guard-logic');
 
 /**
- * Internal-use gate: the skill runs only for Make employees, whose Atlassian account is @make.com.
+ * Account check of employee mode: the Atlassian account behind the saved Jira token must be @make.com.
  * The email comes from Jira GET /myself with the saved token, so a line typed into the secrets file
- * does not count. Entry scripts call ensureInternalUser() directly.
+ * does not count. requireMode() (lib/mode.js) calls ensureInternalUser() in employee mode.
  *
  * The check runs in a child process because entry scripts call the guard synchronously. The token
  * goes to the child over stdin, never on its command line. A verdict is cached for 24 hours.

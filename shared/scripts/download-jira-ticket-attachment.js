@@ -101,6 +101,7 @@ async function main() {
 		process.exit(1);
 	}
 
+	require('./lib/mode').requireMode({ employeeOnly: true });
 	const config = loadJiraConfig();
 	const auth = { email: config.email, apiToken: config.apiToken };
 
@@ -165,8 +166,6 @@ async function main() {
 		}
 	}
 }
-
-require('./lib/access-guard').ensureInternalUser();
 
 main().catch((err) => {
 	console.error('ERROR:', err.message);

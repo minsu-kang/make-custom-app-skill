@@ -27,7 +27,8 @@
 
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { loadSettings, announceTarget } = require('./lib/settings');
+const { announceTarget } = require('./lib/settings');
+const { originStop } = require('./lib/mode-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -102,9 +103,14 @@ async function apiGetJson(url, auth) {
 	return result.json;
 }
 
-async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
+async function resolveOrigin(baseUrl, auth, appSlug, appVersion, { mode, host }) {
 	const resp = await apiGetJson(`${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`, auth);
 	const origin = resp?.app?.origin || resp?.origin;
+	const stop = originStop({ mode, host, origin });
+	if (stop) {
+		console.error(stop.message);
+		process.exit(1);
+	}
 	if (!origin) return baseUrl;
 
 	const currentHost = new URL(baseUrl).hostname;
@@ -164,10 +170,10 @@ async function fetchAppState(verBase, auth) {
 	return { changes: app.changes || [], approved: app.approved };
 }
 
-function runTransition(issueKey) {
+function runTransition(issueKey, editor) {
 	const scriptPath = path.join(__dirname, 'post-review-transition.js');
 	console.log(`\n▸ Chaining: post-review-transition.js ${issueKey} committed\n`);
-	const result = spawnSync(process.execPath, [scriptPath, issueKey, 'committed'], {
+	const result = spawnSync(process.execPath, [scriptPath, issueKey, 'committed', '--editor', editor], {
 		stdio: 'inherit',
 	});
 	if (result.status !== 0) {
@@ -306,14 +312,18 @@ async function main() {
 		process.exit(1);
 	}
 
-	const settings = loadSettings();
+	const settings = require('./lib/mode').requireMode();
+	if (settings.mode === 'public') {
+		if (action === 'compile') require('./lib/mode').exitEmployeeOnly('commit-changes.js compile');
+		if (flags.issue && action !== 'rollback') require('./lib/mode').exitEmployeeOnly('commit-changes.js --issue');
+	}
 	announceTarget(settings);
 	let { baseUrl, auth } = settings;
 	console.log(`API: ${baseUrl}`);
 	console.log(`App: ${appSlug} v${appVersion}`);
 	console.log(`Action: ${action}\n`);
 
-	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
+	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 	const verBase = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}`;
 
 	if (action === 'commit') {
@@ -325,11 +335,9 @@ async function main() {
 	}
 
 	if (flags.issue && action !== 'rollback') {
-		runTransition(flags.issue);
+		runTransition(flags.issue, settings.editor);
 	}
 }
-
-require('./lib/access-guard').ensureInternalUser();
 
 main().catch((err) => {
 	console.error('ERROR:', err.message);

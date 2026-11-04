@@ -2,6 +2,8 @@
  * Tests for the entry script run-component.js against a mock Make API server, in a fake HOME with a fake API token.
  * The decisions are tested without a server in run-component-logic.test.js; this file covers the wiring: the order of
  * the checks, what is sent, what is printed, the exit codes and the writes to the secrets file.
+ * MAKE_CUSTOM_APP_TEST_API_ORIGIN sends every call to the mock; the secrets file names the zone eu1.make.com, and a
+ * mode cache entry (employee unless a test says otherwise) skips the mode probe.
  */
 const { describe, it, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -11,6 +13,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
+const { cacheEntry, CACHE_FILE_NAME, TEST_ORIGIN_VAR } = require('../mode-logic');
 const { setupCommand } = require('../paths');
 const { cursorSettingsPath } = require('../settings');
 
@@ -20,6 +23,8 @@ const VENDOR_TOKEN = 'VENDOR_TOKEN_xyz789';
 const JIRA_EMAIL = 'dev@make.com';
 const JIRA_TOKEN = 'FAKE_JIRA_TOKEN_k3y';
 const ME = 5;
+const ZONE = 'eu1.make.com';
+const PROBE_URL = '/api/v2/admin/sdk/apps?all=true&name=__mode_probe__&cols[]=name';
 const WINDOWS = process.platform === 'win32';
 
 const BASE_SCOPES = ['teams:read', 'organizations:read', 'imt-forms:read', 'connections:read', 'user:read', 'endpoints:run', 'sdk-apps:read'];
@@ -39,7 +44,7 @@ let state;
 function reset(over = {}) {
 	state = {
 		scopes: BASE_SCOPES,
-		origin: '127.0.0.1',
+		origin: ZONE,
 		orgs: [{ id: 486, name: 'Org A' }, { id: 631, name: 'Org B' }, { id: 754, name: 'No access' }],
 		teams: { 486: [{ id: 7, name: 'Dev Team' }], 631: [{ id: 2321, name: 'Athena' }], 754: 403 },
 		orgApps: { 486: [{ name: 'my-app', appVersion: 1 }], 631: [] },
@@ -81,9 +86,12 @@ function handle(req, res, data) {
 		if (state.teamsStatus && state.teamsStatus[orgId]) return send(state.teamsStatus[orgId], { code: 'SC500', message: 'boom' });
 		return t === 403 || t === undefined ? send(403, { code: 'IM002', message: 'Insufficient rights.' }) : send(200, { teams: t });
 	}
-	if (M === 'GET' && p === '/api/v2/admin/sdk/apps/my-app/1') return send(200, { app: { origin: state.origin } });
-	if (M === 'GET' && p === '/api/v2/admin/sdk/apps/my-app/1/endpoints/listItems') return send(200, { appEndpoint: state.annotations === undefined ? { annotations: { readOnlyHint: true } } : { annotations: state.annotations } });
-	if (M === 'GET' && p === '/api/v2/admin/sdk/apps/my-app/1/rpcs/listBoards/api') return send(200, '{\n // list\n "url": "/boards", "method": "GET"\n}');
+	// The SDK app routes answer on the admin base (employee mode) and on the public base (public mode).
+	const sdk = /^\/api\/v2(?:\/admin)?\/sdk\/apps\/my-app\/1(\/.*)?$/.exec(p);
+	if (M === 'GET' && sdk && !sdk[1]) return send(200, { app: { origin: state.origin } });
+	if (M === 'GET' && sdk && sdk[1] === '/endpoints/listItems') return send(200, { appEndpoint: state.annotations === undefined ? { annotations: { readOnlyHint: true } } : { annotations: state.annotations } });
+	if (M === 'GET' && sdk && sdk[1] === '/rpcs/listBoards/api') return send(200, '{\n // list\n "url": "/boards", "method": "GET"\n}');
+	if (M === 'GET' && p === '/api/v2/admin/sdk/apps') return state.adminProbe === 200 ? send(200, { apps: [] }) : send(state.adminProbe || 403, { code: 'SC403', message: 'Forbidden' });
 	if (M === 'GET' && p === '/api/v2/teams/7') return send(200, { team: { id: 7, name: 'Dev Team', organizationId: 486 } });
 	if (M === 'GET' && p === '/api/v2/teams/2321') return send(200, { team: { id: 2321, name: 'Athena', organizationId: 631 } });
 	if (M === 'GET' && (p === '/api/v2/teams/999' || p === '/api/v2/teams/998')) return send(404, { code: 'SC404', message: 'Not found' });
@@ -123,15 +131,21 @@ function handle(req, res, data) {
 }
 
 function writeSecrets(extra = '', key = FAKE_KEY) {
-	fs.writeFileSync(secretsPath, `imt-app-runtime-path: /tmp\nmake-api-key: ${key}\nmake-api-url: http://127.0.0.1:${server.address().port}/api/v2/admin\njira-email: ${JIRA_EMAIL}\njira-api-token: ${JIRA_TOKEN}\n${extra}`, { mode: 0o600 });
+	fs.writeFileSync(secretsPath, `imt-app-runtime-path: /tmp\nmake-api-key: ${key}\nmake-zone: ${ZONE}\njira-email: ${JIRA_EMAIL}\njira-api-token: ${JIRA_TOKEN}\n${extra}`, { mode: 0o600 });
 }
 
-function runScript(args, { secretsExtra = '', keepSecrets = false, key, env = { CLAUDECODE: '1' } } = {}) {
+const modeCache = () => path.join(tmp, CACHE_FILE_NAME);
+
+/** `mode` seeds a fresh mode cache entry for ZONE and the key (`modeKey` for a key that is not in the secrets file); null probes. */
+function runScript(args, { secretsExtra = '', keepSecrets = false, key, env = { CLAUDECODE: '1' }, mode = 'employee', modeKey } = {}) {
 	if (!keepSecrets) writeSecrets(secretsExtra, key);
 	const accessKey = cacheKey({ baseUrl: JIRA_BASE_URL, email: JIRA_EMAIL, token: JIRA_TOKEN });
 	fs.writeFileSync(path.join(tmp, 'make-custom-app-access-check.json'), JSON.stringify({ key: accessKey, email: JIRA_EMAIL, checkedAt: Date.now() }));
+	if (mode) fs.writeFileSync(modeCache(), JSON.stringify(cacheEntry(ZONE, modeKey || key || FAKE_KEY, mode, Date.now())));
+	else fs.rmSync(modeCache(), { force: true });
 	return new Promise((resolve) => {
-		const child = spawn(process.execPath, [script, ...args], { env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmp, TEMP: tmp, USERPROFILE: home, ...env } });
+		const testOrigin = `http://127.0.0.1:${server.address().port}`;
+		const child = spawn(process.execPath, [script, ...args], { env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmp, TEMP: tmp, USERPROFILE: home, [TEST_ORIGIN_VAR]: testOrigin, ...env } });
 		let stdout = '';
 		let stderr = '';
 		child.stdout.on('data', (c) => (stdout += c));
@@ -544,10 +558,15 @@ describe('key scopes and the zone', () => {
 		assert.equal(execPosts().length, 0);
 	});
 
-	it('zone mismatch: exit 4 CONFIG', async () => {
+	it('zone mismatch: exit 4 CONFIG, naming the zone of the app and of the token, and how to get a token there', async () => {
 		reset({ origin: 'us1.make.com' });
 		const r = await runScript(EP);
+		assert.equal(r.code, 4);
 		assert.equal(firstLine(r), 'ACTION: CONFIG');
+		assert.ok(r.stderr.includes('App my-app lives in us1.make.com, but the Make API token is for eu1.make.com.'), r.stderr);
+		assert.ok(r.stderr.includes(`Save a Make API token of us1.make.com (create it at https://us1.make.com/user/api). Run this in your own terminal, not through the agent: ${setupCommand('claude')}`), r.stderr);
+		assert.doesNotMatch(r.stderr, /make-api-url/);
+		assert.equal(execPosts().length, 0);
 	});
 
 	it('an API token that cannot be put in a header never has its text printed and is not retried', { skip: WINDOWS }, async () => {
@@ -818,7 +837,7 @@ describe('the editor, the target and the account check', () => {
 	const cursorSettings = () => cursorSettingsPath(process.platform, home);
 
 	function writeCursorSettings() {
-		const environment = { uuid: 'u1', url: `127.0.0.1:${server.address().port}/api`, apikey: CURSOR_KEY, unsafe: true, admin: true };
+		const environment = { uuid: 'u1', url: `${ZONE}/api`, apikey: CURSOR_KEY, admin: true };
 		fs.mkdirSync(path.dirname(cursorSettings()), { recursive: true });
 		fs.writeFileSync(cursorSettings(), JSON.stringify({ 'apps-sdk.environment': 'u1', 'apps-sdk.environments': [environment] }));
 	}
@@ -848,10 +867,10 @@ describe('the editor, the target and the account check', () => {
 		assert.ok(r.stderr.includes(setupCommand('claude')), r.stderr);
 	});
 
-	it('Cursor: runs with the key and the URL of the Cursor settings.json, not the secrets file', async () => {
+	it('Cursor: runs with the key and the zone of the Cursor settings.json, not the secrets file', async () => {
 		reset();
 		writeCursorSettings();
-		const r = await runScript(EP, { env: { CURSOR_AGENT: '1' } });
+		const r = await runScript(EP, { env: { CURSOR_AGENT: '1' }, modeKey: CURSOR_KEY });
 		assert.equal(r.code, 0, r.stderr);
 		assert.equal(r.stderr, `${targetLine('cursor')}\n`);
 		assert.ok(log.length > 0 && log.every((e) => e.auth === `Token ${CURSOR_KEY}`));
@@ -861,7 +880,7 @@ describe('the editor, the target and the account check', () => {
 	it('Cursor: a rejected API key points at the Cursor environment, not at the setup command', async () => {
 		reset({ authStatus: 401 });
 		writeCursorSettings();
-		const r = await runScript(EP, { env: { CURSOR_AGENT: '1' } });
+		const r = await runScript(EP, { env: { CURSOR_AGENT: '1' }, modeKey: CURSOR_KEY });
 		assert.equal(r.code, 4);
 		assert.equal(r.stderr.split('\n')[1], 'ACTION: KEY_SCOPES');
 		assert.match(r.stderr, /apikey field of your Make Apps SDK environment in Cursor/);
@@ -883,13 +902,79 @@ describe('the editor, the target and the account check', () => {
 		assert.equal(log.length, 0);
 	});
 
-	it('stops at the account check, before any request, when no Jira token is saved', async () => {
+	it('Cursor: a zone mismatch points at the Cursor environment, not at the setup command', async () => {
+		reset({ origin: 'us1.make.com' });
+		writeCursorSettings();
+		const r = await runScript(EP, { env: { CURSOR_AGENT: '1' }, modeKey: CURSOR_KEY });
+		assert.equal(r.code, 4);
+		assert.equal(r.stderr.split('\n')[1], 'ACTION: CONFIG');
+		assert.ok(r.stderr.includes('Make a Make Apps SDK environment on us1.make.com the active one in Cursor and run again.'), r.stderr);
+		assert.ok(!r.stderr.includes('setup-secrets.js'), r.stderr);
+	});
+
+	it('employee mode: stops at the account check, before any request, when no Jira token is saved', async () => {
 		reset();
-		fs.writeFileSync(secretsPath, `make-api-key: ${FAKE_KEY}\nmake-api-url: http://127.0.0.1:${server.address().port}/api/v2/admin\n`, { mode: 0o600 });
+		fs.writeFileSync(secretsPath, `make-api-key: ${FAKE_KEY}\nmake-zone: ${ZONE}\n`, { mode: 0o600 });
 		const r = await runScript(EP, { keepSecrets: true });
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /no Jira API token is saved/);
 		assert.ok(r.stderr.includes(setupCommand('claude')), r.stderr);
 		assert.equal(log.length, 0);
+	});
+});
+
+describe('the mode of the token', () => {
+	const sdkReads = () => log.filter((e) => e.path.includes('/sdk/apps/my-app/1')).map((e) => e.path);
+
+	it('employee mode: the SDK reads go to the admin API, execution and discovery to the public API', async () => {
+		reset();
+		let r = await runScript(EP);
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual(sdkReads(), ['/api/v2/admin/sdk/apps/my-app/1', '/api/v2/admin/sdk/apps/my-app/1/endpoints/listItems']);
+		assert.equal(execPosts()[0].path, '/api/v2/endpoints/v1/execute');
+		reset();
+		r = await runScript(RPC);
+		assert.equal(r.code, 0, r.stderr);
+		assert.deepEqual(sdkReads(), ['/api/v2/admin/sdk/apps/my-app/1', '/api/v2/admin/sdk/apps/my-app/1/rpcs/listBoards/api']);
+	});
+
+	it('public mode: every request goes to the public API, and no Jira token is needed', async () => {
+		for (const [args, reads] of [[EP, ['/api/v2/sdk/apps/my-app/1', '/api/v2/sdk/apps/my-app/1/endpoints/listItems']], [RPC, ['/api/v2/sdk/apps/my-app/1', '/api/v2/sdk/apps/my-app/1/rpcs/listBoards/api']]]) {
+			reset();
+			fs.writeFileSync(secretsPath, `make-api-key: ${FAKE_KEY}\nmake-zone: ${ZONE}\n`, { mode: 0o600 });
+			const r = await runScript(args, { keepSecrets: true, mode: 'public' });
+			assert.equal(r.code, 0, r.stderr);
+			assert.equal(r.stderr, `${targetLine()}\n`);
+			assert.deepEqual(sdkReads(), reads);
+			assert.ok(log.every((e) => !e.path.includes('/admin')), 'admin path used');
+			assert.equal(execPosts().length, 1);
+			noLeak(r, 'public');
+		}
+	});
+
+	it('without a fresh mode cache it probes the token first, prints nothing for it, and caches the verdict', async () => {
+		for (const [adminProbe, verdict, origin] of [[403, 'public', '/api/v2/sdk/apps/my-app/1'], [200, 'employee', '/api/v2/admin/sdk/apps/my-app/1']]) {
+			reset({ adminProbe });
+			const r = await runScript(EP, { mode: null });
+			assert.equal(r.code, 0, r.stderr);
+			assert.equal(r.stderr, `${targetLine()}\n`);
+			assert.deepEqual(log.slice(0, 3).map((e) => e.url), ['/api/v2/users/me', PROBE_URL, '/api/v2/users/me/current-authorization']);
+			assert.ok(log.slice(0, 2).every((e) => e.auth === `Token ${FAKE_KEY}`));
+			assert.deepEqual(sdkReads()[0], origin);
+			const cached = JSON.parse(fs.readFileSync(modeCache(), 'utf8'));
+			assert.equal(cached.mode, verdict);
+			assert.ok(!JSON.stringify(cached).includes(FAKE_KEY), 'API key cached');
+		}
+	});
+
+	it('a token that users/me rejects: exit 1 before the target line, with the token page and the setup command', async () => {
+		reset({ meStatus: 401 });
+		const r = await runScript(EP, { mode: null });
+		assert.equal(r.code, 1);
+		assert.ok(r.stderr.startsWith(`\nMake rejected the saved API token for ${ZONE} (HTTP 401).\n`), r.stderr);
+		assert.ok(r.stderr.includes(`https://${ZONE}/user/api`), r.stderr);
+		assert.ok(r.stderr.includes(setupCommand('claude')), r.stderr);
+		assert.deepEqual(log.map((e) => e.url), ['/api/v2/users/me']);
+		noLeak(r, 'bad token');
 	});
 });

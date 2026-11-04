@@ -32,7 +32,7 @@ const os = require('os');
 const path = require('path');
 const rc = require('./lib/run-component-logic');
 const paths = require('./lib/paths');
-const { loadSettings, announceTarget, readSkillConfig, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
+const { announceTarget, readSkillConfig, SECRETS_PATH, CURSOR_SETTINGS_PATH } = require('./lib/settings');
 const { upsertSecretsFile } = require('./lib/secrets-file');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
@@ -141,12 +141,11 @@ async function run(argv) {
 		if (err instanceof rc.UsageError) throw new Stop(rc.EXIT.USAGE, `ERROR: ${err.message}\n${USAGE}`);
 		throw err;
 	}
-	require('./lib/access-guard').ensureInternalUser();
+	const settings = require('./lib/mode').requireMode();
 
 	const teamId = rc.resolveTeam(args.teamId, readSkillConfig('make-team-id'));
 	const teamFromSetting = args.teamId === null && teamId !== null;
 
-	const settings = loadSettings();
 	announceTarget(settings);
 	const editor = settings.editor;
 	const publicBase = rc.derivePublicBase(settings.baseUrl);
@@ -214,8 +213,13 @@ async function run(argv) {
 	const origin = originJson && ((originJson.app && originJson.app.origin) || originJson.origin);
 	if (origin) {
 		const originHost = origin.includes('/') ? origin.split('/')[0] : origin;
-		if (originHost !== new URL(settings.baseUrl).hostname) {
-			stopAction('CONFIG', [`App ${args.slug} lives in ${originHost}, but the configured API is ${new URL(settings.baseUrl).hostname}.`, 'Change make-api-url in the skill secrets file (or the Cursor environment) to the app zone and run again.']);
+		if (originHost !== settings.host) {
+			stopAction('CONFIG', [
+				`App ${args.slug} lives in ${originHost}, but the Make API token is for ${settings.host}.`,
+				editor === 'cursor'
+					? `Make a Make Apps SDK environment on ${originHost} the active one in Cursor and run again.`
+					: `Save a Make API token of ${originHost} (create it at https://${originHost}/user/api). Run this in your own terminal, not through the agent: ${setupCommand}`,
+			]);
 		}
 	} else {
 		warnings.push('the app origin zone could not be checked');

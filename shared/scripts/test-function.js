@@ -293,7 +293,7 @@ if (!slug || !version) {
 	process.exit(1);
 }
 
-require('./lib/access-guard').ensureInternalUser();
+require('./lib/mode').requireMode();
 
 const functionsDir = path.join(DEFAULT_CONTEXTS_DIR, `${slug}-v${version}`, 'functions');
 

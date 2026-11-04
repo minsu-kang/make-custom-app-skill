@@ -25,6 +25,8 @@ Shell: node "<plugin root>/shared/scripts/download-app.js" {slug} {version}
 required_permissions: ["all"], block_until_ms: 120000
 ```
 
+When `download-app.js` exits non-zero, nothing was written: the folder is the previous copy (stale) or missing. The summary prints `Failed: N` and each section that could not be read (for example the app or the version not found, a refused token, or an app that lives in another zone than the token). Do not answer from, review, or edit that folder: show the failed sections to the user and stop until a new run exits 0. This applies to every run, including the fresh download of a code review. `visibility unknown (public mode)` in the summary is not a failure: public mode does not check whether the app is private or public. In public mode (`metadata.json` has `"visibility": "unknown (public mode)"`), `private`, `packagePrivate`, `ipmDeployedToZone` and the `private` of each module are unknown, not "never deployed": never skip a check because of them.
+
 Before re-downloading an existing folder (not for code reviews, which are always fresh): `download-app.js` overwrites and never deletes. If any file other than `metadata.json` and `reviews/` is newer than `metadata.json.downloadedAt`, it may hold unpushed edits — ask the user or diff first. Components deleted remotely linger as local directories, so `metadata.json`, not the directory listing, is the component list.
 
 Between 1 h and 24 h old: mention the age, offer a re-download, continue. Do not answer questions about an app whose code you have not synced.
@@ -32,7 +34,7 @@ Between 1 h and 24 h old: mention the age, offer a re-download, continue. Do not
 ## 3. Load context
 
 - Read `~/.make-custom-app/contexts/{slug}-v{version}.md` if it exists (structure, patterns, caveats, work history — including prior reviews and fixes).
-- Call MCP `search_app_knowledge` with the slug plus ticket key / module names / feature keywords for team-wide prior context.
+- Call MCP `search_app_knowledge` with the slug plus ticket key / module names / feature keywords for team-wide prior context. Skip it when `check-setup.js` reported `mcp-server` as missing (an `OPTIONAL mcp-server` line: its Pinecone or OpenAI key is not set): the context server cannot answer then, and the context file alone completes the `Context loaded` checklist item.
 - For a bug in a component that was recently fixed (Work History), apply the recurring-bug rigor below.
 
 ### Recurring-bug rigor

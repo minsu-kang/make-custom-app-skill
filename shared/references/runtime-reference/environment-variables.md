@@ -81,19 +81,19 @@ Usage in `api.imljson` once granted:
 
 **Code-review notes.** Treat any `flags.exposeInternalProperties` addition as a permission change, not a code change — it needs admin approval, so confirm the ticket carries it. Flag a boolean/non-array grant: it is silently degraded to no access (only a server log), so the app appears broken with no app-visible error. Flag `{{internal.*}}` reads with no matching grant path for the same reason — they resolve to nothing rather than failing loudly.
 
-**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured Make API key, loaded through `lib/settings.js` (never read the secrets file yourself; this prints only the flags):
+**Verifying the real grant (mandatory before flagging as "unconfirmed").** Do NOT leave a `{{internal.*}}` / `{{internal}}` read as a mere "needs discussion, please confirm with admin" note when the actual grant is one API call away. The app's current `flags` (including `exposeInternalProperties`) are readable with the configured Make API key, loaded through `requireMode()` of `lib/mode.js` (never read the secrets file yourself; this prints only the flags):
 
 ```bash
 node -e '
-const { loadSettings } = require("<plugin root>/shared/scripts/lib/settings.js");
-const { baseUrl, auth } = loadSettings();
+const { requireMode } = require("<plugin root>/shared/scripts/lib/mode.js");
+const { baseUrl, auth } = requireMode();
 fetch(`${baseUrl}/sdk/apps/{slug}/{version}?cols[]=flags`, { headers: { Authorization: auth } })
   .then(async (r) => console.log(r.ok ? JSON.stringify((await r.json()).app.flags ?? {}, null, 2) : `HTTP ${r.status}`));
 '
 # → { "exposeInternalProperties": ["organization"], ... }
 ```
 
-(Same admin API the skill scripts already use. `loadSettings()` picks the editor from the environment of the shell that runs it and stops with the fix when it cannot tell.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
+(The same API base the skill scripts use: the admin API in employee mode, the public API in public mode. `requireMode()` picks the editor from the environment of the shell that runs it, checks the Make API token on its zone (in employee mode also the `@make.com` Jira account), and stops with the fix when it cannot tell the editor or a check fails.) Then apply the whole-key rule from the table above: a change reading `internal.organization.customApps.x` is **already covered** if the grant array contains `"organization"` (whole key) — no new permission needed, not a blocker. It is **only** uncovered — and only then a real "needs admin grant" blocker — if the existing grant is scoped to a narrower/different dot-path (e.g. `"organization.someOtherField"`) that doesn't include the property being read. Only report "could not verify, please confirm with admin" if this API call itself fails (e.g. no admin scope on the configured key) — never as a default fallback when the call was simply not attempted.
 
 ### Quick Reference
 
