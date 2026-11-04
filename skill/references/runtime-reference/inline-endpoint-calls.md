@@ -61,5 +61,5 @@ An Endpoint's `.execute()` runs the RPC chain, which naturally returns an **arra
 
 A standalone Endpoint runs the full RPC middleware chain — `temp` → `condition()` → requester (incl. `isc`/`agency`/`accman`/inline-`endpoint()` wrap) → `response.temp`/`valid`/`iterate`/`output`/`wrapper`/`filter`/`limit` — so most module `api` directives work. Two review-critical caveats:
 
-- **`condition` cannot implement required-field validation.** `condition()` IS in the chain, but its falsy path ends the chain returning `condition.default` **as data** (or `false`) — it cannot raise a typed error. IEN-16076 field-tested this as a validation workaround: not viable.
+- **`condition` cannot implement required-field validation.** `condition()` IS in the chain, but its falsy path ends the chain returning `condition.default` **as data** (or `false`) — it cannot raise a typed error. This was field-tested as a validation workaround: not viable.
 - **Forman `required`/`default` are not enforced on the MCP path.** `make-mcp-server-host`'s `endpoint_execute` tool passes `input` straight to `executeEndpointThroughRpcWorker()` with no Forman validation (source-verified); the platform "Run Endpoint" form validates client-side as usual. Platform fix tracked under the Executor initiative — never flag this gap as an app bug.

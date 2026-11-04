@@ -91,7 +91,7 @@ Scenario-builder visibility per version (and, independently, per module):
 - `deprecated: true` → not visible for new use, but scenarios already using it keep rendering.
 - `approved: true` (compiled) is necessary but **not sufficient** — always also check `private` + `deprecated` per zone. `approved` reflects compilation state, never "approved by the Make team for production".
 
-### Module visibility & hiding — `deprecated`/`private` vs SDK `public` (field-verified, IEN-15262)
+### Module visibility & hiding — `deprecated`/`private` vs SDK `public` (field-verified)
 
 Two **different** endpoints expose two **different** visibility controls for a module. They are not the same field and do not have the same blast radius:
 
@@ -104,7 +104,7 @@ Two **different** endpoints expose two **different** visibility controls for a m
 
 **Why `metadata.json` can mislead about hiding**: `download-app.js` stores SDK `public` on each module (`GET .../modules?cols[]=public`) and IPM `private` from `/admin/apps`. `private: null` means the module is absent from the deployed module list. It does not mean the module is public. Endpoint generation drops `public === false` or `private === true` ([endpoints-reference.md § Coverage Completeness](endpoints-reference.md#coverage-completeness)). A pending, uncompiled `public: false` can still show `private: false` on the deployed view until the next compile, which is why `public` is read from the SDK list. **Relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
 
-### Module metadata surface — SDK `/modules` returns more than `public` (field-verified, IEN-15502)
+### Module metadata surface — SDK `/modules` returns more than `public` (field-verified)
 
 `GET {zone}/api/v2/admin/sdk/apps/{slug}/{version}/modules` → `{ appModules: [...] }` carries the **full module entity**, not just the visibility flag:
 

@@ -117,7 +117,7 @@ When the vendor lists more than one scope name (for example `posts:read`, `posts
 - **New app / new connection** with the all-in-default pattern → **Changes Requested** (`[SECURITY][2.3]`, High), unless the ticket or Developer Notes documents why the vendor forces it.
 - **Existing connection** whose `scope.imljson` the change does not touch → **Improvement**.
 
-**Examples** (granular vendors in published apps): Airtable v3 (`airtable3` default `["schema.bases:read"]`, `listBases` → `["schema.bases:read"]`, `TriggerWatchRecords` → `["schema.bases:read","data.records:read"]`), Pinterest v2 (`pinterest2` default `["user_accounts:read"]`, `watchBoards` → `["boards:read","boards:read_secret","ads:read"]`), Google Docs v1 endpoints (`createDocument` → `["https://www.googleapis.com/auth/documents"]`, connection default `["https://www.googleapis.com/auth/userinfo.email"]`). Real case: IEN-15544 (Buffer v3) put six scopes in the connection default and `[]` in every module and endpoint.
+**Examples** (granular vendors in published apps): Airtable v3 (`airtable3` default `["schema.bases:read"]`, `listBases` → `["schema.bases:read"]`, `TriggerWatchRecords` → `["schema.bases:read","data.records:read"]`), Pinterest v2 (`pinterest2` default `["user_accounts:read"]`, `watchBoards` → `["boards:read","boards:read_secret","ads:read"]`), Google Docs v1 endpoints (`createDocument` → `["https://www.googleapis.com/auth/documents"]`, connection default `["https://www.googleapis.com/auth/userinfo.email"]`). Real case: Buffer v3 put six scopes in the connection default and `[]` in every module and endpoint.
 
 ### Branding Consistency for Apps in an Existing Family (Mandatory for new apps)
 

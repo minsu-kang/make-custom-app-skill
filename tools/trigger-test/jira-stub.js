@@ -2,11 +2,11 @@
 'use strict';
 // Minimal stdio MCP server that returns canned Jira tickets. No network, no credentials.
 // run-claude.js --stub starts it as the MCP server "jira-stub" in place of the real Atlassian connector, which a headless
-// session cannot use (the permission prompt is denied). It serves one tool, getJiraIssue, for IEN-16879 and IEN-16847,
+// session cannot use (the permission prompt is denied). It serves one tool, getJiraIssue, for PROJ-123 and PROJ-124,
 // the tickets that prompts 4, 5, 19, and 20 name. Any other key answers { "error": "not found" }.
 const TICKETS = {
-	'IEN-16879': { key: 'IEN-16879', summary: 'Add a bulk upsert module to the HubSpot app', status: 'Preparation', issuetype: 'Task', project: 'IEN', description: 'Customers ask for a bulk upsert of contacts in the HubSpot custom app (version 3). The ticket needs a refinement before development starts.' },
-	'IEN-16847': { key: 'IEN-16847', summary: 'monday app: Search Items returns duplicate items', status: 'Preparation', issuetype: 'Task', project: 'IEN', description: 'In the monday custom app the Search Items module returns the same item twice when a board has more than 100 items. Needs a refinement before development starts.' },
+	'PROJ-123': { key: 'PROJ-123', summary: 'Add a bulk upsert module to the HubSpot app', status: 'Preparation', issuetype: 'Task', project: 'PROJ', description: 'Customers ask for a bulk upsert of contacts in the HubSpot custom app (version 3). The ticket needs a refinement before development starts.' },
+	'PROJ-124': { key: 'PROJ-124', summary: 'monday app: Search Items returns duplicate items', status: 'Preparation', issuetype: 'Task', project: 'PROJ', description: 'In the monday custom app the Search Items module returns the same item twice when a board has more than 100 items. Needs a refinement before development starts.' },
 };
 const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 let buf = '';

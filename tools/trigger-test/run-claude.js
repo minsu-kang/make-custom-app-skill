@@ -7,7 +7,7 @@
 // change to a skill description. The pass mark is 18 of 20 positive prompts.
 //
 //   node tools/trigger-test/run-claude.js --condition clean
-//     --condition clean|real  clean (default) loads this working tree and the org plugin with --plugin-dir, reads project
+//     --condition clean|real  clean (default) loads this working tree (and the --org plugin) with --plugin-dir, reads project
 //                             settings only (--setting-sources project) and sets CLAUDE_CODE_DISABLE_CLAUDE_MDS=1, so the
 //                             old 2.x skill and your own CLAUDE.md are out. real keeps your own settings, CLAUDE.md,
 //                             installed plugins, and the old skill.
@@ -18,8 +18,8 @@
 //     --stub                  serve the tickets that prompts 4, 5, 19, and 20 name from jira-stub.js (a generated MCP config,
 //                             --strict-mcp-config) and allow its tool; a headless session cannot use the real Atlassian
 //                             connector, because the permission prompt is denied
-//     --org <dir>             the org plugin to load (default ~/.claude/plugins/marketplaces/make-claude-marketplace/integration-engineering)
-//     --no-org                load no org plugin (--org and --no-org do nothing with --condition real)
+//     --org <dir>             an org plugin to load next to this one (none by default)
+//     --no-org                load no org plugin, the default (--org and --no-org do nothing with --condition real)
 //     --out <dir>             where results-<condition>.json and the stub config go (default <tmp>/make-custom-app-trigger-test)
 //     --dry-run               print the commands and run nothing
 //     --selftest              parse a fake stream and print the result; no session
@@ -40,7 +40,6 @@ const os = require('node:os');
 const path = require('node:path');
 
 const REPO = path.join(__dirname, '..', '..');
-const DEFAULT_ORG = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'make-claude-marketplace', 'integration-engineering');
 const DEFAULT_OUT = path.join(os.tmpdir(), 'make-custom-app-trigger-test');
 const SKILL_PREFIX = 'make-custom-app:make-app-';
 const PROMPTS = require('./prompts.json');
@@ -97,6 +96,16 @@ function buildArgs(condition, prompt, opt) {
 /** The MCP config that starts jira-stub.js, given its absolute path. */
 function stubConfig(stubPath) {
 	return { mcpServers: { 'jira-stub': { command: 'node', args: [stubPath] } } };
+}
+
+/** The skill prefix of an org plugin folder, `<name>:` from its .claude-plugin/plugin.json; null when the name cannot be read. */
+function orgPluginPrefix(dir) {
+	try {
+		const { name } = JSON.parse(fs.readFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), 'utf8'));
+		return typeof name === 'string' && name ? `${name}:` : null;
+	} catch {
+		return null;
+	}
 }
 
 /** The reason a claude process failed, from a spawnSync result: a spawn error (ETIMEDOUT, EACCES), a signal, or a non-zero exit; null otherwise. */
@@ -169,7 +178,8 @@ function main() {
 	const { condition, dryRun } = opts;
 	const claude = process.env.CLAUDE_BIN || 'claude';
 	const outDir = path.resolve(opts.out || DEFAULT_OUT);
-	const org = opts.noOrg ? null : path.resolve(opts.org || DEFAULT_ORG);
+	const org = opts.noOrg || !opts.org ? null : path.resolve(opts.org);
+	const orgPrefix = org ? orgPluginPrefix(org) : null;
 	if (condition === 'clean' && org && !dryRun && !fs.existsSync(org)) fail(`The org plugin folder ${org} does not exist. Pass --org <dir> or --no-org.`);
 
 	const once = PROMPTS.filter((p) => !opts.only || opts.only.includes(p.id));
@@ -211,7 +221,7 @@ function main() {
 			exact: c.exact,
 			cost: run.cost,
 			legacySkillPresent: run.skills.includes('make-custom-app'),
-			orgSkills: run.skills.filter((s) => s.startsWith('make-integration-engineering:')).length,
+			orgSkills: orgPrefix ? run.skills.filter((s) => s.startsWith(orgPrefix)).length : 0,
 			error: spawnFailure || run.error || processError(r),
 		});
 		console.log(`${p.id}\t${p.kind}\texpect=${p.expect}\tpicked=${run.firstSkill || 'none'}\t${c.pass ? 'PASS' : 'FAIL'}${c.exact ? '' : ' (not the expected skill)'}${spawnFailure ? `\t[${spawnFailure}]` : ''}`);
@@ -229,6 +239,6 @@ function main() {
 	console.log('wrote', file);
 }
 
-module.exports = { parseRun, classify, buildArgs, stubConfig, parseArgs, processError };
+module.exports = { parseRun, classify, buildArgs, stubConfig, parseArgs, processError, orgPluginPrefix };
 
 if (require.main === module) main();

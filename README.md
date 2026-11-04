@@ -173,4 +173,4 @@ Ask naturally:
 - *"How does pagination work for cursor-based APIs?"*
 - *"Add error handling for 429 rate limits"*
 - *"Review my code changes: slug slack, version 4"*
-- *"Refine this ticket: https://make.atlassian.net/browse/IEN-12345, app monday"*
+- *"Refine this ticket: https://make.atlassian.net/browse/PROJ-123, app monday"*

@@ -4,8 +4,6 @@
 
 ## Messages
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/900892383/Messages)
-
 Three message types using the `banner` element. Recommended length: **50 to 300 characters**.
 
 ### Information (blue)
@@ -36,7 +34,7 @@ Used for deprecated modules and critical messages.
 
 ### Important
 
-Due to [VMB-210](https://make.atlassian.net/browse/VMB-210) there is a risk on using `html` parameters. Stop using it. Use `info` and `warning` `banner` elements instead.
+Due to VMB-210 there is a risk on using `html` parameters. Stop using it. Use `info` and `warning` `banner` elements instead.
 
 ### Dynamic Google Connection Messages
 
@@ -48,8 +46,6 @@ For @gmail.com users who must reauthorize every 6 months:
 ---
 
 ## ID Finder
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/903774260/ID+finder)
 
 ### Module Guidelines
 
@@ -115,8 +111,6 @@ Results should be listed in alphabetical order (if the API allows).
 ---
 
 ## Labeling for Array of Collections
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/909410318/Labeling+for+array+of+collections)
 
 ### Standard Modules
 
@@ -191,8 +185,6 @@ Standard structure for headers, query string, and body parameters:
 
 ## Parsing Datetime
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/909574164/Parsing+datetime)
-
 Always parse datetime in module output **EXCEPT**:
 
 1. **No date, only time** (e.g., `13:30`)
@@ -207,8 +199,6 @@ Do NOT use Make user's or organization's timezone (may differ from 3rd party con
 ---
 
 ## Common Error Messages
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/937721971/Common+error+messages)
 
 Define error handler for specific HTTP error types when:
 1. Error message is not user friendly
@@ -276,8 +266,6 @@ This example defines custom error messages for 429/502/503 — useful because Mo
 
 ## Custom Fields
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/937755208/Custom+fields)
-
 - Always provide **dynamic parameters** for custom fields (using metadata endpoints)
 - Do NOT ask users to map arrays manually
 - **Exception**: When API does not provide a metadata endpoint (e.g., Zoho Books)
@@ -286,16 +274,12 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/937755208/
 
 ## Date Input
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1001062889/Date+input)
-
 - Use `date` type parameter instead of asking user to input a specific date format
 - **Exception**: If endpoint accepts date only or time only, use `text` type with a clear hint and example
 
 ---
 
 ## Validating Incorrect API Calls with Empty Response
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/785580229/Validating+incorrect+API+calls+with+an+empty+response)
 
 When a Get module is based on a Search endpoint (no dedicated Get endpoint), the API may return 200 with empty response for invalid IDs.
 
@@ -345,8 +329,6 @@ Add `valid` to the `response` object:
 ---
 
 ## Flattening Nested Outputs
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1077739541/Flattening+nested+outputs)
 
 Deeply nested outputs give terrible UX when mapping values. Always consider:
 

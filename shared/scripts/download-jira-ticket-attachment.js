@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node download-jira-ticket-attachment.js <issue-key>
- *   node download-jira-ticket-attachment.js IEN-14934
+ *   node download-jira-ticket-attachment.js PROJ-123
  *
  * Downloads all attachments from a Jira issue to:
  *   ~/.make-custom-app/contexts/attachments/{issue-key}/ (the same folder for every editor)
@@ -97,7 +97,7 @@ async function main() {
 	const issueKey = process.argv[2];
 	if (!issueKey) {
 		console.error('Usage: node download-jira-ticket-attachment.js <issue-key>');
-		console.error('Example: node download-jira-ticket-attachment.js IEN-14934');
+		console.error('Example: node download-jira-ticket-attachment.js PROJ-123');
 		process.exit(1);
 	}
 

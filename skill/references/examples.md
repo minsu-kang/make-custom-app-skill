@@ -1,21 +1,21 @@
-# Real-World App Example — Instagram for Business (v5)
+# App Example: Acme Photos (fictional)
 
-> Read when: you need a complete real-app reference for structure and IMLJSON patterns (Instagram v5: connection, base, modules, RPCs, webhooks).
+> Read when: you need a complete app reference for structure and IMLJSON patterns (a fictional full app: connection, base, modules, RPCs, webhooks, custom functions).
 
-This file contains practical IMLJSON pattern examples based on the Instagram app source code.
+This file contains practical IMLJSON pattern examples for Acme Photos, a fictional photo-sharing app. The vendor, its URLs and its field names are invented; the IMLJSON patterns are what to copy.
 
 ## App Directory Structure
 
 ```
-instagram/
+acme-photos/
 ├── .sdk                          # {"version": 2}
 ├── metadata.json                 # App metadata
 ├── base.imljson                  # Common settings
 ├── assets/icon.png               # App icon
 ├── readme.md
 ├── connections/
-│   └── instagram2/               # OAuth connection
-│       ├── metadata.json         # {"name":"instagram2","label":"...","type":"oauth"}
+│   └── acme-photos/              # OAuth connection
+│       ├── metadata.json         # {"name":"acme-photos","label":"...","type":"oauth"}
 │       ├── api.imljson           # authorize/token/refresh/info definition
 │       ├── parameters.imljson    # clientId, clientSecret
 │       ├── scope.imljson         # Default scope
@@ -29,7 +29,7 @@ instagram/
 ├── rpcs/
 │   └── getMedia/                 # Dynamic Options RPC
 ├── webhooks/
-│   └── instagram2/               # Shared Webhook
+│   └── acme-photos/              # Shared Webhook
 │       ├── api.imljson
 │       ├── attach.imljson
 │       ├── detach.imljson
@@ -38,17 +38,18 @@ instagram/
     ├── parseError/code.js
     ├── getOutput/code.js
     ├── getHooks/code.js
-    └── getHub/code.js
+    ├── getVerifyParam/code.js
+    └── matchesFilter/code.js
 ```
 
 ## metadata.json
 
 ```json
 {
-    "name": "instagram",
-    "label": "Instagram for Business (Instagram login)",
-    "version": 5,
-    "theme": "#c13584",
+    "name": "acme-photos",
+    "label": "Acme Photos",
+    "version": 1,
+    "theme": "#2f6fde",
     "language": "en",
     "countries": null
 }
@@ -58,7 +59,7 @@ instagram/
 
 ```json
 {
-    "baseUrl": "https://graph.instagram.com/v23.0",
+    "baseUrl": "https://api.acme-photos.example/v1",
     "headers": {
         "authorization": "Bearer {{connection.accessToken}}"
     },
@@ -96,7 +97,7 @@ Key points:
             "redirect_uri": "{{oauth.localRedirectUri}}",
             "response_type": "code"
         },
-        "url": "https://api.instagram.com/oauth/authorize",
+        "url": "https://auth.acme-photos.example/oauth/authorize",
         "response": {
             "temp": { "code": "{{query.code}}" },
             "data": { "userId": null }
@@ -104,7 +105,7 @@ Key points:
     },
     "token": [
         {
-            "url": "https://api.instagram.com/oauth/access_token",
+            "url": "https://auth.acme-photos.example/oauth/token",
             "body": {
                 "code": "{{temp.code}}",
                 "client_id": "{{ifempty(parameters.clientId, common.clientId)}}",
@@ -130,9 +131,9 @@ Key points:
             }
         },
         {
-            "url": "https://graph.instagram.com/access_token",
+            "url": "https://auth.acme-photos.example/oauth/long-lived-token",
             "qs": {
-                "grant_type": "ig_exchange_token",
+                "grant_type": "exchange_token",
                 "client_secret": "{{ifempty(parameters.clientSecret, common.clientSecret)}}",
                 "access_token": "{{connection.accessToken}}"
             },
@@ -147,9 +148,9 @@ Key points:
     ],
     "refresh": {
         "condition": "{{data.userId && data.expires < addMinutes(now, 1)}}",
-        "url": "https://graph.instagram.com/refresh_access_token",
+        "url": "https://auth.acme-photos.example/oauth/refresh",
         "qs": {
-            "grant_type": "ig_refresh_token",
+            "grant_type": "refresh_long_lived_token",
             "access_token": "{{data.accessToken}}"
         },
         "response": {
@@ -161,7 +162,7 @@ Key points:
     },
     "info": [
         {
-            "url": "https://graph.instagram.com/me",
+            "url": "https://api.acme-photos.example/v1/me",
             "qs": { "fields": "id,username" },
             "headers": {
                 "authorization": "Bearer {{connection.accessToken}}"
@@ -193,7 +194,7 @@ Key points:
         "qs": {
             "caption": "{{parameters.caption}}",
             "image_url": "{{parameters.image_url}}",
-            "user_tags": "{{createJSON(distinct(parameters.user_tags; 'username'))}}"
+            "tagged_users": "{{createJSON(distinct(parameters.tagged_users; 'username'))}}"
         },
         "response": {
             "type": "json",
@@ -202,7 +203,7 @@ Key points:
     },
     {
         "condition": "{{temp.id}}",
-        "url": "/{{connection.userId}}/media_publish?creation_id={{temp.id}}",
+        "url": "/{{connection.userId}}/media/publish?draft_id={{temp.id}}",
         "method": "POST",
         "response": {
             "type": "json",
@@ -224,17 +225,17 @@ Key points:
     {
         "url": "/{{parameters.id}}",
         "method": "GET",
-        "qs": { "fields": "media_type,media_url" },
+        "qs": { "fields": "kind,download_url" },
         "response": {
             "type": "json",
             "temp": {
-                "media_type": "{{body.media_type}}",
-                "media_url": "{{body.media_url}}"
+                "kind": "{{body.kind}}",
+                "download_url": "{{body.download_url}}"
             },
-            "valid": { "condition": "{{body.media_url}}" },
+            "valid": { "condition": "{{body.download_url}}" },
             "error": {
                 "200": {
-                    "message": "[Instagram] The IG media contains copyrighted material."
+                    "message": "[Acme Photos] The media item contains copyrighted material."
                 },
                 "type": "DataError",
                 "message": "{{body.error.message}} ({{body.error.code}}, {{body.error.type}})"
@@ -242,13 +243,13 @@ Key points:
         }
     },
     {
-        "condition": "{{temp.media_url}}",
-        "url": "{{temp.media_url}}",
+        "condition": "{{temp.download_url}}",
+        "url": "{{temp.download_url}}",
         "method": "GET",
         "type": "binary",
         "response": {
             "output": {
-                "filename": "{{parameters.id}}.{{if(temp.media_type == 'VIDEO', 'mp4', 'jpg')}}",
+                "filename": "{{parameters.id}}.{{if(temp.kind == 'VIDEO', 'mp4', 'jpg')}}",
                 "data": "{{body}}"
             }
         }
@@ -257,7 +258,7 @@ Key points:
 ```
 
 Key points:
-- `valid` + `error.200` combo: error when 200 response but no `media_url`
+- `valid` + `error.200` combo: error when 200 response but no `download_url`
 - `type: "binary"` for binary response handling
 - `if()` function for dynamic file extension
 
@@ -268,7 +269,7 @@ Key points:
     "url": "/{{connection.userId}}/media",
     "method": "GET",
     "qs": {
-        "fields": "caption,comments_count,id,is_comment_enabled,like_count,media_type,media_product_type,media_url,owner,permalink,shortcode,thumbnail_url,timestamp,username"
+        "fields": "caption,comment_count,comments_enabled,created_at,download_url,id,kind,like_count,owner,thumbnail_url,username,web_url"
     },
     "response": {
         "limit": "{{parameters.limit}}",
@@ -284,7 +285,7 @@ Key points:
 ```
 
 Key points:
-- Facebook/Instagram API cursor pagination: directly uses `body.paging.next` URL
+- Cursor pagination where the API returns the next page as a full URL: directly uses the `body.paging.next` URL
 - `getOutput(item)` — custom function for post-processing like date conversion
 
 ## Trigger Module — Watch Media
@@ -294,13 +295,13 @@ Key points:
     "url": "/{{connection.userId}}/media",
     "method": "GET",
     "qs": {
-        "fields": "caption,comments_count,id,..."
+        "fields": "caption,comment_count,id,..."
     },
     "response": {
         "iterate": "{{body.data}}",
         "trigger": {
             "id": "{{item.id}}",
-            "date": "{{parseDate(item.timestamp)}}",
+            "date": "{{parseDate(item.created_at)}}",
             "type": "date",
             "order": "desc"
         },
@@ -320,7 +321,7 @@ Epoch configuration:
     "response": {
         "limit": 100,
         "output": {
-            "date": "{{parseDate(item.timestamp)}}",
+            "date": "{{parseDate(item.created_at)}}",
             "label": "{{ifempty(substring(item.caption, 0, 100); 'ID: ' + item.id)}}"
         }
     }
@@ -340,7 +341,7 @@ Epoch configuration:
     "response": {
         "type": "json",
         "iterate": {
-            "condition": "{{manageRpcCondition(item, parameters.condition, parameters.value)}}",
+            "condition": "{{matchesFilter(item, parameters.condition, parameters.value)}}",
             "container": "{{body.data}}"
         },
         "output": {
@@ -358,18 +359,18 @@ Using RPC in modules:
 
 Passing query parameters:
 ```json
-"options": "rpc://getMedia?condition=media_type&value=CAROUSEL_ALBUM"
+"options": "rpc://getMedia?condition=kind&value=ALBUM"
 ```
 
-## Webhook — Shared (instagram2)
+## Webhook — Shared (acme-photos)
 
 ```json
 {
     "verification": {
-        "condition": "{{getHub(query, 'mode') === 'subscribe'}}",
+        "condition": "{{getVerifyParam(query, 'mode') === 'subscribe'}}",
         "respond": {
             "type": "text",
-            "body": "{{getHub(query, 'challenge')}}"
+            "body": "{{getVerifyParam(query, 'challenge')}}"
         }
     },
     "iterate": "{{getHooks(body)}}",
@@ -382,12 +383,12 @@ Passing query parameters:
 Attach (subscription registration):
 ```json
 {
-    "url": "/{{connection.userId}}/subscribed_apps",
+    "url": "/{{connection.userId}}/subscriptions",
     "method": "POST",
     "type": "multipart/form-data",
     "body": {
         "access_token": "{{connection.accessToken}}",
-        "subscribed_fields": "comments,messages"
+        "events": "comments,messages"
     },
     "response": { "type": "json", "output": null }
 }
@@ -398,14 +399,10 @@ Attach (subscription registration):
 Write plain JavaScript functions in `functions/{functionName}/code.js`:
 
 ```javascript
-// parseError — extract message from error object
+// parseError — extract a readable message from an error object
 function parseError(error) {
     if (typeof error !== 'object' || error === null) return undefined;
-    const errorMessages = [];
-    if (error.message) errorMessages.push(error.message);
-    if (error.error_user_title) errorMessages.push(error.error_user_title);
-    if (error.error_user_msg) errorMessages.push(error.error_user_msg);
-    return errorMessages.length > 0 ? errorMessages.join("\n") : undefined;
+    return error.message;
 }
 ```
 
@@ -413,22 +410,4 @@ Usage in IMLJSON: `{{parseError(body.error)}}`
 
 ## Compiled Package Structure
 
-Source → Compile → 3 packages:
-
-| Package | Files | Content |
-|---------|-------|---------|
-| `instagram-app@5.2.2` | `lib/app.js`, `lib/functions.js`, `lib/rpc.js`, `manifest.json` | Module + RPC logic |
-| `instagram-account@5.2.2` | `lib/account.js`, `lib/functions.js`, `manifest.json` | Connection auth logic |
-| `instagram2-hook@5.2.2` | `lib/hook.js`, `lib/functions.js`, `manifest.json` | Webhook processing logic |
-
-`install.json` — Common data initial setup:
-```json
-{
-    "spec": [
-        { "name": "timeout", "type": "uinteger", "label": "Module Timeout", "default": 40000 }
-    ],
-    "directives": {
-        "common": { "timeout": "{{parameters.timeout}}" }
-    }
-}
-```
+> Internal-only topic: Make employees read it in the platform source they have access to. This plugin does not document it.

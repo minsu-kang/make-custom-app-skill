@@ -14,9 +14,9 @@
  *   node commit-changes.js <app-slug> <app-version> compile [--issue=KEY]
  *
  * Examples:
- *   node commit-changes.js google-docs 1 commit --message="IEN-15238 fix pagination"
+ *   node commit-changes.js google-docs 1 commit --message="PROJ-123 fix pagination"
  *   node commit-changes.js google-docs 1 commit --message="partial" --change-ids=8891,8892
- *   node commit-changes.js google-docs 1 commit --message="IEN-15238 fix" --issue=IEN-15238
+ *   node commit-changes.js google-docs 1 commit --message="PROJ-123 fix" --issue=PROJ-123
  *   node commit-changes.js google-docs 1 rollback --confirm
  *
  * `--issue=<key>` chains `post-review-transition.js <key> committed` after a
@@ -301,7 +301,7 @@ async function main() {
 		console.log('  rollback  --confirm            (discards ALL pending changes)');
 		console.log('  compile   [--issue=KEY]');
 		console.log('');
-		console.log('Example: node commit-changes.js google-docs 1 commit --message="IEN-15238 fix pagination"');
+		console.log('Example: node commit-changes.js google-docs 1 commit --message="PROJ-123 fix pagination"');
 		process.exit(1);
 	}
 
