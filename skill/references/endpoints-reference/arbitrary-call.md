@@ -8,9 +8,9 @@ The **Arbitrary Call** endpoint is a standardized passthrough that reproduces an
 
 ### When to Create
 
-Every app that has a "Make an API Call" (or similarly named) module should also have an `arbitraryCall` endpoint. This is mandated by [IEN-15910](https://make.atlassian.net/browse/IEN-15910) § Acceptance — Arbitrary call endpoint.
+Every app that has a "Make an API Call" (or similarly named) module should also have an `arbitraryCall` endpoint. This is mandated by the endpoints ticket § Acceptance — Arbitrary call endpoint.
 
-**Security gate when the app has NO "Make an API Call" module ([IEN-16847](https://make.atlassian.net/browse/IEN-16847), [IEN-16859](https://make.atlassian.net/browse/IEN-16859)):** Even if the ticket AC mandates creating `arbitraryCall` from scratch, check why the app omitted the module before building or committing it. Some apps (e.g., Meta/Facebook apps like `facebook-pages` and `facebook-messenger`) deliberately have no "Make an API Call" module because the vendor API returns raw access tokens on standard routes (`GET /me/accounts`, `GET /{page_id}?fields=access_token`) or because operations require an internal token exchange (`temp.accessToken`) rather than the connection's token. Never add a raw token input parameter (`page_access_token`) to `arbitraryCall`. If `arbitraryCall` can reach vendor routes that return credentials/tokens into the AI caller's context, **either omit/remove `arbitraryCall` (confirm with the user) or blacklist/strip the token-returning routes and fields** before committing.
+**Security gate when the app has NO "Make an API Call" module:** Even if the ticket AC mandates creating `arbitraryCall` from scratch, check why the app omitted the module before building or committing it. Some apps (e.g., Meta/Facebook apps like `facebook-pages` and `facebook-messenger`) deliberately have no "Make an API Call" module because the vendor API returns raw access tokens on standard routes (`GET /me/accounts`, `GET /{page_id}?fields=access_token`) or because operations require an internal token exchange (`temp.accessToken`) rather than the connection's token. Never add a raw token input parameter (`page_access_token`) to `arbitraryCall`. If `arbitraryCall` can reach vendor routes that return credentials/tokens into the AI caller's context, **either omit/remove `arbitraryCall` (confirm with the user) or blacklist/strip the token-returning routes and fields** before committing.
 
 ### Naming & Annotations
 
@@ -32,7 +32,7 @@ To create an `arbitraryCall` endpoint for an app, derive everything from its exi
    - `"url": "https://gmail.googleapis.com/gmail/{{parameters.url}}"` → base is `https://gmail.googleapis.com/gmail/`
    - `"url": "https://slides.googleapis.com/{{parameters.url}}"` → base is `https://slides.googleapis.com/`
    - `"url": "https://www.googleapis.com/calendar/{{parameters.url}}"` → base is `https://www.googleapis.com/calendar/`
-   - **Dynamic base URLs (`{{connection.*}}`)**: keep the IML expression in `api.imljson`, but **never** paste raw IML (`{{ifempty(connection.region, '.')}}`, `{{connection.sid}}`) into `input_parameters.imljson` `help` or `context.md` (they are static text, not evaluated by IML). Write human-readable placeholders there (e.g., `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/`) and note that the host/account follows the connection settings ([IEN-16879](https://make.atlassian.net/browse/IEN-16879)).
+   - **Dynamic base URLs (`{{connection.*}}`)**: keep the IML expression in `api.imljson`, but **never** paste raw IML (`{{ifempty(connection.region, '.')}}`, `{{connection.sid}}`) into `input_parameters.imljson` `help` or `context.md` (they are static text, not evaluated by IML). Write human-readable placeholders there (e.g., `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/`) and note that the host/account follows the connection settings.
 3. **Extract the connection** — from `attachedAccounts` or `connection` on the module. This becomes the endpoint's `attachedAccounts` array.
 4. **Extract the scope** — from the module's `scope.imljson`. Often empty `[]` but some apps require specific scopes. **Must be transferred as-is.**
 5. **Check `base.imljson`** — the app's base config may inject additional auth (e.g., Gemini adds `qs.key` and `headers.x-goog-api-key` from the base). These are merged automatically at runtime — no need to duplicate them in the endpoint, but worth noting in the context.
@@ -68,7 +68,7 @@ To create an `arbitraryCall` endpoint for an app, derive everything from its exi
 }
 ```
 
-**Body serialization — known runtime limitation, fix owned by the runtime ([Slack thread](https://integromat.slack.com/archives/C0BB266NWCU/p1790238461786569)).** `"type": "text"` makes the runtime serialize the body with `String(body)` (`request-options.ts` `serializeRequestBody`, `text|string|raw` branch). Through MCP `endpoint_execute` the input is passed with no Forman casting, so an AI caller may hand `body` over as a **real JSON object** — `String({…})` is `"[object Object]"` and the vendor rejects the request. It only works when the caller sends a pre-serialized JSON string, which is what the Forman form ("Run Endpoint", scenario module) always does. Flipping to `"type": "json"` (GitHub v4, monday v2 do this, mirroring their GraphQL modules) fixes object bodies but **double-stringifies** string bodies (`JSON.stringify("{}")` → `"\"{}\""`), so neither type handles both shapes today. The agreed fix is a shape-aware serializer in `imt-app-runtime` (parse-if-string, then stringify), requested from Plato — after it ships, what the MCP caller sends no longer matters.
+**Body serialization — known runtime limitation, fix owned by the runtime.** `"type": "text"` makes the runtime serialize the body with `String(body)` (`request-options.ts` `serializeRequestBody`, `text|string|raw` branch). Through MCP `endpoint_execute` the input is passed with no Forman casting, so an AI caller may hand `body` over as a **real JSON object** — `String({…})` is `"[object Object]"` and the vendor rejects the request. It only works when the caller sends a pre-serialized JSON string, which is what the Forman form ("Run Endpoint", scenario module) always does. Flipping to `"type": "json"` (GitHub v4, monday v2 do this, mirroring their GraphQL modules) fixes object bodies but **double-stringifies** string bodies (`JSON.stringify("{}")` → `"\"{}\""`), so neither type handles both shapes today. The agreed fix is a shape-aware serializer in `imt-app-runtime` (parse-if-string, then stringify), requested from Plato — after it ships, what the MCP caller sends no longer matters.
 
 - **Keep developing arbitraryCall endpoints exactly per the template** (`body` input `type: any`, request `"type": "text"`) — parity with the "Make an API Call" module and 15 of 17 existing arbitraryCall endpoints. Do not switch existing apps between `text` and `json`, and do not add app-level workarounds (custom stringify functions, help/context caveats) — they would outlive the runtime fix.
 - Reviews: `"type": "text"` on an arbitraryCall is **not** a Bug, and neither is `"type": "json"` where the app already has it. A reported `[object Object]` body from an AI caller is this runtime issue, not an app defect.
@@ -192,28 +192,28 @@ endpoints, required parameters, and response schemas.
 | **Base auth merging** | Apps that inject auth via `base.imljson` `qs` or `headers` (e.g., Gemini's `qs.key`) — these merge automatically at runtime. Do not duplicate them in the endpoint's `api.imljson`. |
 | **`public: false` after creation** | New endpoints are created with `public: false` (not visible). The MCP configure tool cannot flip it; the skill does it with `update-component.js {slug} {ver} endpoint {name} public=true` (`POST .../endpoints/{name}/public`) once the definition is pushed — do not leave it to the user unless that call fails. |
 | **Object body → `[object Object]`** | With `"type": "text"` an AI caller that sends `body` as a JSON object (not a string) gets `String(body)` = `"[object Object]"` on the wire. Runtime limitation with a runtime fix pending — keep the template, add no app-level workaround. See § Standard Template → Body serialization. |
-| **Absolute pagination URLs (`@odata.nextLink`) & write-request `Content-Type` in `context.md`** | When a vendor returns a full continuation URL (e.g., Microsoft Graph `@odata.nextLink`: `https://graph.microsoft.com/v1.0/...`) and any endpoint's `context.md` mentions calling it via `arbitraryCall`, explicitly state to strip `<BASE_URL>` and pass only the remaining path and query string in `url` — passing the full URL concatenates `<BASE_URL>https://...` and fails ([IEN-17151](https://make.atlassian.net/browse/IEN-17151)). Likewise, because MCP `endpoint_execute` does not auto-apply the schema `default` (`Content-Type: application/json`) when `headers` is omitted, note in `arbitraryCall/context.md` to explicitly send `Content-Type: application/json` in `headers` on write requests (`POST`, `PUT`, `PATCH`) when the API requires it. |
-| **Form-encoded APIs (`application/x-www-form-urlencoded`)** | When the vendor API expects form-encoded write bodies instead of JSON (e.g., Twilio, Stripe), set the `headers` `default` in `input_parameters.imljson` to `Content-Type: application/x-www-form-urlencoded` and state in both `body` `help` and `context.md` that POST/PUT bodies must be passed as a form-encoded string (e.g., `To=%2B15558675310&Body=Hi`) ([IEN-16879](https://make.atlassian.net/browse/IEN-16879)). |
+| **Absolute pagination URLs (`@odata.nextLink`) & write-request `Content-Type` in `context.md`** | When a vendor returns a full continuation URL (e.g., Microsoft Graph `@odata.nextLink`: `https://graph.microsoft.com/v1.0/...`) and any endpoint's `context.md` mentions calling it via `arbitraryCall`, explicitly state to strip `<BASE_URL>` and pass only the remaining path and query string in `url` — passing the full URL concatenates `<BASE_URL>https://...` and fails. Likewise, because MCP `endpoint_execute` does not auto-apply the schema `default` (`Content-Type: application/json`) when `headers` is omitted, note in `arbitraryCall/context.md` to explicitly send `Content-Type: application/json` in `headers` on write requests (`POST`, `PUT`, `PATCH`) when the API requires it. |
+| **Form-encoded APIs (`application/x-www-form-urlencoded`)** | When the vendor API expects form-encoded write bodies instead of JSON (e.g., Twilio, Stripe), set the `headers` `default` in `input_parameters.imljson` to `Content-Type: application/x-www-form-urlencoded` and state in both `body` `help` and `context.md` that POST/PUT bodies must be passed as a form-encoded string (e.g., `To=%2B15558675310&Body=Hi`). |
 
 ### Reference Implementations
 
-| App | Slug / Version | Base URL | Jira |
-|---|---|---|---|
-| Google Calendar | `google-calendar` v5 | `https://www.googleapis.com/calendar/` | [IEN-16255](https://make.atlassian.net/browse/IEN-16255) |
-| Gmail | `google-email` v4 | `https://gmail.googleapis.com/gmail/` | [IEN-15911](https://make.atlassian.net/browse/IEN-15911) |
-| Google Gemini AI | `gemini-ai` v1 | `https://generativelanguage.googleapis.com` | [IEN-16471](https://make.atlassian.net/browse/IEN-16471) |
-| Google Slides | `google-slides` v1 | `https://slides.googleapis.com/` | [IEN-16483](https://make.atlassian.net/browse/IEN-16483) |
-| Google Drive | `google-drive` v4 | `https://www.googleapis.com/` | [IEN-16256](https://make.atlassian.net/browse/IEN-16256) |
-| GitHub | `github` v2 | — (GraphQL example) | [IEN-16254](https://make.atlassian.net/browse/IEN-16254) |
-| Discord | `discord` v2 | `https://discord.com/api/` | [IEN-16479](https://make.atlassian.net/browse/IEN-16479) |
-| Canva | `canva` v1 | `https://api.canva.com/rest/v1` | [IEN-16618](https://make.atlassian.net/browse/IEN-16618) |
-| monday.com | `monday` v2 | `https://api.monday.com/v2` (GraphQL, `API-Version` header in base) | [IEN-16757](https://make.atlassian.net/browse/IEN-16757) |
-| Microsoft Teams | `microsoft-teams` v1 | `https://graph.microsoft.com/` | [IEN-16617](https://make.atlassian.net/browse/IEN-16617) |
-| Calendly | `calendly` v2 | `https://api.calendly.com/` | [IEN-16681](https://make.atlassian.net/browse/IEN-16681) |
+| App | Slug / Version | Base URL |
+|---|---|---|
+| Google Calendar | `google-calendar` v5 | `https://www.googleapis.com/calendar/` |
+| Gmail | `google-email` v4 | `https://gmail.googleapis.com/gmail/` |
+| Google Gemini AI | `gemini-ai` v1 | `https://generativelanguage.googleapis.com` |
+| Google Slides | `google-slides` v1 | `https://slides.googleapis.com/` |
+| Google Drive | `google-drive` v4 | `https://www.googleapis.com/` |
+| GitHub | `github` v2 | — (GraphQL example) |
+| Discord | `discord` v2 | `https://discord.com/api/` |
+| Canva | `canva` v1 | `https://api.canva.com/rest/v1` |
+| monday.com | `monday` v2 | `https://api.monday.com/v2` (GraphQL, `API-Version` header in base) |
+| Microsoft Teams | `microsoft-teams` v1 | `https://graph.microsoft.com/` |
+| Calendly | `calendly` v2 | `https://api.calendly.com/` |
 
 > **Note on GitHub**: serves as an example for apps using GraphQL APIs, where the endpoint wraps a single GraphQL query/mutation rather than a REST path.
 > **Note on monday**: 42 GraphQL endpoints with typed `$variables`, `ifempty` on scalars / `stripEmpty` on arrays, collections and multi-selects, full selection sets (union fragments), scripted module-parity check, per-endpoint version-header override (`getAggregate` → 2026-04).
-> **Note on Microsoft Teams**: 25 endpoints; `sendMessageCard` excluded — a `public: false` module that posts to an Office 365 connector webhook URL, not Microsoft Graph (both the non-public and the foreign-API filters apply). Microsoft Graph is also where the base64-in-JSON upload variant (`contentBytes`) comes from; Outlook `listMessages` ([IEN-16616](https://make.atlassian.net/browse/IEN-16616)) is the one-endpoint-per-vendor-path case.
+> **Note on Microsoft Teams**: 25 endpoints; `sendMessageCard` excluded — a `public: false` module that posts to an Office 365 connector webhook URL, not Microsoft Graph (both the non-public and the foreign-API filters apply). Microsoft Graph is also where the base64-in-JSON upload variant (`contentBytes`) comes from; Outlook `listMessages` is the one-endpoint-per-vendor-path case.
 > **Note on Calendly**: 25 endpoints; added `stripEmpty()` beside the app's older `removeEmptyObjects` (check the existing `functions/` for an equivalent before adding one); UUID-shaped ids declared as `uuid`.
 > **Note on Discord**: demonstrates `condition` directive for content-type branching and bot-identity guards in an `arbitraryCall` endpoint.
 > **Note on Canva**: demonstrates deprecated API handling, helper endpoints for enterprise-gated operations, and vendor `snake_case` naming.

@@ -186,7 +186,7 @@ This causes three problems:
 
 **Rule: treat temp array keys as append-only.** Never write a shorter or reordered array back to the same temp key. Use a new key or inline the operation.
 
-See IEN-14758 (google-email v4) for a real-world case where this caused 92.5% cross-message body contamination in a 200-email batch.
+In a real app (google-email v4), this caused 92.5% cross-message body contamination in a 200-email batch.
 
 **Undefined parameter handling in temp**: When `{{parameters.fieldName}}` references a parameter the user did not fill in, IML evaluates the expression to `undefined` (not empty string `""`). Since `_.merge` **skips source properties with `undefined` values**, the key is simply absent from `context.iml.context.temp`. This means explicit body mapping patterns like the following are safe — unfilled fields are automatically excluded:
 
@@ -372,7 +372,7 @@ Every outbound request URL is normalized **after** IML evaluation and **before**
 | Behavior                                            | Detail                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Consecutive slashes in `pathname` are collapsed** | `/foo//bar///baz` → `/foo/bar/baz` via `pathname.replace(/\/{2,}/g, '/')`. Users can safely supply a leading `/` in a mapped path param even if the URL template already adds one — the runtime will de-dup it.                                                                                                                                                                                                    |
-| **Trailing slash on non-root paths is PRESERVED**   | `replace(/\/$/, '')` runs only when `pathname === '/'` (root). `/v0/apps/{id}/collections/{id}/` stays as-is. → **The app must prevent app-level trailing slashes** on APIs that treat `.../x` and `.../x/` as different resources (e.g., Adalo returns 400 on the `/` variant — see IEN-15136). Use `{{if(parameters.url, '/' + parameters.url, '')}}` instead of hardcoding `/` before an optional path segment. |
+| **Trailing slash on non-root paths is PRESERVED**   | `replace(/\/$/, '')` runs only when `pathname === '/'` (root). `/v0/apps/{id}/collections/{id}/` stays as-is. → **The app must prevent app-level trailing slashes** on APIs that treat `.../x` and `.../x/` as different resources (e.g., Adalo returns 400 on the `/` variant). Use `{{if(parameters.url, '/' + parameters.url, '')}}` instead of hardcoding `/` before an optional path segment.                 |
 | **baseUrl + url join**                              | `joinBaseUrlAndUrl(baseUrl, url)` joins with a literal `/` when `url` is relative (`!/^https?:\/\//.test(url)`). Absolute `url` bypasses `baseUrl` entirely.                                                                                                                                                                                                                                                       |
 | **Path encoding**                                   | If `encodeUrl: true` (default in most apps), the pre-query portion is run through `encodeURI()`.                                                                                                                                                                                                                                                                                                                   |
 | **Query string**                                    | `legacy` mode: `encodeUrl: false` decodes the QS (except reserved `%20 %23 %26 %3F %3A`); the second `?` is rewritten to `&`; `?` with empty QS is dropped. `uniform` mode: QS is encoded iff `encodeUrl: true`, no `?→&` rewrite.                                                                                                                                                                                 |
@@ -434,15 +434,7 @@ IML expressions (`{{...}}`) resolve variable paths through `imt-iml`'s `mapVaria
 
 IML path indices are **1-based**, not 0-based. Backing source (`imt-iml/lib/utils.js` `mapVariable`):
 
-```js
-if (/\[(\d+)?\]$/.exec(k)) {
-    n = RegExp.$1 ? parseInt(RegExp.$1) : 1; // empty brackets → n = 1
-    ...
-}
-...
-if (Array.isArray(data)) data = data[k - 1]; // 1-based
-if (n != null && Array.isArray(data)) data = data[n - 1]; // 1-based
-```
+When a path key `k` ends in square brackets, empty or holding digits (`[]`, `[2]`), the index `n` is that number parsed as an integer, or `1` when the brackets are empty. When `data` is an array, it resolves to `data[k - 1]`; then, when `n` is not `null`/`undefined` and `data` is an array, to `data[n - 1]`. Both lookups are 1-based.
 
 | IML path     | Resolves to (JS)            | Notes                                                       |
 | ------------ | --------------------------- | ----------------------------------------------------------- |

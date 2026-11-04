@@ -3,7 +3,9 @@
 
 // CI guard for the 2.x old tree (skill/, rules/, the four installers, version.json) while the bridge release exists. Not part of the plugin payload.
 // Usage: node .github/scripts/old-tree-guard.js --mode=branch|release --base=<ref> [repoRoot]
-// Both modes allow changes only in the bridge files of ALLOWED_PATHS (the seven of spec 8.2, and since 2.4.1 the four installers), and skill/SKILL.md may differ from the base only in its
+// Both modes allow changes only in the bridge files of ALLOWED_PATHS (the seven of spec 8.2, and since 2.4.1 the four installers); release mode also allows the
+// one-time 2.4.2 removal of internal content under CLEANUP_PREFIXES (changes and deletions of files outside ALLOWED_PATHS, no new files) when
+// version.json moves to 2.4.2. skill/SKILL.md may differ from the base only in its
 // version line and its "## Plugin migration" section. Branch mode (pull requests into an integration branch) also keeps both versions as
 // they are. Release mode (pull requests into master and pushes to master) lets version.json change, and when the old tree changed at all it
 // needs a higher 2.4.x version in version.json and skill/SKILL.md together.
@@ -27,6 +29,8 @@ const ALLOWED_PATHS = [
 	'install-cursor.sh',
 	'install-cursor.ps1',
 ];
+const CLEANUP_VERSION = '2.4.2';
+const CLEANUP_PREFIXES = ['skill/references/', 'skill/workflows/', 'skill/scripts/'];
 const MODES = ['branch', 'release'];
 const SKILL_MD = 'skill/SKILL.md';
 const VERSION_JSON = 'version.json';
@@ -135,7 +139,15 @@ function releaseFindings(base, head) {
 function checkOldTree({ mode, entries, base, head }) {
 	if (!MODES.includes(mode)) throw new TypeError('checkOldTree needs mode branch or release');
 	const findings = [];
+	const versionOf = (side) => parseVersionJson(side.versionJson)?.version;
+	const cleanup = mode === 'release' && versionOf(head) === CLEANUP_VERSION && versionOf(base) !== CLEANUP_VERSION;
+	const inCleanup = (file) => cleanup && !ALLOWED_PATHS.includes(file) && CLEANUP_PREFIXES.some((prefix) => file.startsWith(prefix));
 	for (const { status, path: file } of entries) {
+		if (inCleanup(file)) {
+			if (status === 'T') findings.push(`${file}: file type changed`);
+			else if (status !== 'M' && status !== 'D') findings.push(`${file}: changes to this old-tree path are not allowed during the bridge (git status ${status})`);
+			continue;
+		}
 		if (status === 'D' || (file !== VERSION_JSON && !ALLOWED_PATHS.includes(file))) {
 			findings.push(`${file}: changes to this old-tree path are not allowed during the bridge (git status ${status})`);
 		} else if (status === 'T') {
@@ -212,4 +224,4 @@ if (require.main === module) {
 	process.exitCode = result.exitCode;
 }
 
-module.exports = { OLD_TREE_PATHS, ALLOWED_PATHS, skillVersion, stripBridgeParts, parseNameStatus, checkOldTree, run };
+module.exports = { OLD_TREE_PATHS, ALLOWED_PATHS, CLEANUP_VERSION, CLEANUP_PREFIXES, skillVersion, stripBridgeParts, parseNameStatus, checkOldTree, run };

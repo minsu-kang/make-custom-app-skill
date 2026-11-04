@@ -447,6 +447,76 @@ test('release: a released value that is not a date fails', () => {
 	assert.deepEqual(check('release', entries, BASE, head('2026-11-03')), []);
 });
 
+test('release: the 2.4.2 cleanup may change and delete files under skill/references, skill/workflows and skill/scripts', () => {
+	const entries = [
+		entry('M', 'skill/references/runtime-reference.md'),
+		entry('D', 'skill/references/runtime-reference/isc.md'),
+		entry('M', 'skill/workflows/lifecycle.md'),
+		entry('M', 'skill/scripts/test-function.js'),
+		entry('M', 'skill/scripts/lib/__tests__/run-component.test.js'),
+		entry('M', 'skill/SKILL.md'),
+		entry('M', 'version.json'),
+	];
+	assert.deepEqual(check('release', entries, pair('2.4.1'), pair('2.4.2')), []);
+	assert.deepEqual(guard.CLEANUP_VERSION, '2.4.2');
+	assert.deepEqual(guard.CLEANUP_PREFIXES, ['skill/references/', 'skill/workflows/', 'skill/scripts/']);
+
+	const head = pair('2.4.2');
+	withRepo({ changes: { 'version.json': head.versionJson, 'skill/SKILL.md': head.skillMd, 'skill/scripts/download-app.js': null } }, (root) => {
+		const r = cli(root, ['--mode=release', '--base=base']);
+		assert.equal(r.status, 0, r.out);
+		assert.deepEqual(r.lines, [summary(0, 'release', 'base')]);
+	});
+});
+
+test('release: the cleanup folders stay closed at any version other than 2.4.2, and when the base already reads 2.4.2', () => {
+	const entries = [entry('M', 'skill/references/runtime-reference.md'), entry('D', 'skill/references/runtime-reference/isc.md'), entry('M', 'skill/SKILL.md'), entry('M', 'version.json')];
+	const closed = [notAllowed('skill/references/runtime-reference.md', 'M'), notAllowed('skill/references/runtime-reference/isc.md', 'D')];
+	assert.deepEqual(check('release', entries, pair('2.4.2'), pair('2.4.3')), closed);
+	assert.deepEqual(check('release', entries, pair('2.4.0'), pair('2.4.1')), closed);
+	assert.deepEqual(check('release', entries, pair('2.4.2'), pair('2.4.2')), [...closed, stillReads('2.4.2'), notGreater('2.4.2', '2.4.2')]);
+});
+
+test('branch: the 2.4.2 cleanup exception does not apply', () => {
+	assert.deepEqual(check('branch', [entry('M', 'skill/references/runtime-reference.md')], BASE, BASE), [notAllowed('skill/references/runtime-reference.md', 'M')]);
+	assert.deepEqual(check('branch', [entry('M', 'skill/references/runtime-reference.md')], pair('2.4.1'), pair('2.4.1')), [notAllowed('skill/references/runtime-reference.md', 'M')]);
+});
+
+test('release: at 2.4.2 the cleanup refuses new files and leaves the bridge files to the normal rules', () => {
+	const entries = [
+		entry('A', 'skill/references/new.md'),
+		entry('A', 'skill/scripts/lib/new-helper.js'),
+		entry('D', 'skill/scripts/check-setup.js'),
+		entry('D', 'skill/scripts/migrate-to-plugin.js'),
+		entry('M', 'skill/scripts/lib/migrate-logic.js'),
+		entry('M', 'skill/SKILL.md'),
+		entry('M', 'version.json'),
+	];
+	assert.deepEqual(check('release', entries, pair('2.4.1'), pair('2.4.2')), [
+		notAllowed('skill/references/new.md', 'A'),
+		notAllowed('skill/scripts/lib/new-helper.js', 'A'),
+		notAllowed('skill/scripts/check-setup.js', 'D'),
+		notAllowed('skill/scripts/migrate-to-plugin.js', 'D'),
+	]);
+});
+
+test('release: at 2.4.2, rules/, the installers, other skill/ paths and type changes stay refused', () => {
+	const entries = [
+		entry('M', 'rules/make-custom-app.mdc'),
+		entry('D', 'install-claude.sh'),
+		entry('M', 'skill/other.md'),
+		entry('T', 'skill/references/link.md'),
+		entry('M', 'skill/SKILL.md'),
+		entry('M', 'version.json'),
+	];
+	assert.deepEqual(check('release', entries, pair('2.4.1'), pair('2.4.2')), [
+		notAllowed('rules/make-custom-app.mdc', 'M'),
+		notAllowed('install-claude.sh', 'D'),
+		notAllowed('skill/other.md', 'M'),
+		typeChanged('skill/references/link.md'),
+	]);
+});
+
 test('cli: exits 2 with the usage line for a missing mode, an unknown mode, a missing base, and a base that starts with a dash', () => {
 	const cases = [[], ['--base=base'], ['--mode=branch'], ['--mode=sideways', '--base=base'], ['--mode=', '--base=base'], ['--mode=branch', '--base='], ['--mode=branch', '--base=-x'], ['--mode=release', '--base=--help'], ['--mode=branch', '--base=base', '--verbose'], ['-x', '--mode=branch', '--base=base']];
 	const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'old-tree-guard-empty-'));

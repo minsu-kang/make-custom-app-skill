@@ -4,8 +4,6 @@
 
 ## Batch Actions
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/937295990/Batch+actions)
-
 ### Categories
 
 1. **Read**: Will NOT alter records (get, search, download)
@@ -53,8 +51,6 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/937295990/
 
 ## Search Filtering
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/955285660/Search+filtering)
-
 | Do | Don't |
 |---|---|
 | Provide a list of fields | Ask user to construct query string |
@@ -64,8 +60,6 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/955285660/
 ---
 
 ## Order of Groups and Modules
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1033535510/Order+of+groups+and+modules)
 
 ### Grouping Logic
 
@@ -88,8 +82,6 @@ Example (FORMS group): List Forms → Get a Form → Create a Form → Update a 
 ---
 
 ## Bulk Actions
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1085472875/Bulk+actions)
 
 A single API call that acts on multiple records. If the API supports bulk actions, consider implementing a Bulk module.
 
@@ -118,8 +110,6 @@ Examples:
 
 ## Timeout Handling
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1112047655/Timeout+handling)
-
 Maximum timeout: **5 minutes (300,000 ms)**
 
 Increase timeout for:
@@ -130,8 +120,6 @@ Increase timeout for:
 ---
 
 ## Page Size in Pagination
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1186398224/Page+size+in+pagination)
 
 Page size should be **as large as possible** to:
 1. Reduce number of requests
@@ -154,8 +142,6 @@ Productive (max 200): set `page[size]` to 200.
 ---
 
 ## Polling Trigger
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1311932438/Polling+trigger)
 
 Implement polling trigger ONLY if:
 1. Results have a **numeric ID** or **date** as identifier

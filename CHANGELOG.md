@@ -7,6 +7,10 @@ The repository moved from `minsu-kang/make-custom-app-skill` to `minsu-kang/make
 - **New address.** The README install command, the `homepage` and `repository` fields of both manifests, the update notice (the version check and the Cursor update link), and the installer shim drafts in `tools/shims/` use `https://github.com/minsu-kang/make-app-ai-plugin`.
 - **Unchanged.** The marketplace and the plugin id stay `make-custom-app@make-custom-app`. A marketplace added with the old address keeps updating through the redirect; the README says to skip the `marketplace add` command in that case.
 
+## 2.4.2 — 2026-11-04
+
+- **Internal links removed from the 2.x skill.** The same change as plugin 3.0.2, in `skill/references`, `skill/workflows` and `skill/scripts`. `old-tree-guard.js` allows changes and deletions of non-bridge files in these folders for the 2.4.2 release only.
+
 ## 2.4.1 — 2026-11-03
 
 - **Installers fixed after the repository rename.** GitHub now names the archive folder `make-app-ai-plugin-master`, so the four installers stopped finding `skill/SKILL.md` when run through `curl` or `irm` ("Archive layout unexpected"), and every auto-update failed after it had removed the old skill folder. The installers now download from `minsu-kang/make-app-ai-plugin`. `old-tree-guard.js` allows the four installers as bridge files.

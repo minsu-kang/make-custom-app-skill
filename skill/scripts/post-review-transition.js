@@ -16,10 +16,10 @@
  * Default required pre-status: "Commit,Compilation" for committed/returned; "In Progress" for commit
  *
  * Examples:
- *   node post-review-transition.js IEN-14701 committed
- *   node post-review-transition.js IEN-14701 returned
- *   node post-review-transition.js IEN-14701 commit
- *   node post-review-transition.js IEN-14701 committed --force
+ *   node post-review-transition.js PROJ-123 committed
+ *   node post-review-transition.js PROJ-123 returned
+ *   node post-review-transition.js PROJ-123 commit
+ *   node post-review-transition.js PROJ-123 committed --force
  *
  * Requires jira-email and jira-api-token in ~/.make-custom-app-skill-secrets
  */
