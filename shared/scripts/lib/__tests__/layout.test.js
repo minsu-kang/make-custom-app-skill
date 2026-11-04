@@ -17,9 +17,14 @@ const LIB_DIR = path.join(SCRIPTS_DIR, 'lib');
 const OLD_LAYOUT_ALLOWED = new Set(['cleanup-legacy.test.js', 'entry-scripts.test.js', 'fake-legacy-home.js', 'legacy-cleanup-logic.test.js', 'legacy-cleanup-steps.test.js', 'legacy-install.js', 'legacy-install.test.js', 'layout.test.js']);
 const OLD_LAYOUT = /skill-root|version-guard|ensureFreshSkill|getSkillRoot|getEditorDir|\bSKILL_ROOT\b|\bCONTEXTS_DIR\b|skills\/make-custom-app|\.claude\/skills|\.cursor\/skills/;
 
-/** Scripts that must not call the account check: they report the account item themselves. */
-const NO_GUARD = new Set(['check-setup.js', 'cleanup-legacy.js', 'setup-secrets.js']);
-const GUARD_CALL = /require\('\.\/lib\/access-guard'\)\.ensureInternalUser\(\)/;
+/**
+ * Scripts that must not run the mode gate: check-setup and setup-secrets report the token, the mode and the account
+ * themselves, and cleanup-legacy only moves local files. The mode gate runs the account check of employee mode, so no
+ * entry script calls ensureInternalUser() itself.
+ */
+const NO_GATE = new Set(['check-setup.js', 'cleanup-legacy.js', 'setup-secrets.js']);
+const GATE_CALL = /require\('\.\/lib\/mode'\)\.requireMode\(/;
+const OLD_GUARD_CALL = /\bensureInternalUser\(/;
 
 /** Scripts that parse --editor themselves instead of stripping it first with takeEditorFlagOrExit. */
 const OWN_EDITOR_PARSER = new Set(['setup-secrets.js']);
@@ -71,9 +76,9 @@ function stripComments(source) {
 	return out;
 }
 
-/** True when the source calls the account check outside of comments. */
-function hasGuardCall(source) {
-	return GUARD_CALL.test(stripComments(source));
+/** True when the source runs the mode gate outside of comments. */
+function hasGateCall(source) {
+	return GATE_CALL.test(stripComments(source));
 }
 
 function listJs(dir) {
@@ -97,18 +102,23 @@ const LIB_MODULES = fs
 	.filter((name) => name.endsWith('.js'))
 	.map((name) => path.join(LIB_DIR, name));
 
-describe('hasGuardCall', () => {
-	const CALL = "require('./lib/access-guard').ensureInternalUser();";
+describe('hasGateCall', () => {
+	const CALL = "const settings = require('./lib/mode').requireMode();";
 
-	it('finds a real call', () => {
-		assert.equal(hasGuardCall(`#!/usr/bin/env node\n${CALL}\nconst x = 1;\n`), true);
+	it('finds a real call, with or without options', () => {
+		assert.equal(hasGateCall(`#!/usr/bin/env node\n${CALL}\nconst x = 1;\n`), true);
+		assert.equal(hasGateCall("\trequire('./lib/mode').requireMode({ employeeOnly: true });\n"), true);
 	});
 
 	it('ignores the same call inside a line comment or a block comment', () => {
-		assert.equal(hasGuardCall(`// ${CALL}\nconst x = 1;\n`), false);
-		assert.equal(hasGuardCall(`const x = 1; // ${CALL}\n`), false);
-		assert.equal(hasGuardCall(`/*\n${CALL}\n*/\nconst x = 1;\n`), false);
-		assert.equal(hasGuardCall(`/** ${CALL} */\n`), false);
+		assert.equal(hasGateCall(`// ${CALL}\nconst x = 1;\n`), false);
+		assert.equal(hasGateCall(`const x = 1; // ${CALL}\n`), false);
+		assert.equal(hasGateCall(`/*\n${CALL}\n*/\nconst x = 1;\n`), false);
+		assert.equal(hasGateCall(`/** ${CALL} */\n`), false);
+	});
+
+	it('does not count the old account check', () => {
+		assert.equal(hasGateCall("require('./lib/access-guard').ensureInternalUser();\n"), false);
 	});
 });
 
@@ -156,11 +166,16 @@ describe('shared/scripts layout', () => {
 		assert.ok(LIB_MODULES.length >= 10, `only ${LIB_MODULES.length} lib modules found`);
 	});
 
-	it('every entry script calls the account check, except check-setup, cleanup-legacy, and setup-secrets', () => {
+	it('every entry script runs the mode gate, except check-setup, cleanup-legacy, and setup-secrets', () => {
 		assert.ok(ENTRY_SCRIPTS.length >= 14, `only ${ENTRY_SCRIPTS.length} entry scripts found`);
-		const callsGuard = (name) => hasGuardCall(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8'));
-		assert.deepEqual(ENTRY_SCRIPTS.filter((name) => !NO_GUARD.has(name) && !callsGuard(name)), []);
-		assert.deepEqual([...NO_GUARD].filter(callsGuard), []);
+		const runsGate = (name) => hasGateCall(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8'));
+		assert.deepEqual(ENTRY_SCRIPTS.filter((name) => !NO_GATE.has(name) && !runsGate(name)), []);
+		assert.deepEqual([...NO_GATE].filter(runsGate), []);
+	});
+
+	it('no entry script calls the account check itself', () => {
+		const callsOldGuard = (name) => OLD_GUARD_CALL.test(stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8')));
+		assert.deepEqual(ENTRY_SCRIPTS.filter(callsOldGuard), []);
 	});
 
 	for (const name of ENTRY_SCRIPTS.filter((file) => !OWN_EDITOR_PARSER.has(file))) {

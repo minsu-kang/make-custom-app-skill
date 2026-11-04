@@ -31,7 +31,8 @@
  */
 
 const readline = require('readline');
-const { loadSettings, announceTarget } = require('./lib/settings');
+const { announceTarget } = require('./lib/settings');
+const { originStop } = require('./lib/mode-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -106,10 +107,15 @@ async function apiDelete(url, auth, retries = 0) {
 	}
 }
 
-async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
+async function resolveOrigin(baseUrl, auth, appSlug, appVersion, { mode, host }) {
 	const url = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`;
 	const resp = await apiGetJson(url, auth);
 	const origin = resp?.app?.origin || resp?.origin;
+	const stop = originStop({ mode, host, origin });
+	if (stop) {
+		console.error(stop.message);
+		process.exit(1);
+	}
 
 	if (origin) {
 		const currentHost = new URL(baseUrl).hostname;
@@ -180,14 +186,14 @@ async function deleteComponent(appSlug, appVersion, type, name, force) {
 		process.exit(1);
 	}
 
-	const settings = loadSettings();
+	const settings = require('./lib/mode').requireMode();
 	announceTarget(settings);
 	let { baseUrl, auth } = settings;
 
 	console.log(`Configured API: ${baseUrl}`);
 	console.log(`App: ${appSlug} v${appVersion}\n`);
 
-	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
+	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 
 	const { isPublic, isApproved } = await checkAppPublicStatus(baseUrl, auth, appSlug, appVersion);
 	const status = isApproved ? 'approved (public)' : isPublic ? 'public' : 'private';
@@ -249,8 +255,6 @@ if (!appSlug || !appVersion || !type || !name) {
 	console.log('  node delete-component.js monday 2 module aggregateTableV2 --force');
 	process.exit(1);
 }
-
-require('./lib/access-guard').ensureInternalUser();
 
 deleteComponent(appSlug, appVersion, type, name, force).catch((err) => {
 	console.error('ERROR:', err.message);

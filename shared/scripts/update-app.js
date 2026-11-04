@@ -33,7 +33,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { loadSettings, announceTarget } = require('./lib/settings');
+const { announceTarget } = require('./lib/settings');
+const { originStop } = require('./lib/mode-logic');
 const { parseAnnotations } = require('./lib/endpoint-annotations');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
@@ -164,10 +165,15 @@ async function apiPatch(url, auth, body, retries = 0) {
 	}
 }
 
-async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
+async function resolveOrigin(baseUrl, auth, appSlug, appVersion, { mode, host }) {
 	const url = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`;
 	const resp = await apiGetJson(url, auth);
 	const origin = resp?.app?.origin || resp?.origin;
+	const stop = originStop({ mode, host, origin });
+	if (stop) {
+		console.error(stop.message);
+		process.exit(1);
+	}
 
 	if (origin) {
 		const currentHost = new URL(baseUrl).hostname;
@@ -241,7 +247,7 @@ function buildApiUrl(baseUrl, appSlug, appVersion, componentPath) {
 }
 
 async function updateComponent(appSlug, appVersion, componentPath, filePath) {
-	const settings = loadSettings();
+	const settings = require('./lib/mode').requireMode();
 	announceTarget(settings);
 	let { baseUrl, auth } = settings;
 
@@ -250,7 +256,7 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 	console.log(`Component: ${componentPath}`);
 	console.log(`Source: ${filePath}\n`);
 
-	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
+	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 
 	const content = fs.readFileSync(filePath, 'utf-8');
 	const [type, name, section] = componentPath.split('/');
@@ -315,8 +321,6 @@ if (!appSlug || !appVersion || !componentPath || !filePath) {
 	console.log('  node update-app.js google-docs 1 endpoint/getDocument/annotations ./annotations.json');
 	process.exit(1);
 }
-
-require('./lib/access-guard').ensureInternalUser();
 
 updateComponent(appSlug, appVersion, componentPath, filePath).catch((err) => {
 	console.error('ERROR:', err.message);

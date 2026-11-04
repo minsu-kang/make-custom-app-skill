@@ -12,19 +12,26 @@
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
  *   Claude Code → `make-api-key:` line in ~/.make-custom-app-skill-secrets (required)
+ *
+ * Every section is saved, absent (a 404 or an empty body) or failed (lib/download-app-logic.js); a 404 on the app
+ * version or on a component list fails. Files are written only when nothing failed; otherwise the Done block lists the
+ * failed sections, nothing is written, and the exit code is 1. In public mode (lib/mode.js) the script reads the public
+ * API, skips the admin visibility call, and fails on an app of another zone instead of switching hosts.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { getContextsDir } = require('./lib/paths');
-const { loadSettings } = require('./lib/settings');
+const { baseFor, errorCode, testOrigin, TEST_ORIGIN_VAR } = require('./lib/mode-logic');
+const logic = require('./lib/download-app-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const DEFAULT_CONTEXTS_DIR = getContextsDir();
+const TEST_API_ORIGIN = testOrigin(process.env[TEST_ORIGIN_VAR]);
 
 let concurrency = 10;
-const MAX_RETRIES = 5;
-const BASE_DELAY_MS = 1000;
+// Against the loopback test origin of mode-logic.js the retries do not wait.
+const BASE_DELAY_MS = TEST_API_ORIGIN ? 0 : 1000;
 
 const MODULE_FILES = {
 	1: ['api', 'epoch', 'parameters', 'interface', 'samples', 'scope'],       // Trigger
@@ -54,66 +61,40 @@ function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function apiGet(url, auth, retries = 0) {
-	try {
-		const resp = await fetch(url, {
-			headers: {
-				Authorization: auth,
-				'x-imt-apps-sdk-version': '2.4.0',
-			},
-		});
-		if (resp.status === 404) return null;
-		if (resp.status === 429) {
-			if (retries >= MAX_RETRIES) {
-				console.error(`  ✗ 429 retry limit exceeded: ${url}`);
-				return null;
+/**
+ * One GET: { status, body, error }. body is the response text; after a network failure status and body are null and
+ * error is a short code (err.message is never printed: for a bad header value it holds the Authorization value).
+ * With retry, a 429 and a network error are retried up to MAX_RETRIES times.
+ */
+async function apiGet(url, auth, { retry = true } = {}) {
+	for (let retries = 0; ; retries++) {
+		const canRetry = retry && retries < logic.MAX_RETRIES;
+		try {
+			const resp = await fetch(url, {
+				headers: {
+					Authorization: auth,
+					'x-imt-apps-sdk-version': '2.4.0',
+				},
+			});
+			if (resp.status === 429 && canRetry) {
+				concurrency = Math.max(2, Math.floor(concurrency / 2));
+				const retryAfter = resp.headers.get('retry-after');
+				const delay = retryAfter
+					? parseInt(retryAfter, 10) * 1000
+					: BASE_DELAY_MS * Math.pow(2, retries);
+				console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms (concurrency: ${concurrency})`);
+				await sleep(delay);
+				continue;
 			}
-			concurrency = Math.max(2, Math.floor(concurrency / 2));
-			const retryAfter = resp.headers.get('retry-after');
-			const delay = retryAfter
-				? parseInt(retryAfter, 10) * 1000
-				: BASE_DELAY_MS * Math.pow(2, retries);
-			console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms (concurrency: ${concurrency})`);
-			await sleep(delay);
-			return apiGet(url, auth, retries + 1);
+			return { status: resp.status, body: await resp.text(), error: null };
+		} catch (err) {
+			if (canRetry) {
+				await sleep(BASE_DELAY_MS * Math.pow(2, retries));
+				continue;
+			}
+			return { status: null, body: null, error: errorCode(err) };
 		}
-		if (!resp.ok) {
-			const body = await resp.text();
-			console.error(`  ✗ HTTP ${resp.status}: ${url}\n    ${body.slice(0, 200)}`);
-			return null;
-		}
-		return resp;
-	} catch (err) {
-		if (retries < MAX_RETRIES) {
-			const delay = BASE_DELAY_MS * Math.pow(2, retries);
-			await sleep(delay);
-			return apiGet(url, auth, retries + 1);
-		}
-		console.error(`  ✗ ${url}: ${err.message}`);
-		return null;
 	}
-}
-
-async function apiGetJson(url, auth) {
-	const resp = await apiGet(url, auth);
-	if (!resp) return null;
-	return resp.json();
-}
-
-async function apiGetText(url, auth) {
-	const resp = await apiGet(url, auth);
-	if (!resp) return null;
-	const text = await resp.text();
-	if (text === 'null' || !text.trim()) return null;
-	return text;
-}
-
-function saveFile(outputDir, relPath, content) {
-	if (content == null) return false;
-	const filepath = path.join(outputDir, relPath);
-	fs.mkdirSync(path.dirname(filepath), { recursive: true });
-	fs.writeFileSync(filepath, content, 'utf-8');
-	return true;
 }
 
 async function runBatch(tasks) {
@@ -128,37 +109,67 @@ async function runBatch(tasks) {
 	return results;
 }
 
-async function resolveOrigin(baseUrl, auth, appSlug, appVersion) {
-	const url = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`;
-	const resp = await apiGetJson(url, auth);
-	const origin = resp?.app?.origin || resp?.origin;
+async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
+	let { baseUrl, host } = settings;
+	const { auth, mode } = settings;
+	const stats = { saved: 0, absent: 0 };
+	const failed = [];
+	const files = [];
+	const outputDir = customOutputDir || path.join(DEFAULT_CONTEXTS_DIR, `${appSlug}-v${appVersion}`);
 
-	if (origin) {
-		const currentHost = new URL(baseUrl).hostname;
-		const originHost = origin.includes('/') ? origin.split('/')[0] : origin;
-		if (currentHost !== originHost) {
-			const newUrl = baseUrl.replace(currentHost, originHost);
-			console.log(`  Origin detected: ${origin}`);
-			console.log(`  URL changed: ${baseUrl} → ${newUrl}`);
-			return { baseUrl: newUrl, origin };
+	const fail = (failure) => {
+		failed.push(failure);
+		console.error(`  ✗ ${failure.what} (${failure.reason})`);
+	};
+	const finish = () => {
+		for (const line of logic.doneLines({ ...stats, failed, outputDir, mode })) console.log(line);
+		if (failed.length) {
+			console.error(logic.failedErrorLine(failed.length, appSlug, appVersion));
+			process.exitCode = 1;
 		}
-	}
-	return { baseUrl, origin };
-}
-
-async function downloadApp(appSlug, appVersion, customOutputDir) {
-	let { baseUrl, auth } = loadSettings();
-	const stats = { saved: 0, skipped: 0 };
+	};
+	const keep = (relPath, result) => {
+		const outcome = logic.classifySection(result);
+		if (outcome === 'saved') {
+			files.push([relPath, result.body]);
+			stats.saved++;
+		} else if (outcome === 'absent') {
+			stats.absent++;
+		} else {
+			fail({ what: relPath, reason: logic.failureReason(result) });
+		}
+	};
+	const list = async (what, noun, url, key) => {
+		const r = logic.readList(await apiGet(url, auth), key);
+		if (r.reason) {
+			fail({ what, reason: r.reason });
+			return [];
+		}
+		console.log(`  ${r.items.length} ${noun} found`);
+		return r.items;
+	};
 
 	console.log(`Configured API: ${baseUrl}`);
 	console.log(`App: ${appSlug} v${appVersion}\n`);
 
-	const resolved = await resolveOrigin(baseUrl, auth, appSlug, appVersion);
-	baseUrl = resolved.baseUrl;
-	const origin = resolved.origin;
-
-	const outputDir = customOutputDir || path.join(DEFAULT_CONTEXTS_DIR, `${appSlug}-v${appVersion}`);
-	fs.mkdirSync(outputDir, { recursive: true });
+	const gate = logic.readJson(await apiGet(`${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=origin`, auth));
+	if (gate.reason) {
+		fail(logic.gateFailure(gate.reason, { slug: appSlug, version: appVersion, host }));
+		return finish();
+	}
+	const origin = gate.body.app?.origin || gate.body.origin;
+	const plan = logic.planOrigin(mode, host, origin);
+	if (plan.action === 'fail') {
+		fail(plan.failure);
+		return finish();
+	}
+	if (plan.action === 'switch') {
+		const newUrl = baseFor(mode, plan.host, TEST_API_ORIGIN);
+		console.log(`  Origin detected: ${origin}`);
+		console.log(`  URL changed: ${baseUrl} → ${newUrl}`);
+		baseUrl = newUrl;
+		host = plan.host;
+	}
 
 	console.log(`Actual API: ${baseUrl}`);
 	console.log(`Output: ${outputDir}\n`);
@@ -170,125 +181,77 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	console.log('=== App-level files ===');
 	const appLevelTasks = ['base', 'common', 'groups', 'readme', 'install', 'installSpec'].map((fileType) => async () => {
 		const ext = fileType === 'readme' ? 'md' : 'imljson';
-		const content = await apiGetText(`${verBase}/${fileType}`, auth);
-		if (saveFile(outputDir, `${fileType}.${ext}`, content)) {
-			console.log(`  ✓ ${fileType}.${ext}`);
-			stats.saved++;
-		} else {
-			stats.skipped++;
-		}
+		keep(`${fileType}.${ext}`, await apiGet(`${verBase}/${fileType}`, auth));
 	});
 	await runBatch(appLevelTasks);
 
 	// --- Modules ---
 	console.log('\n=== Modules ===');
-	const modResp = await apiGetJson(
+	const modules = await list(
+		'module list',
+		'module(s)',
 		`${verBase}/modules?cols[]=name&cols[]=label&cols[]=typeId&cols[]=crud&cols[]=deprecated&cols[]=public`,
-		auth,
+		'appModules',
 	);
-	const modules = modResp?.appModules || [];
-	console.log(`  ${modules.length} module(s) found`);
 
 	const moduleTasks = modules.flatMap((mod) => {
-		const files = MODULE_FILES[mod.typeId] || MODULE_FILES[4];
-		return files.map((ft) => async () => {
-			const content = await apiGetText(`${verBase}/modules/${mod.name}/${ft}`, auth);
-			if (saveFile(outputDir, `modules/${mod.name}/${ft}.imljson`, content)) {
-				console.log(`  ✓ modules/${mod.name}/${ft}.imljson`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+		const sections = MODULE_FILES[mod.typeId] || MODULE_FILES[4];
+		return sections.map((ft) => async () => {
+			keep(`modules/${mod.name}/${ft}.imljson`, await apiGet(`${verBase}/modules/${mod.name}/${ft}`, auth));
 		});
 	});
 	await runBatch(moduleTasks);
 
 	// --- Connections ---
 	console.log('\n=== Connections ===');
-	const connResp = await apiGetJson(`${appBase}/${appSlug}/connections`, auth);
-	const connections = connResp?.appConnections || [];
-	console.log(`  ${connections.length} connection(s) found`);
+	const connections = await list('connection list', 'connection(s)', `${appBase}/${appSlug}/connections`, 'appConnections');
 
 	const connTasks = connections.flatMap((conn) =>
 		CONNECTION_FILES.map((ft) => async () => {
-			const content = await apiGetText(`${appBase}/connections/${conn.name}/${ft}`, auth);
-			if (saveFile(outputDir, `connections/${conn.name}/${ft}.imljson`, content)) {
-				console.log(`  ✓ connections/${conn.name}/${ft}.imljson`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`connections/${conn.name}/${ft}.imljson`, await apiGet(`${appBase}/connections/${conn.name}/${ft}`, auth));
 		}),
 	);
 	await runBatch(connTasks);
 
 	// --- Webhooks ---
 	console.log('\n=== Webhooks ===');
-	const whResp = await apiGetJson(`${appBase}/${appSlug}/webhooks`, auth);
-	const webhooks = whResp?.appWebhooks || [];
-	console.log(`  ${webhooks.length} webhook(s) found`);
+	const webhooks = await list('webhook list', 'webhook(s)', `${appBase}/${appSlug}/webhooks`, 'appWebhooks');
 
 	const whTasks = webhooks.flatMap((wh) =>
 		WEBHOOK_FILES.map((ft) => async () => {
-			const content = await apiGetText(`${appBase}/webhooks/${wh.name}/${ft}`, auth);
-			if (saveFile(outputDir, `webhooks/${wh.name}/${ft}.imljson`, content)) {
-				console.log(`  ✓ webhooks/${wh.name}/${ft}.imljson`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`webhooks/${wh.name}/${ft}.imljson`, await apiGet(`${appBase}/webhooks/${wh.name}/${ft}`, auth));
 		}),
 	);
 	await runBatch(whTasks);
 
 	// --- RPCs ---
 	console.log('\n=== RPCs ===');
-	const rpcResp = await apiGetJson(`${verBase}/rpcs`, auth);
-	const rpcs = rpcResp?.appRpcs || [];
-	console.log(`  ${rpcs.length} RPC(s) found`);
+	const rpcs = await list('RPC list', 'RPC(s)', `${verBase}/rpcs`, 'appRpcs');
 
 	const rpcTasks = rpcs.flatMap((rpc) =>
 		RPC_FILES.map((ft) => async () => {
-			const content = await apiGetText(`${verBase}/rpcs/${rpc.name}/${ft}`, auth);
-			if (saveFile(outputDir, `rpcs/${rpc.name}/${ft}.imljson`, content)) {
-				console.log(`  ✓ rpcs/${rpc.name}/${ft}.imljson`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`rpcs/${rpc.name}/${ft}.imljson`, await apiGet(`${verBase}/rpcs/${rpc.name}/${ft}`, auth));
 		}),
 	);
 	await runBatch(rpcTasks);
 
 	// --- Endpoints (SDK Endpoints, IMTRPC) ---
 	console.log('\n=== Endpoints ===');
-	const epResp = await apiGetJson(`${verBase}/endpoints`, auth);
-	const endpoints = epResp?.appEndpoints || [];
-	console.log(`  ${endpoints.length} endpoint(s) found`);
+	const endpoints = await list('endpoint list', 'endpoint(s)', `${verBase}/endpoints`, 'appEndpoints');
 
 	const endpointDetails = new Map();
 	const epTasks = endpoints.flatMap((ep) => {
 		const codeTasks = ENDPOINT_FILES.map(({ apiPath, file }) => async () => {
-			const content = await apiGetText(`${verBase}/endpoints/${ep.name}/${apiPath}`, auth);
-			if (saveFile(outputDir, `endpoints/${ep.name}/${file}`, content)) {
-				console.log(`  ✓ endpoints/${ep.name}/${file}`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`endpoints/${ep.name}/${file}`, await apiGet(`${verBase}/endpoints/${ep.name}/${apiPath}`, auth));
 		});
 		// context (markdown with frontmatter) + annotations only exist on the
 		// endpoint detail JSON — there is no /context code path (404).
 		const detailTask = async () => {
-			const detail = await apiGetJson(`${verBase}/endpoints/${ep.name}`, auth);
-			const epObj = detail?.appEndpoint || {};
+			const detail = logic.readDetail(await apiGet(`${verBase}/endpoints/${ep.name}`, auth));
+			if (detail.reason) return fail({ what: `endpoints/${ep.name} (detail)`, reason: detail.reason });
+			const epObj = detail.body?.appEndpoint || {};
 			endpointDetails.set(ep.name, epObj);
-			if (saveFile(outputDir, `endpoints/${ep.name}/context.md`, epObj.context || null)) {
-				console.log(`  ✓ endpoints/${ep.name}/context.md`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`endpoints/${ep.name}/context.md`, { status: 200, body: typeof epObj.context === 'string' ? epObj.context : null, error: null });
 		};
 		return [...codeTasks, detailTask];
 	});
@@ -296,29 +259,25 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 
 	// --- Functions ---
 	console.log('\n=== Functions ===');
-	const funcResp = await apiGetJson(`${verBase}/functions`, auth);
-	const functions = funcResp?.appFunctions || [];
-	console.log(`  ${functions.length} function(s) found`);
+	const functions = await list('function list', 'function(s)', `${verBase}/functions`, 'appFunctions');
 
 	const funcTasks = functions.flatMap((func) =>
 		FUNCTION_FILES.map((ft) => async () => {
-			const content = await apiGetText(`${verBase}/functions/${func.name}/${ft}`, auth);
-			if (content && saveFile(outputDir, `functions/${func.name}/${ft}.js`, content)) {
-				console.log(`  ✓ functions/${func.name}/${ft}.js`);
-				stats.saved++;
-			} else {
-				stats.skipped++;
-			}
+			keep(`functions/${func.name}/${ft}.js`, await apiGet(`${verBase}/functions/${func.name}/${ft}`, auth));
 		}),
 	);
 	await runBatch(funcTasks);
 
 	// --- Metadata ---
-	const appInfo = await apiGetJson(
-		`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull&cols[]=manifestVersion&cols[]=approved&cols[]=compile&cols[]=compilationError&cols[]=theme&cols[]=public&cols[]=beta&cols[]=language&cols[]=countries&cols[]=global`,
-		auth,
+	const appInfo = logic.readJson(
+		await apiGet(
+			`${verBase}?cols[]=name&cols[]=label&cols[]=description&cols[]=version&cols[]=origin&cols[]=versionFull&cols[]=manifestVersion&cols[]=approved&cols[]=compile&cols[]=compilationError&cols[]=theme&cols[]=public&cols[]=beta&cols[]=language&cols[]=countries&cols[]=global`,
+			auth,
+		),
 	);
-	const appObj = appInfo?.app || appInfo || {};
+	if (appInfo.reason) fail({ what: 'app metadata', reason: appInfo.reason });
+	if (failed.length) return finish();
+	const appObj = appInfo.body.app || appInfo.body;
 
 	// Visibility info (private/deprecated for app + modules) lives on the
 	// admin app endpoint, NOT the SDK version endpoint. This call is per-zone:
@@ -327,38 +286,13 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 	//   200 → app IPM-deployed to this zone; versions[*] carries private/deprecated
 	//   403 → admin role but no access to this endpoint
 	//   404 → app compiled but NOT IPM-deployed to this zone (unusable in builder)
+	// Public mode has no admin API, so the call is not made. Only a run without failures gets here: the
+	// answer is used only for metadata.json.
 	console.log('\n=== Visibility (admin app endpoint) ===');
-	const adminBase = baseUrl.replace(/\/sdk$/, '');
-	const adminUrl = `${adminBase}/apps/${appSlug}`;
-	let verRow = null;
-	let ipmDeployed = null;
-	try {
-		const adminFetch = await fetch(adminUrl, {
-			headers: { Authorization: auth, 'x-imt-apps-sdk-version': '2.4.0' },
-		});
-		if (adminFetch.status === 200) {
-			const adminAppInfo = await adminFetch.json();
-			const adminVersions = adminAppInfo?.app?.versions || [];
-			verRow =
-				adminVersions.find((v) => String(v.version) === String(appVersion)) ||
-				adminVersions.find((v) => parseInt(v.version, 10) === parseInt(appVersion, 10)) ||
-				null;
-			ipmDeployed = true;
-			console.log(`  ✓ IPM-deployed to ${origin || new URL(baseUrl).hostname} (${adminVersions.length} version row(s))`);
-		} else if (adminFetch.status === 404) {
-			ipmDeployed = false;
-			console.log(`  · 404 → app not IPM-deployed to this zone (compiled but not published). Visibility flags = null.`);
-		} else if (adminFetch.status === 403) {
-			ipmDeployed = null;
-			console.log(`  · 403 → caller lacks admin access to this endpoint. Visibility flags = null.`);
-		} else {
-			ipmDeployed = null;
-			console.log(`  · HTTP ${adminFetch.status} on admin endpoint. Visibility flags = null.`);
-		}
-	} catch (err) {
-		ipmDeployed = null;
-		console.log(`  · admin endpoint error: ${err.message}. Visibility flags = null.`);
-	}
+	const adminResult = mode === 'public' ? null : await apiGet(`${baseUrl}/apps/${appSlug}`, auth, { retry: false });
+	const visibility = logic.visibilityOutcome(adminResult, appVersion, origin || host);
+	console.log(visibility.line);
+	const { verRow, ipmDeployed } = visibility;
 	const moduleVisibility = new Map(
 		(verRow?.modules || []).map((m) => [m.name, { private: m.private ?? null, deprecated: m.deprecated ?? null }]),
 	);
@@ -374,6 +308,7 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 		compile: appObj.compile ?? null,
 		compilationError: appObj.compilationError ?? null,
 		ipmDeployedToZone: ipmDeployed,
+		...(mode === 'public' ? { visibility: 'unknown (public mode)' } : {}),
 		theme: appObj.theme ?? null,
 		public: appObj.public ?? null,
 		private: verRow?.private ?? null,
@@ -426,13 +361,19 @@ async function downloadApp(appSlug, appVersion, customOutputDir) {
 			};
 		}),
 	};
-	saveFile(outputDir, 'metadata.json', JSON.stringify(metadata, null, 2));
-	console.log('\n  ✓ metadata.json');
 
-	console.log(`\n=== Done ===`);
-	console.log(`  Saved: ${stats.saved} file(s)`);
-	console.log(`  Skipped: ${stats.skipped} (empty)`);
-	console.log(`  Path: ${outputDir}`);
+	console.log('\n=== Files ===');
+	for (const [relPath, content] of files) {
+		const filepath = path.join(outputDir, relPath);
+		fs.mkdirSync(path.dirname(filepath), { recursive: true });
+		fs.writeFileSync(filepath, content, 'utf-8');
+		console.log(`  ✓ ${relPath}`);
+	}
+	fs.mkdirSync(outputDir, { recursive: true });
+	fs.writeFileSync(path.join(outputDir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
+	console.log('  ✓ metadata.json');
+
+	finish();
 }
 
 const [appSlug, appVersion, outputDir] = process.argv.slice(2);
@@ -444,9 +385,9 @@ if (!appSlug || !appVersion) {
 	process.exit(1);
 }
 
-require('./lib/access-guard').ensureInternalUser();
+const settings = require('./lib/mode').requireMode();
 
-downloadApp(appSlug, appVersion, outputDir).catch((err) => {
+downloadApp(settings, appSlug, appVersion, outputDir).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);
 });

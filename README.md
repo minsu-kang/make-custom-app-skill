@@ -2,7 +2,9 @@
 
 A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and the runtime internals of `imt-app-runtime`.
 
-The plugin is for Make employees. The scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` does not check it because it only moves local files.
+Any Make user can use the plugin with a Make API token. Before they work, the scripts check the token on your zone and pick a mode: employee mode when the token can call the Make admin API, public mode otherwise. Public mode works on your own apps through the public Make API. Employee mode keeps the Make employee flow: the admin API, a local `imt-app-runtime` clone, and Jira. In employee mode the scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` checks nothing because it only moves local files.
+
+A few steps need a Make employee account: Jira tickets, compile, component tests, and ownership transfer. In public mode the skills tell you when a step needs one, and the scripts behind these steps stop with a message that says so.
 
 ## What it does
 
@@ -16,9 +18,10 @@ The plugin is for Make employees. The scripts refuse to run when the Atlassian a
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (the plugin installs through it; Cursor can load the same install)
 - Node.js 20 or newer
 - The [Make Apps SDK](https://marketplace.visualstudio.com/items?itemName=Integromat.apps-sdk) extension, configured with an API key and an environment
-- A local clone of `integromat/imt-app-runtime` (Make internal)
-- A Jira API token of your `@make.com` Atlassian account
+- A Make account and a Make API token (scopes under [Configuration](#configuration)); the setup finds your zone from the token
 - Optional: a Pinecone key and an OpenAI key for the shared app-context search
+
+Make employees also need a local clone of `integromat/imt-app-runtime` (Make internal) and a Jira API token of their `@make.com` Atlassian account. The setup asks for them only in employee mode.
 
 ## Install
 
@@ -33,12 +36,12 @@ If `claude plugin marketplace list` already shows `make-custom-app` (added from 
 
 Restart Claude Code (or run `/reload-plugins`). Then:
 
-1. Ask Claude Code to set up the plugin. The `make-app-setup` skill runs `check-setup.js`, reports what is missing, and prints the interactive wizard command. Run that command **in your own terminal**: it asks for secrets, so the agent never runs it.
-2. Type `/mcp` and sign in to the `make` and `atlassian` servers of the plugin.
+1. Ask Claude Code to set up the plugin. The `make-app-setup` skill runs `check-setup.js`, reports what is missing, and prints the interactive wizard command. Run that command **in your own terminal**: it asks for secrets, so the agent never runs it. The wizard asks for your Make API token, tries it on each Make zone (`eu1.make.com`, `eu2.make.com`, `us1.make.com`, `us2.make.com`, `eu1.make.celonis.com`, `us1.make.celonis.com`) and saves the zone that accepts it; when none or several do, it asks you. Then it checks the mode and asks the employee questions (`imt-app-runtime` path, mockup path, Jira token) only in employee mode. `check-setup.js` then shows `MODE: employee` or `MODE: public` on its first line.
+2. Type `/mcp` and sign in to the `make` server of the plugin. Only Make employees also sign in to `atlassian`; other users can ignore the `atlassian` server and its sign-in prompt.
 
 ### Cursor
 
-Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. Cursor without Claude Code is not supported yet.
+Cursor can load the plugins that were installed for Claude Code, and the skills of this plugin show up there. Install the plugin with the commands above and open the Plugins tab of Cursor: the plugin is listed as Imported, with its nine skills and its three MCP servers (`make-app-context`, `make`, `atlassian`). The setting "Include Third-Party Plugins" must be on, because with it off the plugin is hidden. In Cursor the scripts take the Make API token and the zone from the active environment of the Make Apps SDK extension, and the mode from the same token check as in Claude Code. `make` needs its own sign-in in Cursor, since Cursor keeps its own OAuth. Cursor without Claude Code is not supported yet.
 
 ## Update
 
@@ -86,21 +89,21 @@ Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/sh
 
 | Script | Description |
 |---|---|
-| `check-setup.js` | One-screen setup diagnosis: `imt-app-runtime-path`, Make API credentials, mockup path, default team id, the `@make.com` account check, MCP keys, leftovers of a 2.x install, and an update notice. Exit 1 when a required item is missing. |
+| `check-setup.js` | One-screen setup diagnosis. It checks the Make API token on its zone and prints `MODE: employee`, `MODE: public` or, when it cannot check the token, `MODE: unknown` first, then the Make API credentials, the default team id, MCP keys, leftovers of a 2.x install, and an update notice; in employee mode also `imt-app-runtime-path`, the mockup path, and the `@make.com` account check. Exit 1 when a required item is missing, no usable Make zone is set, Make rejects the token, or the check cannot reach Make. |
 | `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back, `--decline <digest>` records a no for 7 days. Run by the `make-app-setup` skill; `check-setup.js` prints `LEGACY_INSTALL:` while the old install is there and `OLD_INSTALL_KEPT:` after a no. |
-| `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. Run it in your own terminal, never through the agent. |
-| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts` |
+| `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. It finds your zone from the Make API token and asks the employee questions only in employee mode. Run it in your own terminal, never through the agent. |
+| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts`. Exit 1, with the failed parts listed under `Failed:`, when a part cannot be read |
 | `update-app.js` | Pushes code changes to Make through the SDK Admin API |
 | `review-changes.js` | Fetches the uncommitted changes of an app for a code review |
-| `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition |
+| `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition. `compile` and the `--issue` chain are for Make employees only |
 | `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint |
 | `update-component.js` | Updates component metadata |
 | `delete-component.js` | Deletes a component (public apps: RPCs and functions only) |
 | `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`) |
-| `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework |
+| `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework (Make employees only) |
 | `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection |
-| `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis |
-| `post-review-transition.js` | Moves a Jira ticket after a code review is concluded |
+| `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis (Make employees only) |
+| `post-review-transition.js` | Moves a Jira ticket after a code review is concluded (Make employees only) |
 
 The scripts take `--editor claude|cursor` when no editor variable reaches them. The `lib/` folder holds their shared code and its tests.
 
@@ -110,15 +113,19 @@ The scripts take `--editor claude|cursor` when no editor variable reaches them. 
 
 | Key | Meaning |
 |---|---|
-| `imt-app-runtime-path` | Local clone of `imt-app-runtime` (required) |
-| `make-api-key`, `make-api-url` | Make API token (Claude Code only; Cursor reads the Make Apps SDK settings) and its address |
-| `jira-api-token`, `jira-email`, `jira-base-url` | Jira API token, and the account it belongs to (filled from `GET /rest/api/3/myself`) |
-| `make-apps-mockup-path` | Local clone of `make-apps-mockup` (optional; `test-component.js`) |
+| `make-api-key` | Make API token (required; Claude Code only, Cursor reads the Make Apps SDK settings) |
+| `make-zone` | The Make host of your account, such as `eu1.make.com`; the wizard finds it from the token (Claude Code only) |
+| `make-api-url` | Older setups only: when `make-zone` is not set, the scripts use the host of this URL. The wizard does not write it. |
+| `imt-app-runtime-path` | Local clone of `imt-app-runtime` (Make employees; required in employee mode) |
+| `jira-api-token`, `jira-email`, `jira-base-url` | Jira API token, and the account it belongs to (filled from `GET /rest/api/3/myself`; Make employees, required in employee mode) |
+| `make-apps-mockup-path` | Local clone of `make-apps-mockup` (Make employees, optional; `test-component.js`) |
 | `make-team-id` | Default team for `run-component.js` (optional) |
 | `pinecone-api-key`, `pinecone-index-name`, `openai-api-key` | Keys of the shared app-context server (optional; the index name defaults to `make-app-contexts`) |
 | `editor` | `claude` or `cursor`, used only when no editor variable is set |
 
-Create the Make token at https://eu1.make.com/user/api. Scopes: `apps:read apps:write sdk-apps:read sdk-apps:write`, plus any admin scope you have. `run-component.js` needs more: `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read user:read` when the component uses a connection, and optionally `endpoints:run` and `credential-requests:write`. Create the Jira token at https://id.atlassian.com/manage-profile/security/api-tokens (choose **Create API token**, not the one with scopes).
+Create the Make token in Make, on the API page of your profile (`https://<your zone>/user/api`, for example `https://eu1.make.com/user/api`). Scopes: `sdk-apps:read sdk-apps:write user:read`. `user:read` lets `check-setup.js` show the account name behind the token, and `run-component.js` needs it for components with a connection. `run-component.js` also needs `imt-forms:read` for every run, `teams:read organizations:read` for Endpoints and for listing your teams, `connections:read` when the component uses a connection, and optionally `endpoints:run` and `credential-requests:write`.
+
+Make employees keep the token they use today, also without `user:read`: the scripts accept it, and `check-setup.js` then says that the account name is unavailable. When `check-setup.js` shows `MODE: public` for an employee account, the token cannot call the Make admin API. Create the Jira token at https://id.atlassian.com/manage-profile/security/api-tokens (choose **Create API token**, not the one with scopes).
 
 ## MCP servers
 
@@ -128,7 +135,7 @@ Create the Make token at https://eu1.make.com/user/api. Scopes: `apps:read apps:
 |---|---|
 | `make-app-context` | Local server (a committed bundle, `mcp/index.mjs`) for the shared Pinecone app context |
 | `make` | The Make MCP server, `https://mcp.make.com/v2` (sign in with `/mcp`) |
-| `atlassian` | The Atlassian MCP server, `https://mcp.atlassian.com/v1/mcp`; left out when you already configured the same address yourself |
+| `atlassian` | The Atlassian MCP server, `https://mcp.atlassian.com/v1/mcp`, for the Jira steps of Make employees (other users can ignore it); left out when you already configured the same address yourself |
 
 The context server reads its keys from `MAKE_APP_CONTEXT_PINECONE_API_KEY`, `MAKE_APP_CONTEXT_OPENAI_API_KEY`, and `MAKE_APP_CONTEXT_PINECONE_INDEX` first, then from the secrets file. The generic names `PINECONE_API_KEY` and `OPENAI_API_KEY` are not read.
 

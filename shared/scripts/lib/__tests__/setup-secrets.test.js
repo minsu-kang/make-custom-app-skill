@@ -7,11 +7,12 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { SCRIPTS_DIR, setupCommand } = require('../paths');
-const { USAGE } = require('../setup-secrets-logic');
+const { USAGE, questionSteps } = require('../setup-secrets-logic');
 
 const SCRIPT = path.join(SCRIPTS_DIR, 'setup-secrets.js');
 const NOT_TTY = 'This wizard is interactive and writes secrets. Run it in your own terminal:';
@@ -103,6 +104,7 @@ describe('setup-secrets.js wiring', () => {
 			[
 				'./lib/access-guard-logic',
 				'./lib/jira-myself',
+				'./lib/mode',
 				'./lib/paths',
 				'./lib/run-component-logic',
 				'./lib/secrets-file',
@@ -110,7 +112,32 @@ describe('setup-secrets.js wiring', () => {
 				'./lib/setup-secrets-logic',
 			],
 		);
-		assert.doesNotMatch(source, /ensureInternalUser/);
+		assert.doesNotMatch(source, /ensureInternalUser|requireMode/);
+	});
+
+	it('checks the token with detectZone and detectMode, and writes nothing before the mode check', () => {
+		const source = fs.readFileSync(SCRIPT, 'utf8');
+		assert.match(source, /zoneOutcome\(await detectZone\(apikey\), savedHost\)/);
+		assert.match(source, /modeOutcome\(await detectMode\(target\.host, target\.apikey\), target\.host, editor, \{ zoneChosen: target\.zoneChosen \}\)/);
+		assert.match(source, /if \(zone\.stop\) stop\(zone\.lines\);/);
+		const stopAt = source.indexOf('if (checked.stop) stop(checked.lines);');
+		assert.ok(stopAt > 0);
+		assert.ok(stopAt < source.indexOf('upsertSecretsFile(SECRETS_PATH, buildSecretsUpdates('));
+		assert.ok(source.indexOf('upsertSecretsFile(SECRETS_PATH, buildSecretsUpdates(') < source.indexOf('saveVerdict(target.host, target.apikey, checked.mode);'));
+	});
+
+	it('asks each question of questionSteps through one map, so the logic decides the order', () => {
+		const source = fs.readFileSync(SCRIPT, 'utf8');
+		assert.match(source, /for \(const step of questionSteps\(checked\.mode\)\) Object\.assign\(answers, await QUESTIONS\[step\]\(\)\);/);
+		for (const step of questionSteps('employee')) assert.ok(source.includes(`'${step}': ask`), step);
+	});
+
+	it('never writes make-api-url and has no built-in zone or admin URL', () => {
+		for (const file of [SCRIPT, path.join(SCRIPTS_DIR, 'lib', 'setup-secrets-logic.js')]) {
+			const source = fs.readFileSync(file, 'utf8');
+			assert.ok(!source.includes("'make-api-url'"), file);
+			assert.doesNotMatch(source, /DEFAULT_MAKE_API_URL|\/api\/v2\/admin|eu1\.make\.com/, file);
+		}
 	});
 
 	it('prints the follow-up command through the shared quoting, not by hand', () => {
@@ -123,5 +150,66 @@ describe('setup-secrets.js wiring', () => {
 		const source = fs.readFileSync(SCRIPT, 'utf8');
 		assert.doesNotMatch(source, /upsertEnvFile|mcp-server|npm run register|\.env['"`]/);
 		for (const key of ['pinecone-api-key', 'pinecone-index-name', 'openai-api-key']) assert.ok(source.includes(`'${key}'`), key);
+	});
+});
+
+/**
+ * The proxy rerun (spec B 11.6) happens before the argument and terminal checks, so a child with a piped stdin shows it.
+ * A preload (NODE_OPTIONS=--require, written by this file) records every Node start of the run with its
+ * NODE_USE_ENV_PROXY; the wizard itself prints nothing about the rerun. Both proxy URLs point at a closed local port, so
+ * nothing could leave the machine even if a call were made.
+ */
+describe('setup-secrets.js behind a proxy', () => {
+	let closed;
+	let preload;
+	let runs = 0;
+
+	before(async () => {
+		const server = net.createServer();
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+		closed = `http://127.0.0.1:${server.address().port}`;
+		await new Promise((resolve) => server.close(resolve));
+		preload = path.join(work, 'record-start.js');
+		fs.writeFileSync(preload, "require('fs').appendFileSync(process.env.SETUP_TEST_STARTS, `${process.env.NODE_USE_ENV_PROXY || '-'}\\n`);\n");
+	});
+
+	/** run() plus the NODE_USE_ENV_PROXY value of each Node start, in order ('-' when unset). */
+	function runRecorded(args, env) {
+		const startsFile = path.join(work, `starts-${++runs}.txt`);
+		const r = run(args, { NODE_OPTIONS: `--require ${JSON.stringify(preload)}`, SETUP_TEST_STARTS: startsFile, MAKE_CUSTOM_APP_TEST_API_ORIGIN: closed, ...env });
+		return { ...r, starts: fs.readFileSync(startsFile, 'utf8').trim().split('\n') };
+	}
+
+	const notTtyEnd = (editor) => `${NOT_TTY}\n  ${setupCommand(editor)}\n`;
+	const count = (text, part) => text.split(part).length - 1;
+
+	it('runs itself once more with NODE_USE_ENV_PROXY=1 when an http(s) proxy is set, and the rerun does the rest', () => {
+		const r = runRecorded(['--editor', 'claude'], { HTTPS_PROXY: closed });
+		assert.deepEqual(r.starts, ['-', '1']);
+		assert.equal(r.status, 1);
+		assert.equal(r.stdout, '');
+		assert.equal(count(r.stderr, NOT_TTY), 1, r.stderr);
+		assert.ok(r.stderr.endsWith(notTtyEnd('claude')), r.stderr);
+		assert.deepEqual(fs.readdirSync(home), [], 'nothing is written');
+	});
+
+	it('reruns before the argument check, so the usage error is printed once, by the rerun', () => {
+		const r = runRecorded(['--bogus'], { http_proxy: closed });
+		assert.deepEqual(r.starts, ['-', '1']);
+		assert.equal(r.status, 1);
+		assert.equal(count(r.stderr, `ERROR: Unknown argument: --bogus\n${USAGE}\n`), 1, r.stderr);
+	});
+
+	it('does not rerun when NODE_USE_ENV_PROXY is already set, so the rerun cannot loop', () => {
+		const r = runRecorded(['--editor', 'cursor'], { HTTPS_PROXY: closed, NODE_USE_ENV_PROXY: '1' });
+		assert.deepEqual(r.starts, ['1']);
+		assert.ok(r.stderr.endsWith(notTtyEnd('cursor')), r.stderr);
+	});
+
+	it('does not rerun without a proxy, or with a proxy value that is not http(s)', () => {
+		const plain = runRecorded(['--editor', 'claude'], {});
+		assert.deepEqual(plain.starts, ['-']);
+		assert.equal(plain.stderr, notTtyEnd('claude'));
+		assert.deepEqual(runRecorded(['--editor', 'claude'], { HTTPS_PROXY: 'socks5://127.0.0.1:1080' }).starts, ['-']);
 	});
 });

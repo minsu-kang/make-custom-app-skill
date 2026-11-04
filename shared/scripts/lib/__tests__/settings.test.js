@@ -438,23 +438,132 @@ describe('readCursorEnvironments', () => {
 	});
 });
 
+describe('readCursorCredentials', () => {
+	const file = path.join(home, 'read-cursor-credentials.json');
+	const write = (value) => fs.writeFileSync(file, JSON.stringify(value));
+
+	afterEach(() => fs.rmSync(file, { force: true }));
+
+	it('passes the failures of readCursorEnvironments through', () => {
+		assert.equal(settings.readCursorCredentials(file).reason, 'missing');
+		fs.writeFileSync(file, 'not json');
+		assert.equal(settings.readCursorCredentials(file).reason, 'unreadable');
+		write({});
+		assert.equal(settings.readCursorCredentials(file).reason, 'no-environments');
+	});
+
+	it('returns the key, host and admin flag of the active environment, else of the first one', () => {
+		const environments = [{ uuid: 'u1', url: 'eu1.make.com/api', apikey: ' K1 ' }, { uuid: 'u2', url: 'us1.make.celonis.com/api', apikey: 'K2', admin: true }];
+		write({ 'apps-sdk.environment': 'u2', 'apps-sdk.environments': environments });
+		assert.deepEqual(settings.readCursorCredentials(file), { ok: true, apikey: 'K2', host: 'us1.make.celonis.com', admin: true });
+		write({ 'apps-sdk.environment': 'gone', 'apps-sdk.environments': environments });
+		assert.deepEqual(settings.readCursorCredentials(file), { ok: true, apikey: 'K1', host: 'eu1.make.com', admin: false });
+	});
+
+	it('reports no-key for an environment without an API key', () => {
+		for (const env of [null, { url: 'eu1.make.com' }, { url: 'eu1.make.com', apikey: '  ' }, { url: 'eu1.make.com', apikey: 5 }]) {
+			write({ 'apps-sdk.environments': [env] });
+			assert.deepEqual(settings.readCursorCredentials(file), { ok: false, reason: 'no-key', detail: 'the active apps-sdk environment has no apikey' }, JSON.stringify(env));
+		}
+	});
+
+	it('reports no-host for a url that is not on a Make host, and never shows the key', () => {
+		for (const url of ['localhost:8080', 'example.org/api', undefined]) {
+			write({ 'apps-sdk.environments': [{ apikey: 'SECRET_KEY_must_not_leak', url }] });
+			const result = settings.readCursorCredentials(file);
+			assert.deepEqual(result, { ok: false, reason: 'no-host', detail: `the url of the active apps-sdk environment is not on a Make host: ${url}` }, String(url));
+		}
+	});
+
+	it('reads the Cursor settings file of the home folder by default', () => {
+		assert.equal(settings.readCursorCredentials().reason, 'missing');
+	});
+});
+
+describe('readClaudeHost', () => {
+	it('reads make-zone first, then the host of make-api-url', () => {
+		fs.writeFileSync(secretsPath, 'make-api-url: https://us2.make.com/api/v2/admin\n');
+		assert.deepEqual(settings.readClaudeHost(), { ok: true, host: 'us2.make.com', source: 'make-api-url' });
+		fs.appendFileSync(secretsPath, 'make-zone: eu1.make.celonis.com\n');
+		assert.deepEqual(settings.readClaudeHost(), { ok: true, host: 'eu1.make.celonis.com', source: 'make-zone' });
+	});
+
+	it('reports a missing zone, a make-zone off Make, and a make-api-url off Make', () => {
+		assert.deepEqual(settings.readClaudeHost(), { ok: false, reason: 'no-zone', detail: 'make-zone is not set' });
+		fs.writeFileSync(secretsPath, 'make-zone: eu9.example.org\nmake-api-url: https://eu1.make.com/api/v2\n');
+		assert.deepEqual(settings.readClaudeHost(), { ok: false, reason: 'bad-zone', detail: 'make-zone is not a Make host: eu9.example.org' });
+		fs.writeFileSync(secretsPath, 'make-api-url: https://example.org/api/v2/admin\n');
+		assert.deepEqual(settings.readClaudeHost(), { ok: false, reason: 'bad-url', detail: 'make-api-url is not on a Make host: https://example.org/api/v2/admin' });
+	});
+});
+
+describe('readMakeCredentials', () => {
+	it('for Claude Code: the key and host, or the first thing that is missing, without exiting', (t) => {
+		const lines = captureExit(t);
+		assert.deepEqual(settings.readMakeCredentials('claude'), { ok: false, reason: 'no-key', detail: `make-api-key is not set in ${secretsPath}` });
+		fs.writeFileSync(secretsPath, 'make-api-key: KEY\n');
+		assert.deepEqual(settings.readMakeCredentials('claude'), { ok: false, reason: 'no-zone', detail: 'make-zone is not set' });
+		fs.appendFileSync(secretsPath, 'make-api-url: https://eu2.make.com/api/v2/admin\n');
+		assert.deepEqual(settings.readMakeCredentials('claude'), { ok: true, apikey: 'KEY', host: 'eu2.make.com', source: 'make-api-url', cursorAdmin: null });
+		fs.appendFileSync(secretsPath, 'make-zone: us1.make.com\n');
+		assert.deepEqual(settings.readMakeCredentials('claude'), { ok: true, apikey: 'KEY', host: 'us1.make.com', source: 'make-zone', cursorAdmin: null });
+		assert.deepEqual(lines, []);
+	});
+
+	it('for Cursor: the active environment, or the reason it cannot be used, without exiting', (t) => {
+		const lines = captureExit(t);
+		assert.equal(settings.readMakeCredentials('cursor').reason, 'missing');
+		fs.mkdirSync(path.dirname(settings.CURSOR_SETTINGS_PATH), { recursive: true });
+		try {
+			fs.writeFileSync(settings.CURSOR_SETTINGS_PATH, JSON.stringify({ 'apps-sdk.environments': [{ uuid: 'u', url: 'us2.make.com/api', apikey: 'CK', admin: true }] }));
+			assert.deepEqual(settings.readMakeCredentials('cursor'), { ok: true, apikey: 'CK', host: 'us2.make.com', source: 'cursor', cursorAdmin: true });
+		} finally {
+			fs.rmSync(settings.CURSOR_SETTINGS_PATH, { force: true });
+		}
+		assert.deepEqual(lines, []);
+	});
+});
+
 describe('loadSettings for Claude Code', () => {
 	beforeEach(() => {
 		process.env.CLAUDECODE = '1';
 	});
 
-	it('builds the API settings from the secrets file and names the editor', () => {
+	it('builds the API settings from make-api-key and make-zone, names the editor, and has no base URL', () => {
+		fs.writeFileSync(secretsPath, 'make-api-key: KEY123\nmake-zone: us2.make.com\n');
+		assert.deepEqual(settings.loadSettings(), { editor: 'claude', host: 'us2.make.com', apikey: 'KEY123', auth: 'Token KEY123', cursorAdmin: null });
+	});
+
+	it('takes the host of a legacy make-api-url when make-zone is unset, and make-zone wins over it', () => {
+		fs.writeFileSync(secretsPath, 'make-api-key: KEY123\nmake-api-url: https://us1.make.com/api/v2/admin\n');
+		assert.equal(settings.loadSettings().host, 'us1.make.com');
+		fs.appendFileSync(secretsPath, 'make-zone: eu2.make.com\n');
+		assert.equal(settings.loadSettings().host, 'eu2.make.com');
+	});
+
+	it('exits 1 with the setup command when neither make-zone nor make-api-url is set: there is no eu1 default', (t) => {
+		const lines = captureExit(t);
 		fs.writeFileSync(secretsPath, 'make-api-key: KEY123\n');
-		assert.deepEqual(settings.loadSettings(), {
-			baseUrl: 'https://eu1.make.com/api/v2/admin',
-			auth: 'Token KEY123',
-			version: 2,
-			apikey: 'KEY123',
-			editor: 'claude',
-		});
-		fs.appendFileSync(secretsPath, 'make-api-url: https://us1.make.com/api/v2/admin\n');
-		assert.equal(settings.loadSettings().baseUrl, 'https://us1.make.com/api/v2/admin');
-		assert.equal(settings.getMakeApiKey(), 'KEY123');
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		assert.deepEqual(lines, [
+			'ERROR: Make zone not configured (make-zone is not set).',
+			'',
+			`Claude Code reads \`make-zone:\` (or the host of a legacy \`make-api-url:\`) from ${secretsPath}.`,
+			'Run this in your own terminal:',
+			'',
+			`  ${setupCommand('claude')}`,
+		]);
+	});
+
+	it('exits 1 naming the value when make-zone or make-api-url is not on a Make host', (t) => {
+		const lines = captureExit(t);
+		fs.writeFileSync(secretsPath, 'make-api-key: KEY123\nmake-zone: eu1\nmake-api-url: https://eu1.make.com/api/v2/admin\n');
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		fs.writeFileSync(secretsPath, 'make-api-key: KEY123\nmake-api-url: http://127.0.0.1:8080/api/v2/admin\n');
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		assert.equal(lines[0], 'ERROR: Make zone not configured (make-zone is not a Make host: eu1).');
+		assert.equal(lines[6], 'ERROR: Make zone not configured (make-api-url is not on a Make host: http://127.0.0.1:8080/api/v2/admin).');
+		assert.ok(!lines.join('\n').includes('KEY123'));
 	});
 
 	it('exits 1 with the setup command when the API key is missing', (t) => {
@@ -467,7 +576,7 @@ describe('loadSettings for Claude Code', () => {
 
 	it('follows the environment over the editor: line', () => {
 		process.env.CLAUDECODE = '1';
-		fs.writeFileSync(secretsPath, 'editor: cursor\nmake-api-key: KEY123\n');
+		fs.writeFileSync(secretsPath, 'editor: cursor\nmake-api-key: KEY123\nmake-zone: eu1.make.com\n');
 		const loaded = settings.loadSettings();
 		assert.equal(loaded.editor, 'claude');
 		assert.equal(loaded.apikey, 'KEY123');
@@ -507,41 +616,43 @@ describe('loadSettings for Cursor', () => {
 
 	it('reads the active environment from a settings.json with comments and trailing commas', () => {
 		writeCursorSettings(JSONC);
-		assert.deepEqual(settings.loadSettings(), {
-			baseUrl: 'https://us1.make.com/v2/admin',
-			auth: 'Token KEY2',
-			version: 2,
-			apikey: 'KEY2',
-			editor: 'cursor',
-		});
-		assert.equal(settings.getMakeApiKey(), 'KEY2');
+		assert.deepEqual(settings.loadSettings(), { editor: 'cursor', host: 'us1.make.com', apikey: 'KEY2', auth: 'Token KEY2', cursorAdmin: true });
 	});
 
 	it('falls back to the first environment when none is active or the active one is unknown', () => {
 		writeCursorSettings(JSONC.replace('"uuid-2",\n', '"uuid-gone",\n'));
 		assert.equal(settings.loadSettings().apikey, 'KEY1');
 		writeCursorSettings(JSONC.replace(/\t"apps-sdk.environment": "uuid-2",\n/, ''));
-		assert.equal(settings.loadSettings().baseUrl, 'https://eu1.make.com/v2');
+		assert.deepEqual(settings.loadSettings(), { editor: 'cursor', host: 'eu1.make.com', apikey: 'KEY1', auth: 'Token KEY1', cursorAdmin: false });
 	});
 
-	const URLS = [
-		{ name: 'version 2 is the default', env: {}, expected: 'https://eu1.make.com/v2' },
-		{ name: 'version 1 has no admin path', env: { version: 1, admin: true }, expected: 'https://eu1.make.com/v1' },
-		{ name: 'version 3', env: { version: 3 }, expected: 'https://eu1.make.com/v3' },
-		{ name: 'admin', env: { admin: true }, expected: 'https://eu1.make.com/v2/admin' },
-		{ name: 'noVersionPath', env: { noVersionPath: true }, expected: 'https://eu1.make.com' },
-		{ name: 'noVersionPath with admin', env: { noVersionPath: true, admin: true }, expected: 'https://eu1.make.com/admin' },
-		{ name: 'unsafe uses http', env: { unsafe: true, url: 'localhost:8080' }, expected: 'http://localhost:8080/v2' },
+	const HOSTS = [
+		{ name: 'a bare host', env: { url: 'eu1.make.com' }, host: 'eu1.make.com' },
+		{ name: 'a host with /api', env: { url: 'eu2.make.com/api' }, host: 'eu2.make.com' },
+		{ name: 'a Celonis host', env: { url: 'us1.make.celonis.com/api' }, host: 'us1.make.celonis.com' },
+		{ name: 'version, admin and unsafe flags do not change it', env: { url: 'us2.make.com', version: 1, admin: true, unsafe: true, noVersionPath: true }, host: 'us2.make.com' },
 	];
 
-	for (const row of URLS) {
-		it(`builds the base URL: ${row.name}`, () => {
-			writeCursorSettings(JSON.stringify({ 'apps-sdk.environments': [{ uuid: 'u', url: 'eu1.make.com', apikey: 'K', ...row.env }] }));
-			const loaded = settings.loadSettings();
-			assert.equal(loaded.baseUrl, row.expected);
-			assert.equal(loaded.version, row.env.version || 2);
+	for (const row of HOSTS) {
+		it(`takes the host of the environment url: ${row.name}`, () => {
+			writeCursorSettings(JSON.stringify({ 'apps-sdk.environments': [{ uuid: 'u', apikey: 'K', ...row.env }] }));
+			assert.equal(settings.loadSettings().host, row.host);
 		});
 	}
+
+	it('exits 1 when the environment has no API key or its url is not on a Make host, without the key', (t) => {
+		const lines = captureExit(t);
+		writeCursorSettings(JSON.stringify({ 'apps-sdk.environments': [{ uuid: 'u', url: 'eu1.make.com' }] }));
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		writeCursorSettings(JSON.stringify({ 'apps-sdk.environments': [{ uuid: 'u', url: 'localhost:8080', apikey: 'SECRET_KEY_must_not_leak' }] }));
+		assert.throws(() => settings.loadSettings(), /exit 1/);
+		const help = 'Set up the Make Apps SDK extension in Cursor (an environment with its API key), or run the scripts from Claude Code.';
+		assert.deepEqual(lines, [
+			`ERROR: In ${settings.CURSOR_SETTINGS_PATH}, the active apps-sdk environment has no apikey. ${help}`,
+			`ERROR: In ${settings.CURSOR_SETTINGS_PATH}, the url of the active apps-sdk environment is not on a Make host: localhost:8080. ${help}`,
+		]);
+		assert.ok(!lines.join('\n').includes('SECRET_KEY_must_not_leak'));
+	});
 
 	it('exits 1 when apps-sdk.environments is missing or empty', (t) => {
 		const lines = captureExit(t);
@@ -556,7 +667,7 @@ describe('loadSettings for Cursor', () => {
 		writeCursorSettings('{\n\t"http.proxy": "http://proxy.corp:8080", // office proxy\n\t"apps-sdk.environments": [{ "uuid": "u", "url": "eu1.make.com", "apikey": "KEY", },],\n}');
 		const loaded = settings.loadSettings();
 		assert.equal(loaded.apikey, 'KEY');
-		assert.equal(loaded.baseUrl, 'https://eu1.make.com/v2');
+		assert.equal(loaded.host, 'eu1.make.com');
 	});
 
 	it('prints the friendly message and exits 1 when the file is missing', () => {
