@@ -36,7 +36,7 @@ export function registerUpsertJiraTool(server: McpServer): void {
 		'upsert_jira_ticket',
 		'Store a Jira ticket (bugfix, feature, review) linked to a Make app in the shared Pinecone vector DB',
 		{
-			ticket_key: z.string().describe("Jira ticket key (e.g. 'IEN-14600')"),
+			ticket_key: z.string().describe("Jira ticket key (e.g. 'PROJ-123')"),
 			slug: z.string().describe("App slug (e.g. 'monday', 'slack')"),
 			version: z.string().describe("App version (e.g. '2', '4')"),
 			ticket_type: ticketTypeEnum.describe('Ticket type: bugfix, feature, or review'),

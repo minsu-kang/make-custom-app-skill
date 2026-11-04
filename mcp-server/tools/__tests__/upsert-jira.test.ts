@@ -17,13 +17,13 @@ import { registerUpsertJiraTool } from '../upsert-jira.js';
 describe('buildJiraText (unit)', () => {
 	it('includes required fields', () => {
 		const result = buildJiraText({
-			ticket_key: 'IEN-100',
+			ticket_key: 'PROJ-100',
 			ticket_type: 'bugfix',
 			slug: 'slack',
 			version: '2',
 			summary: 'Fix parsing error',
 		});
-		expect(result).toContain('[IEN-100]');
+		expect(result).toContain('[PROJ-100]');
 		expect(result).toContain('(bugfix)');
 		expect(result).toContain('slack v2');
 		expect(result).toContain('Summary: Fix parsing error');
@@ -31,7 +31,7 @@ describe('buildJiraText (unit)', () => {
 
 	it('includes all optional fields when present', () => {
 		const result = buildJiraText({
-			ticket_key: 'IEN-200',
+			ticket_key: 'PROJ-200',
 			ticket_type: 'feature',
 			slug: 'monday',
 			version: '3',
@@ -51,7 +51,7 @@ describe('buildJiraText (unit)', () => {
 
 	it('omits optional fields when absent', () => {
 		const result = buildJiraText({
-			ticket_key: 'IEN-300',
+			ticket_key: 'PROJ-300',
 			ticket_type: 'review',
 			slug: 'app',
 			version: '1',
@@ -64,7 +64,7 @@ describe('buildJiraText (unit)', () => {
 
 	it('separates sections with double newlines', () => {
 		const result = buildJiraText({
-			ticket_key: 'IEN-400',
+			ticket_key: 'PROJ-400',
 			ticket_type: 'bugfix',
 			slug: 'app',
 			version: '1',
@@ -90,23 +90,23 @@ describe('upsert_jira_ticket tool (integration)', () => {
 		registerUpsertJiraTool(server);
 
 		const result = await callTool('upsert_jira_ticket', {
-			ticket_key: 'IEN-500',
+			ticket_key: 'PROJ-500',
 			slug: 'gmail',
 			version: '4',
 			ticket_type: 'feature',
 			summary: 'Test ticket',
 		});
 
-		expect(result.content[0].text).toContain('IEN-500');
+		expect(result.content[0].text).toContain('PROJ-500');
 		expect(result.content[0].text).toContain('gmail-v4');
 		expect(embed).toHaveBeenCalled();
 		expect(mockUpsert).toHaveBeenCalledTimes(1);
 
 		const upserted = mockUpsert.mock.calls[0][0][0];
-		expect(upserted.id).toBe('gmail-v4#jira-IEN-500');
+		expect(upserted.id).toBe('gmail-v4#jira-PROJ-500');
 		expect(upserted.metadata.slug).toBe('gmail');
 		expect(upserted.metadata.section).toBe('jira');
-		expect(upserted.metadata.ticket_key).toBe('IEN-500');
+		expect(upserted.metadata.ticket_key).toBe('PROJ-500');
 		expect(upserted.metadata.ticket_type).toBe('feature');
 	});
 
@@ -117,7 +117,7 @@ describe('upsert_jira_ticket tool (integration)', () => {
 		registerUpsertJiraTool(server);
 
 		const result = await callTool('upsert_jira_ticket', {
-			ticket_key: 'IEN-ERR',
+			ticket_key: 'PROJ-ERR',
 			slug: 'app',
 			version: '1',
 			ticket_type: 'bugfix',

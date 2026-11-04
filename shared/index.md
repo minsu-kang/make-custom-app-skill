@@ -47,7 +47,7 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 - [component-scaffold-templates.md](references/component-scaffold-templates.md) — is a review `old_value` untouched SDK boilerplate?
 - [endpoints-reference.md](references/endpoints-reference.md) — SDK Endpoints entity, admin API, schemas, review guidance
 - [developer-notes-templates.md](references/developer-notes-templates.md) — Jira Developer Notes (bugfix / feature)
-- [examples.md](references/examples.md) — full real-app example
+- [examples.md](references/examples.md) — full app example (fictional vendor)
 
 ## Scripts (`<plugin root>/shared/scripts/`)
 

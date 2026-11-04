@@ -366,9 +366,7 @@ Creates `test.js` templates for all public modules and all RPCs that don't have 
 
 The `communication` middleware iterates through the communication array sequentially. After each step:
 
-```js
-setImmediate(nextCommItem, currResult || prevResult);
-```
+The step's result replaces the previous one unless it is falsy, so an empty array (truthy) still replaces it.
 
 `[]` is truthy in JavaScript. A step producing an empty array overwrites valid previous results. This causes silent empty-output bugs in multi-branch flows.
 

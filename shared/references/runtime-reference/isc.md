@@ -45,7 +45,7 @@ Validated in this order inside `isc.initialize()`:
 4. **No `encodeUrl` / `encodeUrlMode`** → ISC bypasses `normalizeUrl`, so these throw if present.
 5. **`url` is present** → else `ISC directive requires a url field to specify the request path.` ⚠️ **This is the most common authoring bug** — commenting out / omitting `url` does NOT fall back to the benign URL-less-RPC behavior (that fallback lives in `prepareRequestOptions`, which never runs because `isc` short-circuits first).
 6. **`packageName` present** → becomes the JWT issuer (`app#` prefix stripped).
-7. **Per-service env vars present** → `INTEGROMAT_ISC_<SERVICE>_URN`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_NAME`, `INTEGROMAT_ISC_APP_RUNTIME_<SERVICE>_SECRET_VALUE` (service name normalized: uppercase, non-alphanumeric → `_`). Missing any → `Missing <KEY> environment variable...`.
+7. **Per-service env vars present** → environment variables for the service URN, the secret name and the secret value must be present for the target service (service name normalized: uppercase, non-alphanumeric → `_`). Missing any → `Missing <KEY> environment variable...`.
 
 ### Request building parity with the standard requester
 
@@ -78,14 +78,14 @@ All ISC failures are marked `imtExternalError = false` (platform errors, never s
 
 ### Code-review implications
 
-- **A url-less ISC component is a blocking bug**, not a pure-data RPC. Flag it. (Real case: IEN-15506 — `google-calendar` `getParameters` RPC had `//"url": "/v1/rpc/parameters"` commented out; the module's dynamic `expect` failed to load every field at runtime.)
+- **A url-less ISC component is a blocking bug**, not a pure-data RPC. Flag it. (Real case: `google-calendar` `getParameters` RPC had `//"url": "/v1/rpc/parameters"` commented out; the module's dynamic `expect` failed to load every field at runtime.)
 - **Mocked component tests do NOT exercise ISC validation** — the test harness intercepts the call before `isc.initialize()` runs, so a passing module/RPC integration test does **not** prove `url`/`allowISC`/env are correct. ISC paths can only be validated against a real backend (typically `hqrelease`).
 - **`flags.allowISC` + the `INTEGROMAT_ISC_*` env vars are out of code-review scope** — they are deployment config, not in the SDK download. Note them as a pre-production verification item rather than a code finding.
 - **Do not false-flag** `isc`, `getFieldMapping`, or `safeSerialize` as unknown directives/functions — all are runtime-provided and verified.
 
 ### AI Module Builder rollout — the canonical 9-change component set
 
-Epic IEN-15500 ports the same "AI Module Builder" (Polymorph) module into every Make-owned app one ticket at a time (google-sheets IEN-15502, google-forms IEN-15505, google-calendar IEN-15506, slack IEN-15987, …). Every one of those tickets produces the **same 9 changes**. Use this as the review checklist; anything missing is a gap, anything extra needs a reason.
+An epic ports the same "AI Module Builder" (Polymorph) module into every Make-owned app one ticket at a time (google-sheets, google-forms, google-calendar, slack, …). Every one of those tickets produces the **same 9 changes**. Use this as the review checklist; anything missing is a gap, anything extra needs a reason.
 
 | #   | `group/item/code`                                              | Expected content                                                                                                                                                                                                                                                                                                                                                           |
 | --- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -99,7 +99,7 @@ Epic IEN-15500 ports the same "AI Module Builder" (Polymorph) module into every 
 
 Two items are **not** in the ticket's reference snippet but belong in every implementation — both were added to earlier apps only after a production incident, so treat their absence as an Improvement:
 
-- **`log.sanitize: ["request.headers.authorization", "request.body.auth"]`** on the module `api`. Without it the OAuth access token is written in cleartext to run/debug logs, because the token is deliberately placed in `body.auth.accessToken`. (Root of google-calendar IEN-15714.)
+- **`log.sanitize: ["request.headers.authorization", "request.body.auth"]`** on the module `api`. Without it the OAuth access token is written in cleartext to run/debug logs, because the token is deliberately placed in `body.auth.accessToken`. (Root of a google-calendar incident.)
 - **A non-empty module `scope`.** An empty `scope.imljson` means the connection token is minted without the permissions the backend needs → the backend's first call fails with the vendor's insufficient-scope error (google-calendar hit `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
 
 Recurring non-findings on these tickets — do not flag:

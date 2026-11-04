@@ -23,8 +23,8 @@ describe('parseVectorId', () => {
 	});
 
 	it('parses jira section IDs', () => {
-		const result = parseVectorId('slack-v2#jira-IEN-12345');
-		expect(result).toEqual({ slug: 'slack', version: '2', section: 'jira-IEN-12345' });
+		const result = parseVectorId('slack-v2#jira-PROJ-12345');
+		expect(result).toEqual({ slug: 'slack', version: '2', section: 'jira-PROJ-12345' });
 	});
 
 	it('returns null for invalid format', () => {

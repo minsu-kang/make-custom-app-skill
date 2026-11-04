@@ -2,9 +2,9 @@
 
 > Read when: writing or reviewing any label, hint, field structure, error message, ordering, or naming in `expect` / `parameters` / `interface`. Mandatory before UX changes (hard rule 3). Naming, writing rules and field types are below; the other topics are separate parts under `app-ux-best-practices/` (§ Parts; the Table of Contents also links to them).
 
-Source: [Apps UX best practices (Confluence)](https://make.atlassian.net/wiki/spaces/IEN/pages/886734999/Apps+UX+best+practices)
+Source: Apps UX best practices (Confluence)
 
-Figma Design: [Apps UX Council](https://www.figma.com/file/W6gA16FZ6f3qTnkdZRLM4m/Apps-UX-Council)
+Figma Design: Apps UX Council
 
 ---
 
@@ -56,8 +56,6 @@ General writing practices for IEN apps. If information conflicts with the genera
 
 ### Naming: Apps
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1522368529/Naming+Apps)
-
 - Always follow brand guidelines
 - When uncertain, use **Title Case**
 - Suffixes use Title Case: `Google Ads Reports` (not `Google Ads reports`)
@@ -65,8 +63,6 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1522368529
 - Rebrand format: `X (formerly Twitter)` — "formerly" is lowercase
 
 ### Naming: Modules
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/895975426/Naming+Modules)
 
 Each module name: **Verb + Item**
 
@@ -131,8 +127,6 @@ Rules:
 
 ### Naming: Input Fields
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1416331298/Naming+Input+fields)
-
 Rules:
 - Short description (1–3 words)
 - Match 3rd party UI terminology (not API documentation)
@@ -158,8 +152,6 @@ Rules:
 
 ### Naming: ID Field with Map Toggle
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1172766721/Naming+ID+field+with+Map+toggle)
-
 - **Map toggle ON by default** → label should contain "ID": `Board ID`
 - **Map toggle OFF by default** → label should NOT contain "ID": `Board`
 
@@ -180,8 +172,6 @@ ID select fields (`"type": "select"` with an RPC) use `"mode": "edit"` to allow 
 - A simple `"type": "select"` with `"options": "rpc://getItems"` and `"mode": "edit"` is the correct pattern
 
 ### Writing: Hints
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/826016021/Writing+Hints)
 
 #### Objectives
 
@@ -211,8 +201,6 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/826016021/
 - **Code**: For examples, default values, versions, specific formats (API versions, color codes, dates, country codes)
 
 ### Writing: Module Descriptions
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1700462605/Writing+Module+descriptions)
 
 #### Information Types
 
@@ -261,8 +249,6 @@ Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1700462605
 
 ### Writing: Model (AI Apps)
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/2426798118/Writing+Model+AI+apps)
-
 #### Model Selection Strategy
 
 - Do NOT automatically include every technically available model
@@ -297,8 +283,6 @@ Include a link to the official model list:
 | For a full list of models and their capabilities, see the [OpenAI Models page](https://platform.openai.com/docs/models). | The model that will complete your prompt. |
 
 ### Templates: Universal Hints
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/913997919/Templates+Universal+Hints)
 
 #### Connection Hints
 
@@ -339,8 +323,6 @@ Note: The **Limit** field should be the last standard field in the module (not i
 ---
 
 ## Types of Fields
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/900826760/Types+of+fields)
 
 ### Standard vs Advanced Fields
 

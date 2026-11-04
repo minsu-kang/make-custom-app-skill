@@ -104,13 +104,13 @@ Add a `validate` object with type-specific keys. Set `validate: false` to disabl
 
 `validate` is **NOT** a design-time / UI-only check. The type validators live in `@integromat/forman` (`lib/types/{text,url,number,...}.ts`, each headed *"This file is used by both front-end and back-end."*; central entry `lib/types.ts` → `validate()`). At scenario **execution**, Make core first resolves every mapping, then **casts + validates each resolved parameter** through the same forman `validate()`, which runs `min` / `max` / `pattern` / etc. and throws `ValidationError` on mismatch. So a **mapped** value like `{{1.url}}` that resolves to a disallowed string is rejected at runtime exactly like a typed literal — `validate.pattern` is a real **runtime** gate, not just editor UX.
 
-- `imt-app-runtime` (the HTTP-exec layer) has **no** parameter-spec validation. **Do not conclude "validation is UI-only" from its absence** — the validation layer sits *above* it, in Make core, using forman. (This mistake produced a false-positive "mapped value bypasses `validate.pattern`" bug in a review — IEN-15781, make-ai-web-scraper.)
+- `imt-app-runtime` (the HTTP-exec layer) has **no** parameter-spec validation. **Do not conclude "validation is UI-only" from its absence** — the validation layer sits *above* it, in Make core, using forman. (This mistake produced a false-positive "mapped value bypasses `validate.pattern`" bug in a review — make-ai-web-scraper.)
 - At *design time*, a field in `map` mode only has its IML **parse errors** checked (the editor can't know the resolved value); the **value** check against the spec happens at **execution**.
 - Exception: **nested / array-child** fields — child-level validation is skipped by the platform (see the array `required`/`spec` note later in this file). Enforce those in `api.imljson` (`valid` directive / custom error) instead.
 
 #### `validate.pattern` is CASE-SENSITIVE (`u` flag only)
 
-Make compiles the pattern as `new RegExp(pattern, 'u')` — the `u` flag only, **no `i`** (`@integromat/forman` `lib/types/text.ts`). A lowercase-only pattern therefore lets mixed-case values through. Real bug (IEN-15781): `"pattern": "^https://(?!…(?:facebook|linkedin|instagram|tiktok)\\.com…)"` blocks `https://facebook.com` but **not** `https://Facebook.com` / `FACEBOOK.COM` — host names are case-insensitive, so the domain restriction is bypassed. Likewise the literal `^https://` rejects an uppercase `HTTPS://` scheme as "invalid."
+Make compiles the pattern as `new RegExp(pattern, 'u')` — the `u` flag only, **no `i`** (`@integromat/forman` `lib/types/text.ts`). A lowercase-only pattern therefore lets mixed-case values through. Real bug (make-ai-web-scraper): `"pattern": "^https://(?!…(?:facebook|linkedin|instagram|tiktok)\\.com…)"` blocks `https://facebook.com` but **not** `https://Facebook.com` / `FACEBOOK.COM` — host names are case-insensitive, so the domain restriction is bypassed. Likewise the literal `^https://` rejects an uppercase `HTTPS://` scheme as "invalid."
 
 For case-insensitive matching you must **bake it into the pattern** (character classes, e.g. `[Ff][Aa][Cc][Ee]…`) — the app cannot pass an `i` flag — **or** normalize inside a **custom IML function** (`host.toLowerCase()` then compare) called from `api.imljson`. For security / compliance blocks (domain deny-lists, SSRF guards, etc.), prefer the function: it is case-robust and covers typed + mapped values. Treat `validate.pattern` as a design-time fail-fast on top, not the sole enforcement of a security rule.
 
@@ -270,17 +270,17 @@ A `select` can attach nested fields from **multiple** places, resolved by a **pr
 
 1. **Per-option `nested` from an RPC store** — registered **asynchronously**, only after the store RPC has fetched its options. *(Highest precedence.)*
 2. **Per-option `nested` from a static-array store** — matched **synchronously** against the field value.
-3. **Store-level `options.nested`** — a sibling of `store`; eligible for any **non-empty** value (selected, mapped, or typed). It is **not rendered while the field is empty** — verified on an optional `rpc://` select with no per-option nested (google-docs IEN-16288).
+3. **Store-level `options.nested`** — a sibling of `store`; eligible for any **non-empty** value (selected, mapped, or typed). It is **not rendered while the field is empty** — verified on an optional `rpc://` select with no per-option nested (google-docs).
 4. **`placeholder.nested`** — rendered **only** when the value is in a **placeholder state** (empty / no matched option), i.e. for an empty field or for mapped or manually typed values. *(Lowest precedence.)*
 
-> **Optional parent select whose children must always show** (e.g. an optional Tab select wrapping the rest of the form): put the same spec in both `options.nested` and `options.placeholder.nested`. `options.nested` alone hides the children until a value is picked (google-docs IEN-16288).
+> **Optional parent select whose children must always show** (e.g. an optional Tab select wrapping the rest of the form): put the same spec in both `options.nested` and `options.placeholder.nested`. `options.nested` alone hides the children until a value is picked (google-docs).
 
 **Critical distinction — RPC store vs static-array store:**
 
 - For a **static array `store`**, the per-option `nested` is matched **synchronously** against the value (rule 2).
 - For an **`rpc://` string `store`**, the per-option `nested` arrives **asynchronously** (rule 1) — only available **after** the store RPC has fetched and its options' nesteds are registered.
 
-This async gap is the trap. On module **reopen** of a *dropdown-selected* RPC-store value, the per-option nested (rule 1) may not be resolved yet during the first render pass. If a store-level `options.nested` (rule 3) exists, it wins the race and renders the **generic** nested spec over what is actually a type-specific selection → the saved type-specific operator/value data appears "not compatible." This is exactly the regression QA caught in monday **IEN-15480**.
+This async gap is the trap. On module **reopen** of a *dropdown-selected* RPC-store value, the per-option nested (rule 1) may not be resolved yet during the first render pass. If a store-level `options.nested` (rule 3) exists, it wins the race and renders the **generic** nested spec over what is actually a type-specific selection → the saved type-specific operator/value data appears "not compatible." This is exactly the regression QA caught in monday.
 
 **`placeholder.nested` is the robust mechanism for the mapped/typed case.** Unlike `options.nested`, the renderer shows `placeholder.nested` **only** when the value is in a placeholder state (no matched option) — so it does **not** pre-empt the async per-option nested (rule 1) on reopen of a dropdown selection.
 
@@ -290,7 +290,7 @@ Other consequences (verified against the Make parameter form renderer's behavior
 - **Mapped/typed values fall through to the fallback.** Per-option nested requires a matched option, so it never fires for a mapped IML expression or a manually typed value — the fallback (`placeholder.nested` / `options.nested`) is what surfaces nested fields then.
 - **The fallback cannot know the option's type.** A mapped value is opaque at design time, so the fallback RPC/array must return a **generic / superset** spec (all operators, a union of accepted values), not a type-specific one.
 
-**Canonical fix pattern** — "nested fields disappear when the column/value is mapped or typed instead of selected" (monday IEN-15263): keep the per-option `nested` (via the RPC store options) for the dropdown case, and add a **`placeholder.nested`** (RPC with a `?mode=...` flag) that returns the generic field set for mapped/typed values:
+**Canonical fix pattern** — "nested fields disappear when the column/value is mapped or typed instead of selected" (monday): keep the per-option `nested` (via the RPC store options) for the dropdown case, and add a **`placeholder.nested`** (RPC with a `?mode=...` flag) that returns the generic field set for mapped/typed values:
 
 ```json
 {
@@ -309,7 +309,7 @@ Other consequences (verified against the Make parameter form renderer's behavior
 
 The RPC branches on the query flag (`"condition": "{{!parameters.mode}}"` for the store list with per-option `nested`; `"condition": "{{parameters.mode === 'mapping'}}"` for a URL-less request returning the generic nested spec).
 
-> ⚠️ **For an RPC-backed `store`, prefer `placeholder.nested` over store-level `options.nested`.** `options.nested` (rule 3) is not gated and can win the async render race on reopen, rendering generic fields over a dropdown selection (monday IEN-15263 was first shipped with `options.nested` and regressed in QA via IEN-15480; the fix switched to `placeholder.nested`). `options.nested` remains acceptable when the `store` is a **static array** (per-option matches synchronously at rule 2, no async gap).
+> ⚠️ **For an RPC-backed `store`, prefer `placeholder.nested` over store-level `options.nested`.** `options.nested` (rule 3) is not gated and can win the async render race on reopen, rendering generic fields over a dropdown selection (the monday fix was first shipped with `options.nested` and regressed in QA; the fix switched to `placeholder.nested`). `options.nested` remains acceptable when the `store` is a **static array** (per-option matches synchronously at rule 2, no async gap).
 >
 > ⚠️ Make's docs `?ask=` bot reports that store-level and per-option `nested` "both render" and that the store-level fallback "does not render for mapped values" — **both claims are wrong**. The authoritative behavior is the precedence order above. When editor-rendering behavior matters, verify against the Make parameter form renderer's actual behavior, not the docs bot.
 

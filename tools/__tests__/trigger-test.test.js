@@ -63,9 +63,9 @@ test('Claude classify passes a positive prompt when one of our skills is picked,
 });
 
 test('Claude classify fails a positive prompt for an org skill or no skill', () => {
-	assert.deepEqual(claude.classify(prompt1(), { firstSkill: 'make-integration-engineering:jira-investigation' }), {
+	assert.deepEqual(claude.classify(prompt1(), { firstSkill: 'org-plugin:ticket-help' }), {
 		ours: false,
-		short: 'make-integration-engineering:jira-investigation',
+		short: 'org-plugin:ticket-help',
 		pass: false,
 		exact: false,
 	});
@@ -76,7 +76,7 @@ test('Claude classify fails a positive prompt for an org skill or no skill', () 
 test('Claude classify passes a negative prompt unless one of our skills is picked', () => {
 	const prompt = { kind: 'negative', expect: 'none' };
 	assert.deepEqual(claude.classify(prompt, { firstSkill: null }), { ours: false, short: '', pass: true, exact: true });
-	assert.equal(claude.classify(prompt, { firstSkill: 'make-integration-engineering:scenario-help' }).pass, true);
+	assert.equal(claude.classify(prompt, { firstSkill: 'org-plugin:scenario-help' }).pass, true);
 	assert.deepEqual(claude.classify(prompt, { firstSkill: 'make-custom-app:make-app-setup' }), { ours: true, short: 'setup', pass: false, exact: false });
 });
 
@@ -104,6 +104,28 @@ test('Claude buildArgs adds the extra tools, the stub config, and leaves the plu
 test('Claude buildArgs loads no org plugin when org is null', () => {
 	const args = claude.buildArgs('clean', 'p', { repo: '/r', org: null, turns: 2, allow: [], mcpConfig: null });
 	assert.deepEqual(args.filter((a, i) => args[i - 1] === '--plugin-dir'), ['/r']);
+});
+
+test('Claude orgPluginPrefix reads the plugin name of an org plugin folder', () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'org-plugin-'));
+	try {
+		fs.mkdirSync(path.join(dir, '.claude-plugin'));
+		fs.writeFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'team-plugin' }));
+		assert.equal(claude.orgPluginPrefix(dir), 'team-plugin:');
+		fs.writeFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ version: '1.0.0' }));
+		assert.equal(claude.orgPluginPrefix(dir), null);
+		assert.equal(claude.orgPluginPrefix(path.join(dir, 'missing')), null);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('Claude and Cursor runners load no org plugin unless --org names one', () => {
+	assert.equal(claude.parseArgs([]).org, null);
+	assert.equal(cursor.parseArgs([]).org, null);
+	const claudeSource = fs.readFileSync(RUN_CLAUDE, 'utf8');
+	const cursorSource = fs.readFileSync(RUN_CURSOR, 'utf8');
+	for (const source of [claudeSource, cursorSource]) assert.equal(/DEFAULT_ORG|'marketplaces'/.test(source), false);
 });
 
 test('Claude stubConfig names the absolute path of jira-stub.js', () => {
@@ -164,13 +186,13 @@ test('Cursor classify passes a positive prompt for a make-app skill, exact for t
 	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'endpoint' }, { picked: 'make-app-endpoint' }), { pass: true, exact: true });
 	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'endpoint' }, { picked: 'make-app-task' }), { pass: true, exact: false });
 	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'any' }, { picked: 'make-app-task-refinement' }), { pass: true, exact: true });
-	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'endpoint' }, { picked: 'jira-investigation' }), { pass: false, exact: false });
+	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'endpoint' }, { picked: 'ticket-help' }), { pass: false, exact: false });
 	assert.deepEqual(cursor.classify({ kind: 'positive', expect: 'endpoint' }, { picked: null }), { pass: false, exact: false });
 });
 
 test('Cursor classify passes a negative prompt unless a make-app skill is read', () => {
 	assert.deepEqual(cursor.classify({ kind: 'negative', expect: 'none' }, { picked: null }), { pass: true, exact: true });
-	assert.deepEqual(cursor.classify({ kind: 'negative', expect: 'none' }, { picked: 'jira-investigation' }), { pass: true, exact: true });
+	assert.deepEqual(cursor.classify({ kind: 'negative', expect: 'none' }, { picked: 'ticket-help' }), { pass: true, exact: true });
 	assert.deepEqual(cursor.classify({ kind: 'negative', expect: 'none' }, { picked: 'make-app-setup' }), { pass: false, exact: false });
 });
 
@@ -210,15 +232,15 @@ test('jira-stub lists the one tool getJiraIssue', () => {
 
 test('jira-stub returns a canned ticket for a known key and an error for an unknown key', () => {
 	const [known, unknown, missing] = stubReplies([
-		{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'IEN-16879' } } },
-		{ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'IEN-1' } } },
+		{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'PROJ-123' } } },
+		{ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'PROJ-1' } } },
 		{ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'getJiraIssue' } },
 	]);
 	assert.equal(known.result.isError, false);
 	const ticket = JSON.parse(known.result.content[0].text);
-	assert.equal(ticket.key, 'IEN-16879');
+	assert.equal(ticket.key, 'PROJ-123');
 	assert.equal(ticket.status, 'Preparation');
-	assert.equal(JSON.parse(stubReplies([{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { arguments: { issueIdOrKey: 'IEN-16847' } } }])[0].result.content[0].text).key, 'IEN-16847');
+	assert.equal(JSON.parse(stubReplies([{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { arguments: { issueIdOrKey: 'PROJ-124' } } }])[0].result.content[0].text).key, 'PROJ-124');
 	assert.equal(unknown.result.isError, true);
 	assert.deepEqual(JSON.parse(unknown.result.content[0].text), { error: 'not found' });
 	assert.equal(missing.result.isError, true);
@@ -249,7 +271,7 @@ test('jira-stub completes the handshake of the shared stdio helper', async () =>
 	const { responses } = await exchange({
 		command: process.execPath,
 		args: [STUB],
-		requests: [{ method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'IEN-16847' } } }],
+		requests: [{ method: 'tools/call', params: { name: 'getJiraIssue', arguments: { issueIdOrKey: 'PROJ-124' } } }],
 	});
 	assert.equal(JSON.parse(responses[0].result.content[0].text).summary, 'monday app: Search Items returns duplicate items');
 });

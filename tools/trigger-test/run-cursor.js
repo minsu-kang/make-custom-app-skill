@@ -14,8 +14,8 @@
 //     --only 1,2        run these prompt ids only
 //     --no-repo         do not load this working tree with --plugin-dir (measures the installed plugin, for example the
 //                       Claude install that Cursor imports)
-//     --org <dir>       the org plugin to load (default ~/.claude/plugins/marketplaces/make-claude-marketplace/integration-engineering)
-//     --no-org          load no org plugin
+//     --org <dir>       an org plugin to load next to this one (none by default)
+//     --no-org          load no org plugin, the default
 //     --out <dir>       where results-cursor-<mode>.json and the empty workspace go (default <tmp>/make-custom-app-trigger-test)
 //     --selftest        judge a few fake events and print the verdicts; no agent
 //
@@ -40,7 +40,6 @@ const path = require('node:path');
 const readline = require('node:readline');
 
 const REPO = path.join(__dirname, '..', '..');
-const DEFAULT_ORG = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'make-claude-marketplace', 'integration-engineering');
 const DEFAULT_OUT = path.join(os.tmpdir(), 'make-custom-app-trigger-test');
 const PROMPTS = require('./prompts.json');
 const READ_ONLY_KINDS = new Set(['readToolCall', 'globToolCall', 'grepToolCall', 'lsToolCall', 'getMcpToolsToolCall', 'semSearchToolCall']);
@@ -232,7 +231,7 @@ async function main() {
 
 	const agent = process.env.AGENT_BIN || 'agent';
 	const outDir = path.resolve(opts.out || DEFAULT_OUT);
-	const org = opts.noOrg ? null : path.resolve(opts.org || DEFAULT_ORG);
+	const org = opts.noOrg || !opts.org ? null : path.resolve(opts.org);
 	if (org && !fs.existsSync(org)) fail(`The org plugin folder ${org} does not exist. Pass --org <dir> or --no-org.`);
 	const opt = { mode: opts.mode, workspace: path.join(outDir, 'cursor-ws'), repo: opts.noRepo ? null : REPO, org };
 	fs.mkdirSync(opt.workspace, { recursive: true });

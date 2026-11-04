@@ -4,8 +4,6 @@
 
 ## Connection Metadata and UID
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/924352648/Connection+metadata+and+UID)
-
 ### Metadata
 
 Always save metadata in the connection if:
@@ -45,8 +43,6 @@ Always save UID if the service supports a single webhook URL per app (shared web
 
 ## Connection Types
 
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/999588028/Connection+types)
-
 If there are multiple types of connection, use **parentheses** for the connection type specification:
 
 | Do | Don't |
@@ -57,8 +53,6 @@ If there are multiple types of connection, use **parentheses** for the connectio
 ---
 
 ## Additional OAuth Scopes
-
-Source: [Confluence](https://make.atlassian.net/wiki/spaces/IEN/pages/1001029949/Additional+OAuth+scopes)
 
 Make an API Call may not work if required scopes aren't in the OAuth connection. Accept user-defined additional scopes at connection creation.
 
