@@ -23,9 +23,9 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
    |---|---|
    | New module / RPC / webhook | parameters-reference, communication-reference, component-patterns-reference (webhooks: also its `webhook-pattern.md` part) |
    | Custom function | custom-functions-reference |
-   | Polling trigger | polling-trigger-guide + runtime-reference § Trigger Internals |
+   | Polling trigger | polling-trigger-guide + `runtime-reference/polling-triggers.md` |
    | OAuth / connection change | component-patterns-reference § Connection Pattern (+ its `connection-oauth.md` / `connection-aliased.md` parts) + security-reference |
-   | Pagination / iterate / wrapper | runtime-reference § Response Parsing + § Middleware Details + `runtime-reference/pagination.md` |
+   | Pagination / iterate / wrapper | runtime-reference § Directives (iterate, output, wrapper) + § What each module type returns + § Handling the response + `runtime-reference/pagination.md` |
    | UX copy | app-ux-best-practices |
 
 5. **Research the vendor API** (hard rule 1). Primary source: `customfield_10283` or the docs URL in the description. Per endpoint: method + path, auth requirement (existing token? new scope/header?), request shape, response shape (paginated / wrapped / array), rate limit or credit cost, error shape. Docs unreachable → state *"API docs not fetchable from this environment — relying on user-provided info and similar existing modules."*

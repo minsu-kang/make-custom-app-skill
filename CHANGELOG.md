@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.2.0 — 2026-11-05
+
+The runtime reference (`shared/references/runtime-reference.md` and its parts) is rewritten as a description of how Make runs custom-app IMLJSON, checked against the runtime itself. It says what Make does when the IMLJSON says something, without the runtime's internal names.
+
+- Every fact of the old text stays, reworded. 97 old statements that were wrong or incomplete are corrected, and 62 behaviours that were missing are added. The most visible: the `timeout` directive (without it, nothing is read from the common data); the `valid` forms and their messages; a false `condition`, which never returns `false`; what a search returns when it finds nothing; a failed request is not retried (only the older HTTP client repeats one TLS failure); when trigger paging stops; an instant trigger with `response.iterate` and no `url` repeats until the run is stopped; and an action, or a search or RPC with a `response.wrapper`, loses the last page when a page-number condition ends paging.
+- Five new parts: `polling-triggers.md` (trigger state, "Choose where to start", items that share a date, `order`, the default limit), `webhooks.md` (instant triggers, dedicated and shared webhooks, attach, update and detach, responders), `http-requests.md` (TLS options, AWS and OAuth 1 signing, cookies, compression, the headers Make adds), `iml-context.md` (the IML roots each component can read, custom IML function limits) and `on-prem-agent.md` (the `agency` directive). The Parts table and `shared/index.md` list them.
+- `pagination.md`, `inline-endpoint-calls.md`, `environment-variables.md`, `oauth-connection-variables.md` (now covering basic, OAuth 1 and OAuth 2 connections) and `isc.md` are rewritten the same way.
+- Other references and workflows link to the new section names, and their lines that restated runtime behaviour now agree with the reference. The code review workflow no longer sends reviewers to the runtime source: behaviour the reference does not cover is reported as unverified.
+
 ## 3.1.0 — 2026-11-04
 
 The plugin now works for every Make user with a Make API token. Make employees keep the flow they have today, apart from the changes in the last item.

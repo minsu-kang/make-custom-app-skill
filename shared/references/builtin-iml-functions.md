@@ -1,6 +1,6 @@
 # Built-in IML Function Reference
 
-> Read when: verifying that an IML function used in `{{ }}` exists and how it behaves; includes the imt-app-runtime extras (`jwt`, `parseJSON`, `errorFactory` …) and the no-inline-literal rule.
+> Read when: verifying that an IML function used in `{{ }}` exists and how it behaves; includes the runtime extras (`jwt`, `parseJSON`, `errorFactory` …) and the no-inline-literal rule.
 
 Source: `@integromat/iml` package — `lib/functions.js`, `lib/operators.js`, `lib/keywords.js`, `lib/variables.js`, `lib/iml.js`
 Official docs: https://help.make.com/functions
@@ -254,9 +254,9 @@ Source: `@integromat/iml/lib/variables.js`
 | `random` | math | number | Random float 0 ≤ x < 1. New value each evaluation. |
 | `executionId` | general | text | ID of the current scenario execution (injected by runtime). |
 
-## Runtime Additional Functions (imt-app-runtime)
+## Runtime Additional Functions
 
-These are NOT in the `@integromat/iml` package. They are injected by the Make app runtime.
+These are NOT in the built-in function list above. Make adds them to every component, and a runtime function wins over an app custom function of the same name. `jwt`, `generateJwtWithKeyId`, `mime` and `toDataStructure` can also be called from custom function code as `iml.<name>`; the other runtime functions are templates only. `safeSerialize`, `getFieldMapping`, `parseZapierParameters`, `parseZapierOptions` and `parseZapierInterface` are further runtime functions that the table does not list. Full behaviour: [runtime-reference.md § Runtime IML functions](runtime-reference.md#runtime-iml-functions).
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -272,4 +272,4 @@ These are NOT in the `@integromat/iml` package. They are injected by the Make ap
 | `isArray` | `isArray(value)` | Check if value is array. |
 | `pop` | `pop(array)` | Remove and return last element of array. |
 | `shift` | `shift(array)` | Remove and return first element of array. |
-| `errorFactory` | `errorFactory(errorType, message)` | Create custom error. `errorType` is one of: `DataError`, `UnknownError`, `RuntimeError`, `InconsistencyError`, `RateLimitError`, `OutOfSpaceError`, `ConnectionError`, `InvalidConfigurationError`, `InvalidAccessTokenError`, `UnexpectedError`, `MaxResultsExceededError`, `MaxFileSizeExceededError`, `IncompleteDataError`, `DuplicateDataError`, `ModuleTimeoutError`, `Warning`. |
+| `errorFactory` | `errorFactory(errorType, message)` | Create a custom error object (it does not throw it). `errorType` is one of these 20 names: `DataError`, `UnknownError`, `RuntimeError`, `InconsistencyError`, `RateLimitError`, `OutOfSpaceError`, `ConnectionError`, `InvalidConfigurationError`, `InvalidAccessTokenError`, `UnexpectedError`, `MaxResultsExceededError`, `MaxFileSizeExceededError`, `IncompleteDataError`, `DuplicateDataError`, `ModuleTimeoutError`, `ScenarioTimeoutError`, `OperationsLimitExceededError`, `DataSizeLimitExceededError`, `ExecutionInterruptedError`, `Warning`. Any other name fails with `Invalid error type.` |

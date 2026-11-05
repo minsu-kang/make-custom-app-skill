@@ -100,7 +100,7 @@ When a `total_pages`-style API uses the runtime's `pagination.page` variable dir
 
 **Body-driven conditions** (`{{body.has_more}}`, `{{body.current_page < body.total_pages}}`, `{{body.next_cursor}}`) reference fields on the **just-received response** rather than the runtime's pre-incremented `pagination.page`, so `<` / `>` / `==` behave intuitively in those forms — review them on their own merits.
 
-Full mechanism: see [runtime-reference/pagination.md § "`pagination.condition` is Evaluated TWICE per cycle"](runtime-reference/pagination.md#paginationcondition-is-evaluated-twice-per-cycle-critical). Re-read it before flagging any `pagination.condition` change.
+Full mechanism: see [runtime-reference/pagination.md § "`pagination.condition` is checked twice per round"](runtime-reference/pagination.md#paginationcondition-is-checked-twice-per-round). Re-read it before flagging any `pagination.condition` change.
 
 ### IML Path `[]` / `[1]` Shorthand (Do NOT flag as "array wrap")
 
@@ -111,11 +111,11 @@ Full mechanism: see [runtime-reference/pagination.md § "`pagination.condition` 
 | `{{body.items[].field}}` | First item's `field` (scalar) | **No** — idiomatic "unwrap single-item array" |
 | `{{body.items[1].field}}` | First item's `field` (scalar) | **No** — identical to `[]` |
 | `{{body.items[2].field}}` | Second item's `field` (scalar) | **No** — explicit index |
-| `{{body.items[0].field}}` | `undefined` (JS `arr[-1]`) | **Yes — Bug.** Never use `[0]` in IML paths. |
+| `{{body.items[0].field}}` | Nothing: `null` in manifest-1 apps, `undefined` in manifest 2 or higher | **Yes — Bug.** Never use `[0]` in IML paths. |
 
 Common anti-pattern mistake: flagging `{{body.newMediaItemResults[].mediaItem}}` as "output is wrapped in an array". It is not — `[]` picks the first (and in this case only) element, producing a scalar `mediaItem` object.
 
-See [runtime-reference.md § IML Variable Path Syntax](runtime-reference.md#iml-variable-path-syntax) for the full source excerpt and index semantics.
+See [runtime-reference.md § Paths and 1-based indexes](runtime-reference.md#paths-and-1-based-indexes) for the index rules.
 
 ### `scopes.imljson` Empty Object `{}` (Do NOT flag as Improvement)
 
@@ -132,7 +132,7 @@ Full mechanism, including how the active scope set is composed at OAuth `authori
 
 ### OAuth2 `authorize.qs` missing `state` (Do NOT flag)
 
-OAuth2 CSRF `state` is **not** an app-authored IML field. `app-runtime-oauth2` `authorize()` always overwrites `qs.state` with `crypto.randomBytes(12).toString('hex')` after the IML transform, then stores it and validates it on callback. `{{oauth.state}}` does **not** exist on the IML context (`oauth` is the redirects object only).
+OAuth2 CSRF `state` is **not** an app-authored IML field. Make always appends its own random `state` (24 hex characters) to the consent URL after the IML is evaluated, overwriting any `state` in `authorize.qs`, stores it, and looks it up when the provider redirects back. `{{oauth.state}}` does **not** exist on the IML context (`oauth` holds the redirect URIs and, in `preauthorize` and `authorize`, `oauth.scope`).
 
 | Pattern | Verdict | Why |
 |---|---|---|
@@ -141,7 +141,7 @@ OAuth2 CSRF `state` is **not** an app-authored IML field. `app-runtime-oauth2` `
 
 **Do NOT** cite `[SECURITY][2.2]` as a High finding for a missing `state` key. That ID is a documented false-positive trap, not a verdict.
 
-Full mechanism: [runtime-reference/oauth-connection-variables.md](runtime-reference/oauth-connection-variables.md#oauth-connection-variables) and [security-reference.md](security-reference.md) § 2.2.
+Full mechanism: [runtime-reference/oauth-connection-variables.md § Consent URL and state](runtime-reference/oauth-connection-variables.md#consent-url-and-state) and [security-reference.md](security-reference.md) § 2.2.
 
 ---
 

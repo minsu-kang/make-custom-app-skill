@@ -62,7 +62,7 @@ When the API supports both sorting and filtering, use `order: "asc"` with a date
 
 ### Important Rules
 
-1. Always use `{{data.lastDate || undefined}}` (not `{{data.lastDate}}`) in the filter — so the filter is omitted entirely on the first run when no `lastDate` exists yet
+1. Use `{{data.lastDate}}` in the date filter. It is never empty: while no date is saved yet (no start date chosen in "Choose where to start" and nothing dated emitted; a trigger without `response.trigger.date` saves none) it reads `1970-01-01T00:00:00.001Z`, so the request sends a filter that matches every item. A guard such as `{{data.lastDate || undefined}}` or `if(data.lastDate, ..., undefined)` (used in the examples below) never takes its fallback, so it does not omit the filter
 2. **Epoch must always use `desc` ordering** — epoch determines the starting point by fetching the latest items, so it must sort descending regardless of the api's ascending order
 3. **API request `limit`/`pageSize` must be hardcoded** — never use `{{parameters.limit}}` in `qs` or `body` for the API page size. The trigger must fetch as many items as possible from the API so the runtime can accurately track `data.lastDate` and deduplicate. Use the API's maximum page size (e.g., `100`, `500`, `1000`). The user's `parameters.limit` should only be applied in `response.limit`, where the runtime controls how many bundles to output.
 
@@ -142,17 +142,17 @@ When the API has no sorting or filtering support:
 
 | Type | Tracked State | Sort Key |
 |---|---|---|
-| `id` | `lastId` | `__itemId` |
-| `date` | `lastDate`, `sameDateIds` | `[__itemDate, __itemId]` |
-| `select` | selected items only | — |
+| `id` | `lastId` | the id, as a number |
+| `date` | `lastDate` and the list of ids that share it | the date, then the id |
+| `select` | the item picked in "Choose where to start" (it is included on the first run) | none of its own: the module's `type` decides |
 
 ### Same-Date Deduplication
 
-For date triggers, items with the same date are tracked in `sameDateIds` array to prevent re-processing on subsequent runs.
+For date triggers, the ids of the items that share the newest date are saved in a list to prevent re-processing on subsequent runs (see [runtime-reference/polling-triggers.md § Items that share a date](runtime-reference/polling-triggers.md#items-that-share-a-date)).
 
 ### Default Trigger Limit
 
-Default `limit` for triggers: **1** (returns one item per execution).
+Default `limit` for ordered triggers (`asc`, `desc`, no `order`): **1** (returns one item per execution), when `response.limit` is missing, empty, `null`, a literal `0` or not an integer. An `unordered` trigger with no limit emits every new item it collected (see [runtime-reference/polling-triggers.md § Items per run (response.limit)](runtime-reference/polling-triggers.md#items-per-run-responselimit)).
 
 ## epoch.imljson and temp Key Dependency
 
@@ -176,7 +176,7 @@ Default `limit` for triggers: **1** (returns one item per execution).
 | Mistake | Why It's Wrong | Fix |
 |---|---|---|
 | `trigger.order` doesn't match actual response order | Runtime misidentifies new vs. seen items → duplicates or missed data | Verify API docs for default ordering; use sort parameter if available |
-| `{{data.lastDate}}` instead of `{{data.lastDate \|\| undefined}}` | Sends empty/null filter value on first run instead of omitting the parameter | Use `\|\| undefined` to skip filter when no lastDate exists |
+| Expecting the date filter to be omitted on the first run (`{{data.lastDate \|\| undefined}}`, `if(data.lastDate, ...)`) | `{{data.lastDate}}` is never empty: with no date saved it reads `1970-01-01T00:00:00.001Z`, and after a chosen start date it holds that date, so the filter is always sent | Write the filter so that `1970-01-01T00:00:00.001Z` matches every item (`>=` or `ge`); do not rely on the parameter being absent |
 | Epoch uses same order as api | Epoch needs latest items to set starting point — ascending won't find them | Epoch must always use `desc` ordering |
 | Using `order: "desc"` when API supports sorting + filtering | Less efficient — fetches all new items from top | Use `asc` + date filter for smaller result sets |
 | Missing date filter when API supports it | Hits 3200 pagination limit on high-volume APIs | Check API docs for filter parameters (`$filter`, `since`, `after`, `created_at[gte]`) |

@@ -60,21 +60,21 @@ Evaluate against [code-review-criteria.md](../references/code-review-criteria.md
 
 ### Gate — runtime reference before any `api.imljson` finding
 
-Read the section of [runtime-reference.md](../references/runtime-reference.md) that covers the directive **before** flagging Bug / Breaking / Improvement on a `code === "api"` change. Intuition is not evidence. Rows below name a file when the section lives in a `runtime-reference/` part; the Parts table at the top of runtime-reference.md covers the remaining topics (`isc`, `environment`, OAuth connection variables).
+Read the section of [runtime-reference.md](../references/runtime-reference.md) that covers the directive **before** flagging Bug / Breaking / Improvement on a `code === "api"` change. Intuition is not evidence. Rows below name a file when the section lives in a `runtime-reference/` part; the Parts table at the top of runtime-reference.md covers the remaining topics (`isc`, `environment`/`internal`, connections, HTTP client options, webhooks, IML roots and custom functions, `agency`).
 
 | Directive | Section |
 |---|---|
-| `url`, `baseUrl`, path templates, slashes, `qs` | URL Normalization |
-| `headers`, `body`, `type`, `condition` | [communication-reference.md](../references/communication-reference.md) Full Spec (`headers`, `body`, `type`) + runtime-reference Middleware Details (condition) |
-| `temp` (request or response level) | temp |
-| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | Response Parsing + Middleware Details (iterate, output, wrapper, limit, error, valid) |
+| `url`, `baseUrl`, path templates, slashes, `qs` | Building the request (url and baseUrl, URL encoding and normalisation, qs) |
+| `headers`, `body`, `type`, `condition` | [communication-reference.md](../references/communication-reference.md) Full Spec (`headers`, `body`, `type`) + runtime-reference Building the request (headers and method, body and type) + Directives (condition) |
+| `temp` (request or response level) | Directives (temp and response.temp) |
+| `response.output` / `iterate` / `limit` / `wrapper` / `valid` / `error` | Handling the response + Directives (iterate, output, wrapper, limit, error, valid) + What each module type returns |
 | `pagination` | [runtime-reference/pagination.md](../references/runtime-reference/pagination.md) |
-| `trigger` | Trigger Internals + [polling-trigger-guide.md](../references/polling-trigger-guide.md) |
-| IML paths (`foo[]`, `foo[1]`, `body.results[].field`) | IML Variable Path Syntax |
+| `trigger` | [runtime-reference/polling-triggers.md](../references/runtime-reference/polling-triggers.md) + [polling-trigger-guide.md](../references/polling-trigger-guide.md) |
+| IML paths (`foo[]`, `foo[1]`, `body.results[].field`) | IML expressions (Paths and 1-based indexes) |
 | `endpoint`, `input`, `pagination.endpoint`, `response.unwrap` | [runtime-reference/inline-endpoint-calls.md](../references/runtime-reference/inline-endpoint-calls.md) + [endpoints-reference.md](../references/endpoints-reference.md) |
-| `{{internal.*}}`, `flags.exposeInternalProperties` | [runtime-reference/environment-variables.md](../references/runtime-reference/environment-variables.md) (Make-Infrastructure Data) |
+| `{{internal.*}}`, `flags.exposeInternalProperties` | [runtime-reference/environment-variables.md](../references/runtime-reference/environment-variables.md) (Make infrastructure data (internal)) |
 
-Not covered there → read the `imt-app-runtime` source. Known false positives this prevents: double-slash "bug" (runtime collapses `//`), `temp` "undefined in same request" (two-phase), `body.results[].field` "wrong array wrap" (1-based unwrap).
+Not covered there → do not guess: say in the finding that the behaviour is unverified, and do not flag it as Bug / Breaking. Known false positives this prevents: double-slash "bug" (runtime collapses `//`), `temp` "undefined in same request" (two-phase), `body.results[].field` "wrong array wrap" (1-based unwrap).
 
 ### Gate — vendor docs before any external-API finding
 
