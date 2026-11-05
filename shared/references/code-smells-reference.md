@@ -63,7 +63,7 @@ These smells appear in `*.imljson` files and are **not** covered by the JS-focus
 | P-03 | `nested` used where flat `rpc://` would do | Nested RPCs on Get / Update / Delete modules (users typically map IDs) | Flatten — see `code-review-criteria/ux.md` § "ID Select Field Pattern" |
 | P-04 | `default` value duplicates API default | Explicit `default: 10` that also happens to be the API default | Either remove (reduce UI clutter) or add a hint explaining why it's exposed |
 | P-05 | Mixed casing conventions in the same file | `createdBy` and `created_by` both present | Pick one per module. Never rename existing params in published apps — add temp mapping in `api.imljson` instead (see `code-review-criteria.md` § "Breaking Changes") |
-| P-06 | `editable: true` in module expect | `editable` is a connection-only flag | Remove from expect |
+| P-06 | `editable: true` in module expect | `editable` is the deprecated old name of `mappable`, meant for connection `parameters.imljson` | Remove from expect |
 
 ### 2.3 `samples.imljson`
 

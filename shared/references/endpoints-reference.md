@@ -1,6 +1,6 @@
 # SDK Endpoints Reference
 
-> Read when: creating, updating, or reviewing an SDK Endpoint — entity structure, admin API, Forman input/output schemas, `context.md`, annotations, Arbitrary Call template, runtime validation caveats. This file holds the core facts; design, schema, Arbitrary Call and review topics sit in `endpoints-reference/` parts: open one only when its row in § Parts applies.
+> Read when: creating, updating, or reviewing an SDK Endpoint — entity structure, admin API, input/output schemas (checklist and how Make treats them), `context.md`, annotations, Arbitrary Call template, runtime validation caveats. This file holds the core facts; design, schema, Arbitrary Call and review topics sit in `endpoints-reference/` parts: open one only when its row in § Parts applies.
 
 SDK **Endpoints** are a new app component (per the Endpoints RFC) that expose **one atomic third-party API call** as a first-class, AI-consumable operation. They are designed for AI callers (MCP tools / the Executor initiative), not for the scenario builder.
 
@@ -12,7 +12,8 @@ Everything in this document is verified against the live SDK admin API (google-d
 |---|---|
 | [endpoints-reference/api-imljson-shape.md](endpoints-reference/api-imljson-shape.md) | designing or reviewing an endpoint `api.imljson`; GraphQL APIs |
 | [endpoints-reference/pure-api-wrapper.md](endpoints-reference/pure-api-wrapper.md) | designing a Regular endpoint: allowed transformations, `ifempty` / `stripEmpty` guards, hardcoded parameters |
-| [endpoints-reference/forman-schemas.md](endpoints-reference/forman-schemas.md) | `input_parameters` / `output_parameters`: `help`, types, arrays and collections |
+| [endpoints-reference/forman-schemas.md](endpoints-reference/forman-schemas.md) | `input_parameters` / `output_parameters` checklist: what to declare, enums, empty outputs and saving `[]`, types, properties to leave out, `help`, arrays and collections, `required` / `validate` / nested fields |
+| [endpoints-reference/schema-behaviour.md](endpoints-reference/schema-behaviour.md) | the exact effect of a schema property or type in Make's form, Make's value check and the public converter, with the verbatim messages |
 | [endpoints-reference/arbitrary-call.md](endpoints-reference/arbitrary-call.md) | creating, updating or reviewing the `arbitraryCall` endpoint: template, checklist, gotchas |
 | [endpoints-reference/code-review-guidance.md](endpoints-reference/code-review-guidance.md) | reviewing any endpoint change |
 
@@ -37,8 +38,8 @@ Everything in this document is verified against the live SDK admin API (google-d
 ```
 endpoints/{name}/
   api.imljson                 # communication block
-  input_parameters.imljson    # Forman input schema (array of parameter specs)
-  output_parameters.imljson   # Forman output schema (can be very large — full API resource)
+  input_parameters.imljson    # input schema (array of parameter specs)
+  output_parameters.imljson   # output schema (can be very large — full API resource)
   scope.imljson               # OAuth scopes array, e.g. ["https://www.googleapis.com/auth/documents.readonly"]
   context.md                  # markdown context doc with YAML frontmatter (name, description)
 ```
@@ -114,7 +115,7 @@ Endpoint name pattern: `^[a-zA-Z][0-9a-zA-Z]{1,126}[0-9a-zA-Z]$` (alphanumeric, 
 | `"type": "json"` | Omit it on a regular endpoint. An object body serializes as JSON by default. `arbitraryCall` keeps `"type": "text"`. See [api-imljson-shape.md](endpoints-reference/api-imljson-shape.md). | Required fix |
 | `stripEmpty` keeps filled values | The stripper removes only empty values. `false`, `0`, a `Date`, and a filled collection or facet `{}` survive, and `test.js` covers them. See [pure-api-wrapper.md](endpoints-reference/pure-api-wrapper.md#stripempty-must-never-drop-a-filled-in-value). | Bug when a filled value this endpoint can send would be dropped |
 | Output schema | `output_parameters` is the vendor resource for that call, minus write-only fields, with `help` on every field. `response.output` unwraps that same value (`{{body}}` or the list array). Every returned key is declared, and each value's type matches the field. | Required fix |
-| Module parity | When endpoints mirror modules, a script diffs module `expect` / response fields against endpoint input and output names. Allowed deltas are UI-only switches, module-side transformations, and deliberate extras from the vendor docs. See [Scripted module-parity check](#scripted-module-parity-check-module-derived-apps). | Required fix for any other gap |
+| Module parity | When endpoints mirror modules, a script diffs module `expect` / response fields against endpoint input and output names. Allowed deltas are form-only switches, module-side transformations, and deliberate extras from the vendor docs. See [Scripted module-parity check](#scripted-module-parity-check-module-derived-apps). | Required fix for any other gap |
 | GraphQL | Static operation document, typed `$variables` mapped 1:1, selection set equals the full resource. Argument types come from the schema, not from prose. See [GraphQL APIs](endpoints-reference/api-imljson-shape.md#graphql-apis-monday-v2-github-v4-shopify-linear). | Required fix |
 | No token / credential passthrough | Never expose an `access_token`, `refresh_token`, API key, or sub-resource bearer token in `output_parameters` / `response.output` (e.g. a `GetPageAccessToken` helper endpoint, or `fields=access_token` on `GET /me/accounts`), and never add a bearer token input (`page_access_token`) for the AI caller to pass between endpoints ([security-reference.md § 1.2](security-reference.md#1-credential--secret-handling)). **Deployed apps**: keep the module's internal 2-step token exchange inside the endpoint's `api.imljson` (`temp.accessToken` with `"output": null` on step 1, `Bearer {{temp.accessToken}}` on step 2) and strip/disallow `access_token` fields on list/get endpoints. **New apps / connections**: exchange and store the token in `connection.*` during connection auth. For `arbitraryCall`, if the vendor API returns tokens on standard routes, remove `arbitraryCall` or block token-returning routes/fields. | Critical (`[SECURITY]` 1.2) — block / do not commit |
 
@@ -159,7 +160,7 @@ Implementation and review use the same verdict: an endpoint built from an exclud
 
 #### Scripted module-parity check (module-derived apps)
 
-When the endpoint set mirrors an app's modules, finish the design with a scripted comparison instead of eyeballing: for each module, read `expect`/`parameters` names and the response-field tokens of its `api` (for GraphQL: the selection-set fields in `body.query`), and diff them against the endpoint's `input_parameters`/`output_parameters` names. Expected differences are only (a) UI-only switches (`omit`, `select` helpers, "advanced" toggles), (b) module-side transformations the endpoint must not replicate, and (c) deliberate extras from the vendor docs. Anything else is a gap. On monday v2 this check caught two missing output sub-objects (`linked_items`, time-tracking `history`) that a manual pass had missed. Review uses the same verdict: any other gap is a required fix.
+When the endpoint set mirrors an app's modules, finish the design with a scripted comparison instead of eyeballing: for each module, read `expect`/`parameters` names and the response-field tokens of its `api` (for GraphQL: the selection-set fields in `body.query`), and diff them against the endpoint's `input_parameters`/`output_parameters` names. Expected differences are only (a) form-only switches (`omit`, `select` helpers, "advanced" toggles), (b) module-side transformations the endpoint must not replicate, and (c) deliberate extras from the vendor docs. Anything else is a gap. On monday v2 this check caught two missing output sub-objects (`linked_items`, time-tracking `history`) that a manual pass had missed. Review uses the same verdict: any other gap is a required fix.
 
 #### Foreign API calls
 
@@ -167,12 +168,12 @@ A module in this app may call a different product's API. Google Slides `createPr
 
 ## Runtime Validation Caveats (critical — verified)
 
-| Execution path | Forman `required` / `default` enforcement |
+| Execution path | `required` / `default` enforcement |
 |---|---|
-| **Run Endpoint** (platform UI) | ✅ Enforced (normal Forman form validation) |
+| **Run Endpoint** (platform UI) | ✅ Enforced (Make's form checks the fields) |
 | **MCP endpoint execution** (a server that exposes it, not the `make` server of this plugin) | ❌ **Not enforced** — `required: true` fields pass through empty; declared `default` values are not applied when omitted |
 
-Source-verified: the endpoint-execution tool of `make-mcp-server-host` (`lib/libs/make-mcp-server/modules/endpoints.module.ts`, served by the bare `https://mcp.make.com` entrypoint and not by the `/v2` `make` server of this plugin) passes `input` straight to `sdk.endpoints.executeEndpointThroughRpcWorker(appName, appVersion, endpointName, input, connectionId)` — no Forman validation anywhere on that path. That host also has read tools that list and get endpoints. Platform-level parameter validation for MCP calls will be addressed by the ongoing **Executor initiative**. Until then:
+Source-verified: the endpoint-execution tool of that server (served by the bare `https://mcp.make.com` entrypoint and not by the `/v2` `make` server of this plugin) passes `input` straight to the endpoint run, with no check against the schema anywhere on that path. That server also has read tools that list and get endpoints. Platform-level parameter validation for MCP calls will be addressed by the ongoing **Executor initiative**. Until then:
 
 - `required` / `default` in `input_parameters` are **schema hints for AI callers**, not runtime guarantees.
 - There is **no app-level workaround** (`condition` unsupported, no pre-flight validation hook).

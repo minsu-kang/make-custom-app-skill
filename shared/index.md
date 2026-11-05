@@ -39,7 +39,10 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
   - [runtime-reference/on-prem-agent.md](references/runtime-reference/on-prem-agent.md): the `agency` directive (a customer system reached through the on-premise agent)
 - [communication-reference.md](references/communication-reference.md) — request/response spec, pagination, RPC, file upload/download patterns
 - [component-patterns-reference.md](references/component-patterns-reference.md) — base, connections per auth type, install params, errors, webhook, trigger, responder
-- [parameters-reference.md](references/parameters-reference.md) — any `expect` / `parameters` / `interface` edit
+- [parameters-reference.md](references/parameters-reference.md) — any `expect` / `parameters` / `interface` edit: field properties, the Map switch, types and aliases, text, date and boolean fields, collections, arrays, `nested`, `required` inside arrays and collections; parts for validation, select options and RPCs, and the interface
+  - [parameters-reference/validation.md](references/parameters-reference/validation.md): where values are checked, `validate` keys by type, conversions, `pattern`, item rules, hints and verbatim messages
+  - [parameters-reference/select-and-rpc-options.md](references/parameters-reference/select-and-rpc-options.md): select and option properties, option sources, what an options RPC receives and returns, conditional RPCs, which nested set is shown, reopening a saved module, paging and search
+  - [parameters-reference/interface.md](references/parameters-reference/interface.md): `interface.imljson`, dynamic interface via RPC, mapped values in an interface RPC
 - [builtin-iml-functions.md](references/builtin-iml-functions.md) — verifying a `{{ }}` function exists; runtime extras, `errorFactory` types
 - [custom-functions-reference.md](references/custom-functions-reference.md) — `functions/*/code.js` + `test.js` conventions
 - [app-ux-best-practices.md](references/app-ux-best-practices.md) — labels, hints, fields, messages, ordering

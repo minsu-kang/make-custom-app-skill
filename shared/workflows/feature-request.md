@@ -9,7 +9,7 @@ Jira feature ticket for a Make app; user asks to add a module, RPC, webhook, con
 ## Steps
 
 1. **Understand the app before designing.** Read `metadata.json` (components), `base.imljson` (baseUrl, auth, error handling), `common.imljson`, and existing modules of the same type for naming, field structure, pagination, and error conventions. List reusable RPCs and functions. `search_app_knowledge` may show the same feature done in another app — reuse the pattern.
-2. **Design and get approval** *(gate)*. Cover: module type ([index.md](../index.md) § Module types — Search for many results, Action for one), API mapping, expect/parameters fields per [app-ux-best-practices.md](../references/app-ux-best-practices.md) and [parameters-reference.md](../references/parameters-reference.md), interface, RPC reuse or new RPCs, custom functions needed. Present, then wait for a yes.
+2. **Design and get approval** *(gate)*. Cover: module type ([index.md](../index.md) § Module types — Search for many results, Action for one), API mapping, expect/parameters fields per [app-ux-best-practices.md](../references/app-ux-best-practices.md) and [parameters-reference.md](../references/parameters-reference.md) (selects and RPC options: [select-and-rpc-options.md](../references/parameters-reference/select-and-rpc-options.md); interface: [interface.md](../references/parameters-reference/interface.md)), interface, RPC reuse or new RPCs, custom functions needed. Present, then wait for a yes.
 3. **Create components** (confirmation per component, [push-changes.md](push-changes.md)):
 
    | Type | Command (positional args, no flags) | Values |

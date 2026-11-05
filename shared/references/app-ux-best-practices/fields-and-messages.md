@@ -34,7 +34,7 @@ Used for deprecated modules and critical messages.
 
 ### Important
 
-Due to VMB-210 there is a risk on using `html` parameters. Stop using it. Use `info` and `warning` `banner` elements instead.
+There is a known risk in using `html` parameters. Stop using it. Use `info` and `warning` `banner` elements instead.
 
 ### Dynamic Google Connection Messages
 

@@ -21,7 +21,7 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
 
    | AC suggests | Read |
    |---|---|
-   | New module / RPC / webhook | parameters-reference, communication-reference, component-patterns-reference (webhooks: also its `webhook-pattern.md` part) |
+   | New module / RPC / webhook | parameters-reference (selects and RPC options: its `select-and-rpc-options.md` part; interface: its `interface.md` part), communication-reference, component-patterns-reference (webhooks: also its `webhook-pattern.md` part) |
    | Custom function | custom-functions-reference |
    | Polling trigger | polling-trigger-guide + `runtime-reference/polling-triggers.md` |
    | OAuth / connection change | component-patterns-reference § Connection Pattern (+ its `connection-oauth.md` / `connection-aliased.md` parts) + security-reference |

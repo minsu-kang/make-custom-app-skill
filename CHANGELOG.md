@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.3.0 — 2026-11-05
+
+The parameters reference (`shared/references/parameters-reference.md`) and the Endpoint schema checklist (`shared/references/endpoints-reference/forman-schemas.md`) are rewritten as a description of how Make handles parameter and interface specs, checked against Make's module form and value check. They say what the form shows and what the value check does when a spec says something, without internal names. User-visible messages are quoted as users see them.
+
+- Every fact of the old text stays, reworded. 91 old statements that were wrong or incomplete are corrected, and 86 behaviours that were missing are added. The most visible: `mode: "edit"` is a legacy spelling of map mode on every type with a Map switch; `validate: false` switches off every check of the field in the form, while Make's value check still runs the type check, the option list and `required`; `dynamic: true` switches off the option-list check of a select with inline options; grouped options need `grouped: true`, or no value matches; `uuid` has no UUID shape check; `checkbox` ignores `nested`; `sequence` does nothing on an array; and `validate.enum` is not enforced.
+- Three new parts in `parameters-reference/`: `validation.md` (where values are checked, the `validate` keys by type, empty values and `required`, how values are converted, patterns, item rules, hints and the verbatim messages), `select-and-rpc-options.md` (select and option properties, option sources, what an options RPC receives and returns, conditional RPCs, which nested set is shown, paging and search) and `interface.md` (the output interface and a dynamic interface via RPC).
+- `forman-schemas.md` stays the Endpoint schema checklist, based on the measured effects, with the rules Make enforces kept apart from the team conventions. The new `endpoints-reference/schema-behaviour.md` says, per property and per type, what the form, the value check and the public `@makehq/forman-schema` converter do, with their messages.
+- Where the code cannot show what Make does outside the form, for example whether resolved values are checked again when a scenario runs, the text says so in one line.
+- The Parts tables and `shared/index.md` list the new parts. Other references and workflows link to the new section names, and their lines that restated parameter behaviour now agree with the reference, for example the `validate.pattern` review rules, the `mode: "edit"` notes and the Endpoint workflow.
+
 ## 3.2.0 — 2026-11-05
 
 The runtime reference (`shared/references/runtime-reference.md` and its parts) is rewritten as a description of how Make runs custom-app IMLJSON, checked against the runtime itself. It says what Make does when the IMLJSON says something, without the runtime's internal names.
