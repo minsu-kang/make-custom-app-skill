@@ -157,7 +157,7 @@ Rules:
 
 ### ID Select Fields: `mode: "edit"` and Nested RPC Usage by Module Type
 
-ID select fields (`"type": "select"` with an RPC) use `"mode": "edit"` to allow both dropdown selection and manual text mapping. However, the need for **nested RPCs** (e.g., parent → child dropdown cascading) depends on the **module type**:
+ID select fields (`"type": "select"` with an RPC) use `"mode": "edit"` so the field starts in map mode, with the mapping box first; the Map switch, not `mode`, lets the user pick from the dropdown instead ([parameters-reference.md § Start mode, map-mode help and label](parameters-reference.md#start-mode-map-mode-help-and-label-mode-mappable-object)). However, the need for **nested RPCs** (e.g., parent → child dropdown cascading) depends on the **module type**:
 
 | Module Type | Typical User Behavior | Nested RPC Needed? |
 |---|---|---|

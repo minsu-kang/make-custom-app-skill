@@ -274,8 +274,8 @@ Official docs: https://developers.make.com/custom-apps-documentation/app-compone
     "label": "Project",
     "options": {
         "store": "rpc://listProjects",
-        "label": "{{item.name}}",
-        "value": "{{item.id}}"
+        "label": "name",
+        "value": "id"
     }
 }
 ```

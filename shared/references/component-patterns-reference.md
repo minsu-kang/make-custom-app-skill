@@ -187,7 +187,7 @@ Connection defines how the app authenticates with the external API. The `api.iml
 | `parameters.imljson` field | User input goes into the shared `account.data` store and is **automatically accessible as both `parameters.{name}` and `connection.{name}`** in every context (connection api, modules, RPCs, webhooks). No explicit save step required. |
 | `response.data`           | Merged into the same `account.data` store. Use it to **persist API-derived values** (access/refresh tokens, expiry, account ids from `/userinfo`) and to **transform a user input** before storage (e.g., normalize hyphens, lowercase, trim). The merged result is accessible as `connection.*`.                                                        |
 | `response.metadata.value` | Displayed as the connection label in the Make UI (e.g., user email or account name).                                                              |
-| `editable: true`          | Allows the user to edit the field after the connection is saved. **Only valid in connection `parameters.imljson`** (deprecated in module expect). |
+| `editable: true`          | Allows the user to edit the field after the connection is saved. **Meant for connection `parameters.imljson` only** (deprecated in module expect). In the form, `editable` is the old name of `mappable` (the Map switch) and the form has no rule that limits it to connections ([parameters-reference.md § Which fields get a Map switch](parameters-reference.md#which-fields-get-a-map-switch-mappable-editable)). |
 
 ### Important Rules
 
