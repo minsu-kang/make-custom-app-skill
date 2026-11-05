@@ -58,7 +58,7 @@ Agency modules use the `agency` directive instead of `url`. The `agency.payload`
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `agency.action`                       | `"execute"` — run HTTP request via agent. `"inputs"` — fetch connected system inputs only.                                       |
 | `agency.payload.body`                 | The HTTP request spec forwarded to the agent: `url`, `method`, `headers`, `body`, `queryParams`.                                 |
-| `agency.payload.connectorType`        | Must be `"http"`. Pagination only works with this connector type.                                                                |
+| `agency.payload.connectorType`        | Must be `"http"`. Pagination does not work over an agency request (see Pagination below).                                         |
 | `agency.payload.expiresAfterInMillis` | Agent-side timeout — how long the broker waits for the agent to complete the task.                                               |
 | `agency.connectedSystem.inputs`       | Available in IML after `agency.initialize()` runs. Contains the connected system's base URL and other inputs configured in Make. |
 
@@ -87,49 +87,29 @@ The module-level timeout covers the **entire round-trip**: task creation → age
 
 ### Runtime Internals
 
-Source: `imt-app-runtime`
+What Make does for an agency call (full detail in [runtime-reference/on-prem-agent.md](../runtime-reference/on-prem-agent.md)):
 
-| File                                             | Function                      | Role                                                                                                                                                         |
-| ------------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib/core/middleware/agency.ts`                  | `initialize()`                | Fetches connected system inputs from broker (`/system-connections/{id}/inputs`) before the request. Sets `agency.connectedSystem.inputs` in the IML context. |
-| `lib/core/chainMiddleware/requester/_request.js` | `_getAgencyRequestOptions()`  | Builds the POST request to the broker (`/tasks/{id}/execute`). Sets `agencyRequest` flag.                                                                    |
-| `lib/core/middleware/agency.ts`                  | `sanitizeAgencyAuthHeaders()` | Automatically adds `request.headers` to `log.sanitize` — agency auth headers are always redacted.                                                            |
+| Step    | What happens                                                                                                                                                    |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Inputs  | Before the module's own request, Make fetches the connected system's inputs from the agent service and sets `agency.connectedSystem.inputs`.                    |
+| Execute | For `action: execute`, the module's own request is replaced by a POST of the evaluated `payload` to the agent service's task endpoint for the connected system. |
+| Logging | All request headers are masked in the logs automatically: agency auth headers are always redacted.                                                              |
 
-The `agencyRequest` flag enables `localAccess` bypass, allowing the agent to access internal/private IP addresses — this is the core purpose of on-prem agents.
+After an `execute` request, private and local addresses stay reachable for the rest of that run, so later requests of the same run are not blocked from internal and private IP addresses either. This is the core purpose of on-prem agents. See [Private and local addresses](../runtime-reference.md#private-and-local-addresses).
 
 ### Pagination
 
-Agency pagination is supported but only for `connectorType: "http"`. The pagination config mirrors standard pagination but nested under `agency.payload.body`:
+Pagination does not work over an agency request, so do not combine `pagination` with `agency`. What Make does depends on the configuration (see [runtime-reference/on-prem-agent.md](../runtime-reference/on-prem-agent.md#execute-requests-and-side-effects)):
 
-```json
-{
-	"agency": {
-		"action": "execute",
-		"payload": { "...": "..." }
-	},
-	"response": {
-		"temp": { "nextCursor": "{{body.body.body.nextCursor}}" }
-	},
-	"pagination": {
-		"condition": "{{body.body.body.hasMore}}",
-		"mergeWithParent": true,
-		"agency": {
-			"payload": {
-				"body": {
-					"queryParams": { "cursor": "{{temp.nextCursor}}" }
-				}
-			}
-		}
-	}
-}
-```
-
-When `mergeWithParent` is `true` (default), pagination request inherits headers and other fields from the original request and only overrides the specified fields.
+- Without a `url` next to `agency`, a `pagination` block is ignored and the module makes one request.
+- With a `url` and a `pagination.agency` block, the module fails after the first round with `RuntimeError: Cannot read properties of undefined (reading 'payload')`.
+- With a `url` and a plain `pagination` block, the later rounds do not go through the agent: Make sends the same JSON payload as an ordinary POST to the module's own `url` (the older HTTP client repeats the `execute` call through the agent instead).
+- With `action: inputs`, a `url` and a `pagination` block, the module fetches the inputs again and again, with no request count or record limit to stop it, until the platform stops the run.
 
 ### Caveats
 
 - **`connection.__IMTCONNSYS__`** must be present — if no connected system is configured, the runtime throws `RuntimeError: Invalid agency configuration. No connected system defined.`
 - **Agent polling cycle is ~4 minutes** — if the agent is mid-token-refresh when a task arrives, pickup can be delayed by 10-15 seconds. Combined with the 60s timeout cap, this leaves a narrow window for the actual HTTP request.
 - **Response nesting** — always remember `body.body.body` for the actual API response. This is the most common mistake when writing agency module output expressions.
-- **Pagination only supports `connectorType: "http"`** — attempting pagination with other connector types throws `RuntimeError: Invalid agency configuration. Pagination can be configured only for http connector type.`
+- **Pagination does not work with `agency`**: depending on the configuration the `pagination` block is ignored, the module fails with `RuntimeError: Cannot read properties of undefined (reading 'payload')` after the first round, the next rounds bypass the agent, or an `action: inputs` module repeats without end. See the Pagination section above.
 - **Auth headers are auto-sanitized** — the runtime automatically adds `request.headers` to `log.sanitize` for all agency requests. No manual sanitize config needed for agency auth.

@@ -4,7 +4,7 @@
 
 How a Make custom app travels from the editable SDK code (stored in a database) to a **compiled file package** that a Make zone instance actually executes. This is the missing half of the picture for code reviews: it explains *why* `review-changes.js` behaves the way it does, what `approved` / `compile` really mean, and where a "live" app physically lives.
 
-> **Source repos** (Make internal — referenced the way `runtime-reference.md` references `imt-app-runtime`):
+> **Source repos** (Make internal):
 > `imt-web-api` (admin/SDK API + DB store), `make-apps-processor` (compiler), `imt-ipm-server` (package registry, IPM = Integromat Package Manager), `imt-ipm-service` (per-zone installer), `integromat` (zone/HQ instance structure). Every claim below was verified against these sources; if a detail is not in source it is marked as such.
 
 ## 1. Two representations of one app

@@ -31,7 +31,12 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 
 ## References — read when …
 
-- [runtime-reference.md](references/runtime-reference.md) — writing/reviewing `api.imljson`: directives, URL/QS normalization, `temp`, pagination, triggers, `api.endpoint`, `environment`/`internal`, limits
+- [runtime-reference.md](references/runtime-reference.md) — writing/reviewing `api.imljson`: order of steps, directives, what each module type returns, request building, response handling, IML expressions and functions, limits; parts for pagination, `api.endpoint`, `environment`/`internal`, connections, `isc`
+  - [runtime-reference/polling-triggers.md](references/runtime-reference/polling-triggers.md): polling triggers (`response.trigger`, saved state, "Choose where to start", items that share a date, `order`, default limit)
+  - [runtime-reference/webhooks.md](references/runtime-reference/webhooks.md): instant triggers with an `api` (dedicated and shared webhooks, `verification` and `respond`, attach, update and detach, responder)
+  - [runtime-reference/http-requests.md](references/runtime-reference/http-requests.md): TLS options, `aws`, `oauth` signing, `shareCookies`, `gzip`, headers Make adds, the older HTTP client
+  - [runtime-reference/iml-context.md](references/runtime-reference/iml-context.md): which IML roots a component can read, what custom IML function code can see and its limits
+  - [runtime-reference/on-prem-agent.md](references/runtime-reference/on-prem-agent.md): the `agency` directive (a customer system reached through the on-premise agent)
 - [communication-reference.md](references/communication-reference.md) — request/response spec, pagination, RPC, file upload/download patterns
 - [component-patterns-reference.md](references/component-patterns-reference.md) — base, connections per auth type, install params, errors, webhook, trigger, responder
 - [parameters-reference.md](references/parameters-reference.md) — any `expect` / `parameters` / `interface` edit
