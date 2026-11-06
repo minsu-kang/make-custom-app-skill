@@ -68,7 +68,7 @@ May be an empty object `{}` when the developer hasn't set them (observed on goog
 
 ## SDK Admin API Surface
 
-Base: `{zone}/api/v2/admin/sdk/apps/{slug}/{version}` — route source: `imt-web-api/lib/routers/sdk.js` (endpoints child router).
+Base: `{zone}/api/v2/admin/sdk/apps/{slug}/{version}`. In public mode the same routes run on `https://{zone}/api/v2/sdk/apps/{slug}/{version}` (the scripts pick the base).
 
 | Call | Purpose |
 |---|---|
@@ -192,7 +192,7 @@ All skill scripts handle endpoints:
 | `download-app.js` | Downloads `endpoints/{name}/{api,input_parameters,output_parameters,scope}.imljson` + `context.md`; `metadata.json` gains `endpoints[]` |
 | `review-changes.js` | Generic — endpoint change rows (`endpoint/{name}/{code}`) already flow through |
 | `update-app.js` | `endpoint/<name>/<section>` — sections PUT via camelCase API path; `context` PATCHes the entity metadata from a `.md` file |
-| `create-component.js` | `endpoint <name> <label> [connection] [description] [initMode]` (initMode `example`\|`blank`) |
+| `create-component.js` | `endpoint <name> <label> [connection] [description] [initMode]` (initMode `example`\|`blank`; the default is `example` in employee mode and `blank` in public mode) |
 | `update-component.js` | `endpoint` type — `label`, `description` (PATCH), `public`, `deprecated`, `archived` (dedicated POST routes). **Visibility is self-service**: `node update-component.js {slug} {ver} endpoint {name} public=true` (write script → same confirmation rule). Ask the user to toggle it in the SDK UI only if the call fails |
 | `delete-component.js` | `endpoint` type — `DELETE .../endpoints/{name}` (public-app deletability left to the server) |
 | `test-component.js` | ✅ `endpoint` type — same mockup `test.js` + communications as modules/RPCs; expected output is the **unwrapped object** (see [component-test-guide.md](component-test-guide.md)). Live execute: `run-component.js` ([run-live.md](../workflows/run-live.md)) or platform Run Endpoint |

@@ -1,6 +1,6 @@
 {
   "name": "make-custom-app",
-  "description": "Marketplace of the make-custom-app plugin for Make employees",
+  "description": "Marketplace of the make-custom-app plugin for Make custom app developers",
   "owner": { "name": "minsu-kang" },
   "plugins": [
     {

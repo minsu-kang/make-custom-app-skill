@@ -27,12 +27,14 @@ Every IML function **must** have a `test.js` file. Tests use `it()` blocks with 
 ### Running Tests Locally
 
 ```bash
-node test-function.js <app-slug> <app-version> [function-name] [--tz=TIMEZONE]
+node test-function.js <app-slug> <app-version> [function-name ...] [--tz=TIMEZONE] [--engine=shim|runtime]
 ```
 
-- Uses `@integromat/iml` from `imt-app-runtime` for full built-in IML function support (`parseDate`, `formatDate`, etc.)
+- (Employee mode.) Uses `@integromat/iml` from `imt-app-runtime` for full built-in IML function support (`parseDate`, `formatDate`, etc.)
 - Default timezone: **UTC** (matches Make Apps SDK extension default)
 - Override with `--tz=Europe/Prague` if needed
+- In public mode `test-function.js` runs on the plugin's shim of the documented built-ins: 83 functions, exit 2 for a test that used one it lacks, `--engine=shim` to choose it.
+- The help.make.com 'Custom functions' page describes scenario-level custom functions, a different feature (300 ms, no calls between functions).
 
 ```js
 it('should return expected result for valid input', () => {

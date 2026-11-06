@@ -72,12 +72,14 @@ const TASK_WORKFLOWS = new Set([
 	'code-review.md',
 	'create-endpoint.md',
 	'feature-request.md',
+	'module-test.md',
 	'run-live.md',
+	'self-review.md',
 	'task-refinement.md',
 ]);
 const SHARED_STEP_WORKFLOWS = new Set(['lifecycle.md', 'jira-ticket.md', 'push-changes.md', 'commit-compile.md', 'close-out.md']);
-const NO_TASK_POINTERS = new Set([...SHARED_STEP_WORKFLOWS, 'run-live.md']);
-const TASK_ONLY_NAME = /(?<![\w-])(?:app-question|app-task|bug-investigation|code-review|create-endpoint|feature-request|task-refinement)\.md/;
+const NO_TASK_POINTERS = new Set([...SHARED_STEP_WORKFLOWS, 'run-live.md', 'module-test.md']);
+const TASK_ONLY_NAME = /(?<![\w-])(?:app-question|app-task|bug-investigation|code-review|create-endpoint|feature-request|self-review|task-refinement)\.md/;
 const OLD_INSTALL_PATH = /\.(?:claude|cursor)\/(?:skills\/make-custom-app|make-app-contexts)(?![\w-])|make-app-contexts\//;
 // make-app-setup names the old install to clean it up; README.md and CLAUDE.md explain the migration.
 const isOldPathExempt = (rel) => rel.startsWith('skills/make-app-setup/') || rel === 'README.md' || rel === 'CLAUDE.md';

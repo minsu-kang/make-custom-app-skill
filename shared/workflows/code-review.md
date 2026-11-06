@@ -1,14 +1,14 @@
 # Code Review Workflow
 
-> Read [lifecycle.md](lifecycle.md) and [jira-ticket.md](jira-ticket.md) first. This file adds only what is review-specific.
+> Read [lifecycle.md](lifecycle.md) and, when a Jira ticket is attached in employee mode, [jira-ticket.md](jira-ticket.md) first. This file adds only what is review-specific. In `MODE: public` follow [self-review.md](self-review.md); it reuses the criteria, gates and output blocks of this file.
 
 ## Inputs
 
 - **slug + version** — required. Resolve per [lifecycle.md](lifecycle.md) §1 (inline → App HQ URL → IPME → ask: *"Please provide the app slug and version, e.g. `slug: slack`, `version: 4`."*).
-- **Jira ticket** — recommended. Without one, suggest attaching it (AC, change list, comments make the review accurate); if none exists, see the "Without a Jira ticket" bullet under Output format.
+- (Employee mode.) **Jira ticket** — recommended. Without one, suggest attaching it (AC, change list, comments make the review accurate); if none exists, see the "Without a Jira ticket" bullet under Output format.
 - Load context ([lifecycle.md](lifecycle.md) §3) **before** looking at code — prior reviews may hold unfixed findings.
 
-## Reviewer assignment (parent ticket only)
+## Reviewer assignment (parent ticket only, employee mode)
 
 Right after the ticket fetch ([jira-ticket.md](jira-ticket.md)), assign the **parent** to yourself so ownership is visible in Jira:
 
@@ -25,7 +25,7 @@ node "<plugin root>/shared/scripts/download-app.js" {slug} {version}      # bloc
 node "<plugin root>/shared/scripts/review-changes.js" {slug} {version}    # block_until_ms 60000
 ```
 
-Then read `~/.make-custom-app/contexts/{slug}-v{version}/reviews/latest.json` (`changes[]` with `id`, `group`, `item`, `code`, `old_value`, `new_value`). Never reuse a previous `latest.json`; never edit files under `~/.make-custom-app/contexts` after a review — `download-app.js` owns that copy.
+Then read `~/.make-custom-app/contexts/{slug}-v{version}/reviews/latest.json` (`changes[]` with `id`, `group`, `item`, `code`, `old_value`, `new_value`). Never reuse a previous `latest.json`; never edit files under `~/.make-custom-app/contexts` after a review — `download-app.js` owns that copy. In public mode the file can also hold a diff against a snapshot: [self-review.md](self-review.md) § Scope says how to read it.
 
 ### "0 changes" depends on `approved`
 
@@ -33,7 +33,7 @@ Change tracking is gated by `metadata.json` **`approved`**, not `compile` ([app-
 
 | `approved` | `review-changes.js` returns | Do |
 |---|---|---|
-| `false` (typical for a new `issuetype: "App"`) | Always 0 — SDK edits write straight to the DB, no change rows | **Review the full app code** against the AC (base, connections, every module/RPC/webhook/function, install/installSpec, groups, common). On re-review, re-read the full current code. Never say "nothing to review" or "all committed via SDK". Say: *"App is not approved (`approved: false`) → SDK edits write directly to the DB, no change rows → reviewing full app code."* |
+| `false` (typical for a new `issuetype: "App"`) | Always 0 — SDK edits write straight to the DB, no change rows | **Review the full app code** against the AC (base, connections, every module/RPC/webhook/function, install/installSpec, groups, common) (public mode: `common` values are masked; review keys and set or unset). On re-review, re-read the full current code. Never say "nothing to review" or "all committed via SDK". Say: *"App is not approved (`approved: false`) → SDK edits write directly to the DB, no change rows → reviewing full app code."* |
 | `true` | Real uncommitted delta (`old_value → new_value`), or 0 | Diff-based review. 0 here genuinely means "No uncommitted changes found." |
 
 Jira pre-review status is canonically `Compilation`; some developers set `Commit`. Both mean "ready for review" and `post-review-transition.js` accepts either.

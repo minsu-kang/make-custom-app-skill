@@ -4,8 +4,8 @@
 // Trigger test for Cursor (spec section 5, verification item 8). It runs the Cursor agent headless (`agent -p`) once per
 // prompt of prompts.json, watches the event stream, and records the first SKILL.md the agent reads (the caveman skill is
 // ignored). A positive prompt passes when a make-app-* skill is read (exact when it is the expected one); a negative
-// prompt passes when none is read. Run it after every change to a skill description. The pass mark is 18 of 20 positive
-// prompts.
+// prompt passes when none is read. Run it after every change to a skill description. The pass marks are 18 of 20 employee positive prompts (ids 1 to 20) and 9 of 10 public positive
+// prompts (ids 25 to 34).
 //
 //   node tools/trigger-test/run-cursor.js
 //     --mode plan|ask   plan (default) lets the agent act on action prompts; ask is read-only, so the agent often
@@ -83,6 +83,21 @@ function judge(event) {
 	return { kind: 'unsafe', tool: tool ? tool.replace('ToolCall', '') : 'unknown', cmd: args.command || args.path || '' };
 }
 
+const PASS_MARKS = { employee: '18 of 20', public: '9 of 10' };
+
+/** One summary line per prompt set that has results: positives, exact picks and clean negatives, with the set's pass mark. */
+function setSummaryLines(results) {
+	return Object.keys(PASS_MARKS)
+		.map((set) => {
+			const mine = results.filter((x) => x.set === set);
+			if (!mine.length) return null;
+			const pos = mine.filter((x) => x.kind === 'positive');
+			const neg = mine.filter((x) => x.kind === 'negative');
+			return `set=${set} positives: ${pos.filter((x) => x.pass).length}/${pos.length} (pass mark ${PASS_MARKS[set]}); exact: ${pos.filter((x) => x.exact).length}/${pos.length}; negatives clean: ${neg.filter((x) => x.pass).length}/${neg.length}`;
+		})
+		.filter(Boolean);
+}
+
 /** pass: a positive prompt read one of our skills, or a negative prompt did not. exact: it was the expected skill. */
 function classify(prompt, run) {
 	const ours = !!run.picked && run.picked.startsWith('make-app-');
@@ -123,7 +138,7 @@ function runOne(agent, prompt, opt) {
 	return new Promise((resolve) => {
 		const child = spawn(agent, buildArgs({ ...opt, prompt: prompt.prompt }), { stdio: ['ignore', 'pipe', 'ignore'], detached: true });
 		active.add(child);
-		const out = { id: prompt.id, kind: prompt.kind, expect: prompt.expect, picked: null, stoppedBy: 'finished', calls: 0, model: null };
+		const out = { id: prompt.id, kind: prompt.kind, expect: prompt.expect, set: prompt.set, picked: null, stoppedBy: 'finished', calls: 0, model: null };
 		const rl = readline.createInterface({ input: child.stdout });
 		let done = false;
 		let timer = null;
@@ -260,12 +275,13 @@ async function main() {
 	console.log(
 		`\ncursor positives selecting a make-app skill: ${pos.filter((x) => x.pass).length}/${pos.length}; exact: ${pos.filter((x) => x.exact).length}/${pos.length}; negatives clean: ${neg.filter((x) => x.pass).length}/${neg.length}; missed positives stopped by unsafe-tool: ${pos.filter((x) => !x.pass && String(x.stoppedBy).startsWith('unsafe-tool:')).length}; model: ${results[0] && results[0].model}`,
 	);
+	for (const line of setSummaryLines(results)) console.log(line);
 	const file = path.join(outDir, `results-cursor-${opts.mode}.json`);
 	fs.writeFileSync(file, JSON.stringify(results, null, 2));
 	console.log('wrote', file);
 }
 
-module.exports = { readOnlyShell, judge, classify, buildArgs, parseArgs, runOne, installCleanup };
+module.exports = { setSummaryLines, readOnlyShell, judge, classify, buildArgs, parseArgs, runOne, installCleanup };
 
 if (require.main === module) {
 	main().catch((err) => {

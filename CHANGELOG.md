@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.5.0 — 2026-11-06
+
+The workflows, hard rules and skill descriptions now cover public mode: a general Make user can take a task from the chat request to the push on their own app, and a Make employee keeps the steps as they were.
+
+- `shared/workflows/lifecycle.md` has a Public mode section, which the `MODE:` line of every task skill points to. It says what replaces the Jira ticket (the chat request), the app search (the user's own apps through the Make MCP server), compile, component tests and the ownership transfer, and it asks for a snapshot before the first write script of a task and says how to push a component back from it.
+- New `shared/workflows/self-review.md`: in public mode the code review skill reviews the user's own app against their request, from the change rows of an approved app or a diff against the newest snapshot, and ends with a fix list instead of a disposition. It gives the steps of Make's app review only when the user asks how to list the app for everyone; the plugin never publishes an app or requests the review.
+- New `shared/workflows/module-test.md`: in public mode a module is tested in a test scenario that the agent builds and runs through the Make MCP server after one yes per task, or that the user runs in the Make UI when the tools cannot find the app. `make-app-run-live` can start it for a module.
+- Short public-mode notes in the other workflows and in the references on code review, component tests, custom and built-in IML functions, endpoints, compilation and install parameters. `initMode` names its default per mode, module deprecation is described as possible only on a public app, and the reference lines that named internal source repositories and files are gone.
+- Hard rules 2, 4, 5, 8, 9, 10 and 11 state their public-mode form: the live-run notice and the test scenarios as confirmed steps, no publish or review request, a review without a disposition, the chat request as the acceptance criteria, the shim and live tests, masked common data, and checklist items marked `n/a (public mode)`.
+- The descriptions of the code review, bug, feature and refinement skills name work with or without a ticket, and the code review skill also names a review of the user's own app against their request. The setup skill names the Make API token and zone, and the items only Make employees need. The endpoint and run-live skills add fixtures only when a mockup clone is set, and `make-app-run-live` also tests a module once in a test scenario in public mode. The Cursor session hook, both `plugin.json` descriptions and the marketplace description now address any Make API token holder.
+- `shared/index.md` and `README.md` mark the employee-only scripts and steps; the README Scripts table has a Mode column.
+- Repository: `plugin-check.js` checks the two new workflows; the trigger test has 12 public prompts with their own pass mark (9 of 10 per editor) next to the 24 earlier prompts (18 of 20).
+
+Changes that Make employees see:
+
+- the `MODE:` line of the eight task skills, the changed hard rules, the descriptions of seven skills and the Cursor hook line (loaded in every session);
+- the Jira steps are marked employee mode in the workflows and skills, and the six task workflows read `jira-ticket.md` only when a Jira ticket is attached;
+- `initMode` of `create-component.js` is documented with its default per mode, and `push-changes.md` says that Make keeps `groups` as plain JSON, so comments in it are dropped;
+- the reference lines with internal repository and file names (the compilation reference header, the endpoints route source, the four source lines of the built-in functions reference) are gone, with the facts kept.
+
 ## 3.4.0 — 2026-11-06
 
 The scripts now work through the public-mode steps of an app change: function tests on a built-in shim, masked common data, a snapshot before a push, and a one-time live-run notice. They also fail loudly where they used to go on with a wrong result.

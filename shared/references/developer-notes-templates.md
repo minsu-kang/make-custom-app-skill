@@ -1,6 +1,6 @@
 # Developer Notes Templates
 
-> Read when: writing Jira Developer Notes (`customfield_10483`) after a bugfix or feature — ADF table templates.
+> Read when: writing Jira Developer Notes (`customfield_10483`) after a bugfix or feature — ADF table templates. In public mode the same tables are the change summary shown in the chat at close-out (no Jira field).
 
 When the user approves writing Developer Notes ([close-out.md](../workflows/close-out.md) step 1; never for code reviews), use the Bug Fix or Feature template matching the ticket type.
 

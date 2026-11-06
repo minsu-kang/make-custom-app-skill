@@ -13,7 +13,7 @@ const SKILLS_DIR = path.join(__dirname, '..', '..', '..', 'skills');
 const SKILLS = fs.readdirSync(SKILLS_DIR, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
 // The sentence measured in the Cursor trigger test (spec 11 item 8). A change here voids that measurement.
 const MEASURED =
-	'Skills for Make custom app work (IMLJSON, the Make Apps SDK, a Jira ticket for an app, an app slug): make-app-question, make-app-code-review, make-app-bug-investigation, make-app-feature-request, make-app-task, make-app-endpoint, make-app-run-live, make-app-task-refinement (Preparation tickets), make-app-setup. They sync the app source themselves, so use the matching skill instead of searching the file system for the app.';
+	'Skills for Make custom app work (IMLJSON, the Make Apps SDK, your own custom app with or without a Jira ticket, an app slug): make-app-question, make-app-code-review, make-app-bug-investigation, make-app-feature-request, make-app-task, make-app-endpoint, make-app-run-live, make-app-task-refinement (feasibility and plans, Preparation tickets), make-app-setup. They sync the app source themselves, so use the matching skill instead of searching the file system for the app.';
 
 function runClosedStdin(env = {}) {
 	return spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000, env: { ...process.env, ...env } });

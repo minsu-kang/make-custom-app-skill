@@ -1,6 +1,6 @@
 # Component Integration Test Guide
 
-> Read when: running or writing `test-component.js` tests — test file structure, `capture()` arguments, communications mocks, expected output, discovery, debugging, make-apps-mockup layout.
+> Read when: running or writing `test-component.js` tests — test file structure, `capture()` arguments, communications mocks, expected output, discovery, debugging, make-apps-mockup layout. Make employees only (needs the make-apps-mockup clone); in public mode see `shared/workflows/module-test.md` and `run-live.md`.
 
 ## When to Read This
 

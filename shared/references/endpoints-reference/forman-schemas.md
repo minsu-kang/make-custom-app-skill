@@ -70,7 +70,7 @@ An empty HTTP body reads as `{{body}}` = `null` ([runtime-reference.md § Empty 
 Platform behaviour of the API, which the form cannot settle:
 
 - `PUT /api/v2/admin/sdk/apps/{slug}/{version}/endpoints/{name}/{section}` returns HTTP 500 `42501` when the `input_parameters`, `output_parameters` or `scope` section is `[]` (the `{section}` in the path is `inputParameters`, `outputParameters` or `scope`, see [endpoints-reference.md § SDK Admin API Surface](../endpoints-reference.md#sdk-admin-api-surface)).
-- The same body succeeds on the non-admin route `PUT /api/v2/sdk/apps/{slug}/{version}/endpoints/{name}/{section}`, and only while the caller owns the app.
+- The same body succeeds on the non-admin route `PUT /api/v2/sdk/apps/{slug}/{version}/endpoints/{name}/{section}`, and only while the caller owns the app. In public mode `update-app.js` uses this route already.
 - Do not probe alternate content types or invent a placeholder to get past the 500.
 
 For endpoint component work done through the admin API:

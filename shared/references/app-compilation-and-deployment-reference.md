@@ -4,8 +4,7 @@
 
 How a Make custom app travels from the editable SDK code (stored in a database) to a **compiled file package** that a Make zone instance actually executes. This is the missing half of the picture for code reviews: it explains *why* `review-changes.js` behaves the way it does, what `approved` / `compile` really mean, and where a "live" app physically lives.
 
-> **Source repos** (Make internal):
-> `imt-web-api` (admin/SDK API + DB store), `make-apps-processor` (compiler), `imt-ipm-server` (package registry, IPM = Integromat Package Manager), `imt-ipm-service` (per-zone installer), `integromat` (zone/HQ instance structure). Every claim below was verified against these sources; if a detail is not in source it is marked as such.
+> **Sources** (Make internal): the Make admin and SDK API with its database store, the app compiler, the package registry (IPM, the Integromat Package Manager), the per-zone installer, and the structure of the zone and HQ instances. Every claim below was verified against these sources; if a detail is not in source it is marked as such.
 
 ## 1. Two representations of one app
 
@@ -63,6 +62,7 @@ A brand-new app (`issuetype: "App"`) is almost always `approved: false` / `compi
 - `POST /admin/sdk/apps/{slug}/{version}/compile` (admin) and the approve action both also call `enqueueCompile`.
 - `POST /sdk/apps/{slug}/{version}/rollback` discards **all** pending change rows at once — no id selection, not undoable.
 - All three are wrapped by `commit-changes.js` (`commit` body: `{ notify, message, changeIds }`, message 1–1000 chars; `rollback` needs `--confirm`; `--issue=KEY` chains the Jira transition). See [commit-compile.md](../workflows/commit-compile.md).
+- Public mode: on an unapproved app there are no change rows to commit or roll back; for an approved app Make reviews the pending changes (https://developers.make.com/custom-apps-documentation/app-maintenance/updating-your-app/approved-apps/approval-of-changes-in-approved-app).
 - The **Jira** workflow status for "ready for review" is canonically **`Compilation`**; some developers colloquially set **`Commit`** instead. Both mean the same thing and `post-review-transition.js` accepts either.
 
 ### `compile` flag is legacy / in-progress signal
@@ -83,6 +83,8 @@ The API's `app.compile` is no longer the primary DB boolean — `imt-web-api` ov
 | `403` | Caller has an admin role but lacks access to this endpoint. |
 | `404` | App is compiled but **not yet deployed to this zone via IPM** → unusable in that zone's scenario builder regardless of `approved` / `private`. A 404 in one zone says nothing about other zones. |
 
+Public mode: the scripts do not call this admin endpoint, because a public token cannot use the admin API; read `public` and `approved` from `metadata.json`.
+
 Scenario-builder visibility per version (and, independently, per module):
 
 - `private: false` + `deprecated: false` → visible and usable (full production).
@@ -99,7 +101,7 @@ Two **different** endpoints expose two **different** visibility controls for a m
 | `GET {zone}/api/v2/admin/apps/{slug}` → `app.versions[*].modules[*]` | `deprecated` / `private` | **Soft-hide.** Hidden from the scenario builder for **new** use, but scenarios **already using** the module keep rendering & running. Safe for existing customers. `deprecated: true` is the canonical "sunset / hide" flag. |
 | `GET {zone}/api/v2/admin/sdk/apps/{slug}/{version}/modules` → per-module | `public` | **Hard-disable.** `public: false` = module fully disabled (app-owner only). On compile/deploy the module **disappears from `app.versions[*].modules[*]` entirely** and is **removed from every existing scenario that uses it** → those scenarios break. |
 
-**Rule for hiding a module that is already in production use**: set **`deprecated: true`** (or hide via the admin panel). **Never use `public: false`** for that purpose — it is a hard breaking change for existing scenarios, not a soft-hide. `public: false` is only appropriate for modules that were never released to users (owner-only / WIP).
+**Rule for hiding a module that is already in production use**: set **`deprecated: true`** (or hide via the admin panel). **Never use `public: false`** for that purpose — it is a hard breaking change for existing scenarios, not a soft-hide. `public: false` is only appropriate for modules that were never released to users (owner-only / WIP). Public mode: Make deprecates a module only on a public app: `update-component.js {slug} {ver} module {name} deprecated=true` (on a private app Make answers `App is not public.`). On a private app say so, and never use `public=false` on a module that scenarios use.
 
 **Why `metadata.json` can mislead about hiding**: `download-app.js` stores SDK `public` on each module (`GET .../modules?cols[]=public`) and IPM `private` from `/admin/apps`. `private: null` means the module is absent from the deployed module list. It does not mean the module is public. Endpoint generation drops `public === false` or `private === true` ([endpoints-reference.md § Coverage Completeness](endpoints-reference.md#coverage-completeness)). A pending, uncompiled `public: false` can still show `private: false` on the deployed view until the next compile, which is why `public` is read from the SDK list. **Relabel-only** changes (appending "(deprecated)" to the module label) do **nothing** to visibility — the flag itself must be set.
 

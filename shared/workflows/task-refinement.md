@@ -1,6 +1,6 @@
 # Task Refinement Workflow
 
-> Read [lifecycle.md](lifecycle.md) and [jira-ticket.md](jira-ticket.md) first. Read-only investigation of a Jira ticket (typically **Preparation** status): read the ticket, the app, the references, and the vendor API docs; decide feasibility; draft an implementation plan; flag unavoidable breaking changes; optionally create an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. The only Jira write is the optional subtask, after explicit approval.
+> Read [lifecycle.md](lifecycle.md) and, when a Jira ticket is attached in employee mode, [jira-ticket.md](jira-ticket.md) first. Read-only investigation of a Jira ticket (typically **Preparation** status): read the ticket, the app, the references, and the vendor API docs; decide feasibility; draft an implementation plan; flag unavoidable breaking changes; optionally create an `Investigation` subtask. No code changes, no write scripts, no Developer Notes. The only Jira write is the optional subtask, after explicit approval. In public mode the chat request is the ticket.
 
 ## Trigger
 
@@ -10,7 +10,7 @@ Also: user asks for refinement / investigation / feasibility ("리파인", "검�
 
 Status not `Preparation` → warn once: *"The ticket status is `{status}` — task refinement is intended for Preparation. Continue anyway?"* Continue only on explicit yes.
 
-No ticket at all → ask for one; if the user wants a free-form feasibility study, run steps 2–7 and deliver the report in chat only.
+No ticket at all → ask for one; if the user wants a free-form feasibility study, run steps 2–7 and deliver the report in chat only. Public mode: never ask for a ticket; run steps 2 to 9 with the request from the chat as the AC, skip steps 1 and 11, ask the public question of step 10 instead of the subtask question, and in step 12 write the Work History line without a key.
 
 ## Steps
 
@@ -28,12 +28,12 @@ No ticket at all → ask for one; if the user wants a free-form feasibility stud
    | Pagination / iterate / wrapper | runtime-reference § Directives (iterate, output, wrapper) + § What each module type returns + § Handling the response + `runtime-reference/pagination.md` |
    | UX copy | app-ux-best-practices |
 
-5. **Research the vendor API** (hard rule 1). Primary source: `customfield_10283` or the docs URL in the description. Per endpoint: method + path, auth requirement (existing token? new scope/header?), request shape, response shape (paginated / wrapped / array), rate limit or credit cost, error shape. Docs unreachable → state *"API docs not fetchable from this environment — relying on user-provided info and similar existing modules."*
+5. **Research the vendor API** (hard rule 1). Primary source: `customfield_10283` or the docs URL in the description (public mode: the docs URL from the chat; ask when missing). Per endpoint: method + path, auth requirement (existing token? new scope/header?), request shape, response shape (paginated / wrapped / array), rate limit or credit cost, error shape. Docs unreachable → state *"API docs not fetchable from this environment — relying on user-provided info and similar existing modules."*
 6. **Decide feasibility** — **Feasible** (runtime + app express the AC fully; list reused components) / **Feasible with constraints** (name each constraint, e.g. cursor vs offset pagination, binary response needs `type: "binary"`) / **Not feasible** (each blocker with the reference section that proves it). Never "should work".
 7. **Draft the plan** (Feasible / with constraints): components to create and reuse, endpoint mapping, `api` / `expect` / `interface` skeletons as full JSON, pagination decision, custom functions (name, purpose, signature, size risk), pricing / quota notes, verbatim UX copy from the ticket.
-8. **Breaking-change check** (skip only for `issuetype: "App"`). For every modified existing component: expect field removed/renamed (saved settings break), interface field removed/renamed (mappings break), connection schema change (reconnect), module type change (bundle shape), auth flow change, pagination semantics change. Avoidable → state the alternative in the plan. Unavoidable → ⚠️ row in the report.
+8. **Breaking-change check** (skip only for `issuetype: "App"`) (public mode: for a new app, or when the user says no scenario uses the component). For every modified existing component: expect field removed/renamed (saved settings break), interface field removed/renamed (mappings break), connection schema change (reconnect), module type change (bundle shape), auth flow change, pagination semantics change. Avoidable → state the alternative in the plan. Unavoidable → ⚠️ row in the report.
 9. **Emit the report** (format below) in chat.
-10. **Ask**: *"Shall I create an **Investigation** subtask on `{KEY}` with this report?"* ("응" / "만들어줘" / "ㅇㅇ" = yes; "아니" / "스킵" = no).
+10. **Ask**: *"Shall I create an **Investigation** subtask on `{KEY}` with this report?"* ("응" / "만들어줘" / "ㅇㅇ" = yes; "아니" / "스킵" = no). Public mode instead: ask whether to save the plan in the context file, or to hand it to make-app-feature-request or make-app-endpoint.
 11. **Create the subtask on yes.** Parent = the ticket, or its `parent` if the ticket is itself a sub-task. If an open `Investigation` subtask exists, offer: comment on it (`addCommentToJiraIssue`) / create another / skip. Issue type `Sub-task` (verify with `getJiraProjectIssueTypesMetadata` if unsure). `createJiraIssue({ cloudId, projectKey, issueTypeName: "Sub-task", summary: "Investigation", description: <ADF>, parent: KEY, contentFormat: "adf" })`. Report the new key.
 12. **Context** ([close-out.md](close-out.md) steps 2 and 3, lightweight): one Work History line `{date} | {KEY} | Refinement | {verdict + plan summary}` and Pinecone sync. Skip when Not feasible with no plan, or when the app has no context file yet.
 
@@ -64,7 +64,7 @@ Four rules: **tables** for structured data (AC coverage, components, breaking ch
 ## Decisions   (omit if none)
 ### D1 — {title}
 {justification}
-**Spec change:** full post-change content of `installSpec.imljson` / `install.imljson` / `base.imljson` / `common.imljson` as a JSON block.
+**Spec change:** full post-change content of `installSpec.imljson` / `install.imljson` / `base.imljson` / `common.imljson` (public mode: `common.imljson` keys only; its values are masked) as a JSON block.
 
 ## Implementation Plan   (omit when Not feasible)
 ### New Components
@@ -91,8 +91,10 @@ Four rules: **tables** for structured data (AC coverage, components, breaking ch
 | # | Question | Owner | Blocks |
 
 ## Next Step
-Generic dev steps (spec changes → create components → implement per skeletons → push → admin sets install params per zone). Estimated effort: ~{n} day.
+Generic dev steps (spec changes → create components → implement per skeletons → push → admin sets install params per zone (public mode: no admin step; the owner keeps app-wide values in common data in the Make UI)). Estimated effort: ~{n} day.
 ```
+
+Public mode: heading `# Task Refinement: {slug} v{version}, {one-line request}`; rows App, Request (one line), Refinement date; leave out Parent status, Parent issuetype and Refined by.
 
 **ADF delivery.** Build the body programmatically (a small script) rather than hand-writing JSON — a feature-sized report has 10–15 `expand` nodes. Minimum shape per snippet:
 
@@ -106,8 +108,8 @@ One `expand` per file. If `createJiraIssue` is unavailable or rejects the body, 
 ## Checklist
 
 - [ ] App identified (slug + version, source stated), code synced, context loaded (skipped for a brand-new app)
-- [ ] Ticket, subtasks, comments, attachments read; status verified (warned if not Preparation)
+- [ ] Ticket, subtasks, comments, attachments read; status verified (warned if not Preparation) (public mode: request taken from the chat)
 - [ ] App scanned; references re-read; vendor API researched with sources
 - [ ] Feasibility verdict cited; plan drafted; breaking changes checked
-- [ ] Report emitted; subtask question asked
-- [ ] Subtask created on approval (duplicate check done); context + Pinecone updated
+- [ ] Report emitted; subtask question asked (public mode: save or hand-off asked)
+- [ ] Subtask created on approval (duplicate check done); context + Pinecone updated (public mode: no subtask)

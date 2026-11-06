@@ -181,6 +181,22 @@ test('shared step files must not point into task workflows', () => {
 	assert.equal(run(withFile('shared/workflows/close-out.md', '# Close\n\nsee code-review-criteria.md\n')).status, 0);
 });
 
+test('module-test.md and self-review.md are task workflows, and module-test.md names no task workflow, self-review.md included', () => {
+	let r = run(withFile('shared/workflows/module-test.md', '# Module test\n'));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /module-test\.md: task workflow has no "## Checklist" section/);
+	r = run(withFile('shared/workflows/self-review.md', '# Self-review\n'));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /self-review\.md: task workflow has no "## Checklist" section/);
+	r = run(withFile('shared/workflows/module-test.md', '# Module test\n\nsee code-review.md\n\n## Checklist\n\n- [ ] x\n'));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /module-test\.md:3: shared step file points into a task workflow/);
+	r = run(withFile('shared/workflows/lifecycle.md', '# Lifecycle\n\nsee self-review.md\n'));
+	assert.equal(r.status, 1);
+	assert.match(r.out, /lifecycle\.md:3: shared step file points into a task workflow/);
+	assert.equal(run(withFile('shared/workflows/module-test.md', '# Module test\n\nsee run-live.md, push-changes.md and lifecycle.md\n\n## Checklist\n\n- [ ] x\n')).status, 0);
+});
+
 test('--scope limits the scan and accepts a single file', () => {
 	const files = { ...CLEAN, 'shared/workflows/x.md': 'see lifecycle §6\n' };
 	assert.equal(run(files).status, 1);

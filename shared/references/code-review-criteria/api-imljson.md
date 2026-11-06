@@ -6,6 +6,8 @@
 
 **Before running or writing component tests**, re-read `<plugin root>/shared/references/component-test-guide.md` for communications mock structure, `transformOutput()`, and `assert.deepStrictEqual` patterns.
 
+In `MODE: public` skip this section with the note 'Component integration tests need a Make employee account', and list a live run (RPC, Endpoint) or a test scenario (module) under Next steps.
+
 When **any** component's `api.imljson` file is changed in the review (modules, RPCs, connections, webhooks, endpoints), **automatically run `test-component.js`** after `download-app.js` completes:
 
 ```
@@ -120,21 +122,21 @@ When the vendor lists more than one scope name (for example `posts:read`, `posts
 
 ### Branding Consistency for Apps in an Existing Family (Mandatory for new apps)
 
-When the Jira ticket type is **App** (new app) AND the app slug shares a prefix with other published apps (e.g. `google-ads-*`, `microsoft-*`, `slack-*`, `hubspot-*`), verify the app matches the family's visual identity:
+When the Jira ticket type is **App** (new app) (public mode: when the user says the app is new) AND the app slug shares a prefix with other published apps (e.g. `google-ads-*`, `microsoft-*`, `slack-*`, `hubspot-*`), verify the app matches the family's visual identity:
 
 **Checklist:**
 
-1. **Theme color**: Fetch via admin API — `GET /sdk/apps/{slug}/{version}` returns `app.theme` (hex string). Compare with sibling apps in the same family. A value of `#cccccc` means the developer never set it (platform default placeholder) — always flag this on a family-aligned submission.
+1. **Theme color**: Fetch via admin API — `GET /sdk/apps/{slug}/{version}` returns `app.theme` (hex string). Compare with sibling apps in the same family. A value of `#cccccc` means the developer never set it (platform default placeholder) — always flag this on a family-aligned submission. In public mode read `theme` from `metadata.json`; there is no admin call.
 2. **Logo/icon**: Check that the family's shared logo asset has been uploaded. Icons are typically managed via Admin UI, not code — but the review should still note a missing/default icon as an improvement and point the developer to the family's design asset.
 3. **Label/description style**: Sentence casing, product name spelling, and "formerly X" conventions must match the family.
 
-**Example API call** (to verify theme before review):
+**Example API call** (to verify theme before review) (employee mode):
 
 ```
 curl -s "$MAKE_ADMIN/sdk/apps/{slug}/{version}" -H "Authorization: Token $KEY" | jq .app.theme
 ```
 
-**Verdict**: mismatch is usually **Improvement Needed** (not a hard blocker), but for a family of approved apps it's still a required consistency check before LGTM. Flag in the review so the developer can align theme via Admin UI or `PATCH /sdk/apps/{slug}/{version}` with `{ "theme": "#......" }`.
+**Verdict**: mismatch is usually **Improvement Needed** (not a hard blocker), but for a family of approved apps it's still a required consistency check before LGTM. Flag in the review so the developer can align theme via Admin UI (public mode: the Make app editor) or `PATCH /sdk/apps/{slug}/{version}` with `{ "theme": "#......" }`.
 
 ### Runtime Default Error Handling (Do NOT flag as missing)
 

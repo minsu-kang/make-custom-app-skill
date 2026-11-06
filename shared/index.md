@@ -47,16 +47,16 @@ Quick facts: IMLJSON allows `//` comments · IML indices are 1-based (`foo[]` = 
 - [custom-functions-reference.md](references/custom-functions-reference.md) — `functions/*/code.js` + `test.js` conventions
 - [app-ux-best-practices.md](references/app-ux-best-practices.md) — labels, hints, fields, messages, ordering
 - [polling-trigger-guide.md](references/polling-trigger-guide.md) — type-1 trigger order / date filtering / epoch
-- [component-test-guide.md](references/component-test-guide.md) — `test-component.js` mocks and debugging
+- [component-test-guide.md](references/component-test-guide.md) — `test-component.js` mocks and debugging (Make employees; public mode: [module-test.md](workflows/module-test.md))
 - [code-review-criteria.md](references/code-review-criteria.md) — review categories, out-of-scope list, ES6+, tests, UX, runtime false positives
 - [code-smells-reference.md](references/code-smells-reference.md) — quality thresholds
 - [security-reference.md](references/security-reference.md) — credentials, OAuth, signatures, SSRF, data exposure
-- [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md) — `approved`/`compile`/changes, visibility flags, admin endpoints, IPM pipeline
+- [app-compilation-and-deployment-reference.md](references/app-compilation-and-deployment-reference.md) — `approved`/`compile`/changes, visibility flags, admin endpoints, IPM pipeline (admin endpoints and the IPM pipeline: employee mode)
 - [component-scaffold-templates.md](references/component-scaffold-templates.md) — is a review `old_value` untouched SDK boilerplate?
 - [endpoints-reference.md](references/endpoints-reference.md) — SDK Endpoints entity, admin API, schemas, review guidance
-- [developer-notes-templates.md](references/developer-notes-templates.md) — Jira Developer Notes (bugfix / feature)
+- [developer-notes-templates.md](references/developer-notes-templates.md) — Jira Developer Notes (bugfix / feature) (public mode: the change summary in the chat)
 - [examples.md](references/examples.md) — full app example (fictional vendor)
 
 ## Scripts (`<plugin root>/shared/scripts/`)
 
-`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` · `review-changes.js {slug} {ver}` → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` · `test-function.js` / `test-component.js` · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, [run-live.md](workflows/run-live.md)) · `download-jira-ticket-attachment.js {key}` · `post-review-transition.js {key} committed|returned|commit` · `cleanup-legacy.js --plan|--apply {digest} --groups claude,cursor|--restore|--decline {digest}` (make-app-setup only). Usage details are in the workflows.
+`check-setup.js` · `setup-secrets.js` (user terminal only) · `download-app.js {slug} {ver}` (`--snapshot`; public mode masks common) · `review-changes.js {slug} {ver}` (public mode: the change rows when Make lists them, else on an app that is not approved a diff against the newest snapshot) → `reviews/latest.json` · `update-app.js` · `create-component.js` / `update-component.js` / `delete-component.js` · `commit-changes.js {slug} {ver} commit|rollback|compile` (compile: employee only; commit and rollback: on an approved app) · `test-function.js` (public mode: built-in shim) / `test-component.js` (employee only) · `run-component.js {slug} {ver} endpoint|rpc {name}` (live run, [run-live.md](workflows/run-live.md)) · `download-jira-ticket-attachment.js {key}` (employee only) · `post-review-transition.js {key} committed|returned|commit` (employee only) · `cleanup-legacy.js --plan|--apply {digest} --groups claude,cursor|--restore|--decline {digest}` (make-app-setup only). Usage details are in the workflows.
