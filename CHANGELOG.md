@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.1 — 2026-11-06
+
+The plugin gets a license and an unofficial notice. No skill, workflow, rule or script changes.
+
+- New `LICENSE` (MIT) and the `license` field in both `plugin.json` files.
+- `README.md` opens with a notice that the plugin is an unofficial community plugin that Make does not make, endorse or support. The intro paragraph on the two modes is split in two, and a License section names the license and the third-party notices of the IML function shim.
+
 ## 3.5.0 — 2026-11-06
 
 The workflows, hard rules and skill descriptions now cover public mode: a general Make user can take a task from the chat request to the push on their own app, and a Make employee keeps the steps as they were.
