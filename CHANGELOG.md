@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.4.0 — 2026-11-05
+## 3.4.0 — 2026-11-06
 
 The scripts now work through the public-mode steps of an app change: function tests on a built-in shim, masked common data, a snapshot before a push, and a one-time live-run notice. They also fail loudly where they used to go on with a wrong result.
 
