@@ -2,7 +2,11 @@
 
 A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and how the Make runtime handles them.
 
-Any Make user can use the plugin with a Make API token. Before they work, the scripts check the token on your zone and pick a mode: employee mode when the token can call the Make admin API, public mode otherwise. Public mode works on your own apps through the public Make API. Employee mode keeps the Make employee flow: the admin API, a local `imt-app-runtime` clone, and Jira. In employee mode the scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` checks nothing because it only moves local files.
+> This is an unofficial community plugin by [minsu-kang](https://github.com/minsu-kang). It is not made, endorsed or supported by Make, and it comes with no warranty (see [License](#license)). Product names belong to their owners.
+
+Any Make user can use the plugin with a Make API token. Before they work, the scripts check the token on your zone and pick a mode: employee mode when the token can call the Make admin API, public mode otherwise. Public mode works on your own apps through the public Make API.
+
+Employee mode keeps the Make employee flow: the admin API, a local `imt-app-runtime` clone, and Jira. In employee mode the scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` checks nothing because it only moves local files.
 
 A few steps need a Make employee account: Jira tickets, compile, component tests, and ownership transfer. In public mode your chat request takes the place of a ticket, a test scenario in your Make account (after your yes) the place of component tests, and a push on an unapproved app is live at once, with a local snapshot taken before the first write of a task.
 
@@ -154,6 +158,10 @@ In Claude Code the tools are named `mcp__plugin_make-custom-app_make-app-context
 ```
 
 If the file already has a `permissions.allow` list, add the three names to it.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The code of the IML function shim that comes from the packages `moment`, `moment-timezone`, `jsonwebtoken`, `jws`, `ms` and `mime` keeps their MIT notices in [shared/scripts/lib/THIRD_PARTY_NOTICES.md](shared/scripts/lib/THIRD_PARTY_NOTICES.md).
 
 ## Repository
 
