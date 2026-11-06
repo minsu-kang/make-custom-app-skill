@@ -33,6 +33,8 @@
 const readline = require('readline');
 const { announceTarget } = require('./lib/settings');
 const { originStop } = require('./lib/mode-logic');
+const { statusDecision } = require('./lib/delete-component-logic');
+const { componentNameError } = require('./lib/common-mask-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -165,11 +167,14 @@ function confirm(question) {
 const ALWAYS_DELETABLE = new Set(['rpc', 'function']);
 const PRIVATE_ONLY_DELETABLE = new Set(['module', 'connection', 'webhook']);
 
-async function checkAppPublicStatus(baseUrl, auth, appSlug, appVersion) {
+async function checkAppPublicStatus(baseUrl, auth, appSlug, appVersion, mode) {
 	const url = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}?cols[0]=public&cols[1]=approved`;
-	const resp = await apiGetJson(url, auth);
-	const app = resp?.app || resp || {};
-	return { isPublic: !!app.public, isApproved: !!app.approved };
+	try {
+		return await apiGetJson(url, auth);
+	} catch (err) {
+		if (mode !== 'public') throw err;
+		return null;
+	}
 }
 
 async function deleteComponent(appSlug, appVersion, type, name, force) {
@@ -188,6 +193,13 @@ async function deleteComponent(appSlug, appVersion, type, name, force) {
 
 	const settings = require('./lib/mode').requireMode();
 	announceTarget(settings);
+	if (settings.mode === 'public') {
+		const gate = require('./lib/snapshot-store').pushGate({ slug: appSlug, version: appVersion });
+		if (!gate.ok) {
+			console.error(gate.lines.join('\n'));
+			process.exit(2);
+		}
+	}
 	let { baseUrl, auth } = settings;
 
 	console.log(`Configured API: ${baseUrl}`);
@@ -195,11 +207,16 @@ async function deleteComponent(appSlug, appVersion, type, name, force) {
 
 	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 
-	const { isPublic, isApproved } = await checkAppPublicStatus(baseUrl, auth, appSlug, appVersion);
-	const status = isApproved ? 'approved (public)' : isPublic ? 'public' : 'private';
+	const answer = await checkAppPublicStatus(baseUrl, auth, appSlug, appVersion, settings.mode);
+	const decision = statusDecision({ mode: settings.mode, answer, slug: appSlug, version: appVersion });
+	if (decision.stop) {
+		console.error(decision.stop.join('\n'));
+		process.exit(1);
+	}
+	const status = decision.label;
 	console.log(`  App status: ${status}`);
 
-	if (isPublic && PRIVATE_ONLY_DELETABLE.has(type)) {
+	if (decision.isPublic && PRIVATE_ONLY_DELETABLE.has(type)) {
 		console.error(`\n  ✗ Cannot delete ${type} "${name}" — this app is ${status}.`);
 		console.error(`    Public/approved apps only allow deleting: rpc, function`);
 		process.exit(1);
@@ -253,6 +270,12 @@ if (!appSlug || !appVersion || !type || !name) {
 	console.log('  node delete-component.js monday 2 function buildAggregateSelect');
 	console.log('  node delete-component.js monday 2 rpc RpcAggregateColumns');
 	console.log('  node delete-component.js monday 2 module aggregateTableV2 --force');
+	process.exit(1);
+}
+
+const nameError = componentNameError(type, name);
+if (nameError) {
+	console.error(nameError);
 	process.exit(1);
 }
 

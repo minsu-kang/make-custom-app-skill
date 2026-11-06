@@ -7,10 +7,30 @@
  */
 const { parseBody, originHostOf, originStop, TOKEN_SCOPES, formatScopes } = require('./mode-logic');
 
-const MAX_RETRIES = 5;
-const PUBLIC_VISIBILITY = 'visibility unknown (public mode)';
+const { MAX_RETRIES, isTransientStatus } = require('./api-read');
+const { snapshotDoneLines } = require('./snapshot-logic');
+const PUBLIC_VISIBILITY_LINE = '  · Visibility flags (private, packagePrivate, ipmDeployedToZone) are not available in public mode. metadata.json keeps them as null.';
 const AUTH_FIX = `For HTTP 401 or 403: the Make API token was rejected, lacks one of the scopes ${formatScopes(TOKEN_SCOPES)}, or cannot read this app, and Make answers 403 for an app version that does not exist too. Check the slug and the version, then run check-setup.js.`;
 const RETRY_FIX = 'Retry later, and check the network, VPN or proxy.';
+const USAGE_LINES = [
+	'Usage: node download-app.js <app-slug> <app-version> [output-dir | --snapshot]',
+	'Example: node download-app.js google-docs 1',
+	'        node download-app.js instagram 5 /tmp/instagram-v5',
+	'        node download-app.js google-docs 1 --snapshot',
+];
+const SNAPSHOT_WITH_OUTPUT_DIR = 'ERROR: --snapshot saves to ~/.make-custom-app/snapshots and takes no output dir.';
+
+/** Removes every `--snapshot` from argv in place and says whether there was one. */
+function takeSnapshotFlag(argv) {
+	let found = false;
+	for (let i = argv.length - 1; i >= 0; i--) {
+		if (argv[i] === '--snapshot') {
+			argv.splice(i, 1);
+			found = true;
+		}
+	}
+	return found;
+}
 
 function isOk(result) {
 	return Number.isInteger(result.status) && result.status >= 200 && result.status < 300;
@@ -33,7 +53,7 @@ function classifySection(result) {
 /** Why a call counts as failed, without host, URL or token: an error code, 'HTTP n', or 'unexpected response'. */
 function failureReason(result) {
 	if (result.error) return result.error;
-	if (result.status === 429) return `HTTP 429 after ${MAX_RETRIES} retries`;
+	if (result.status === 429 || isTransientStatus(result.status)) return `HTTP ${result.status} after ${MAX_RETRIES} retries`;
 	if (isOk(result)) return 'unexpected response';
 	return `HTTP ${result.status}`;
 }
@@ -84,6 +104,11 @@ function cleanRow(row) {
 	return { ...row, modules: Array.isArray(row.modules) ? row.modules.filter(isObject) : [] };
 }
 
+/** The header of the visibility block: the admin app endpoint is named only where it is called. */
+function visibilityHeader(mode) {
+	return mode === 'public' ? '=== Visibility ===' : '=== Visibility (admin app endpoint) ===';
+}
+
 /**
  * The admin app endpoint (employee mode only): { ipmDeployed, verRow, line }. Never a failure, whatever the body: a
  * body whose versions are not a list counts as unusable, and rows that are not objects are skipped. A null result
@@ -91,7 +116,7 @@ function cleanRow(row) {
  */
 function visibilityOutcome(result, appVersion, where) {
 	const unknown = (line) => ({ ipmDeployed: null, verRow: null, line });
-	if (!result) return unknown(`  · ${PUBLIC_VISIBILITY}: the admin app endpoint was not called.`);
+	if (!result) return unknown(PUBLIC_VISIBILITY_LINE);
 	if (result.error) return unknown(`  · admin endpoint error: ${result.error}. Visibility flags = null.`);
 	if (result.status === 200) {
 		const body = parseBody(result.body);
@@ -114,20 +139,29 @@ function fixesFor(failed) {
 	return [...new Set(failed.map((f) => f.fix || (/^HTTP 40[13]$/.test(f.reason) ? AUTH_FIX : RETRY_FIX)))];
 }
 
-/** The Done block on stdout. With a failure it lists every failed section and says that nothing was written. */
-function doneLines({ saved, absent, failed, outputDir, mode }) {
+/**
+ * The Done block on stdout. With a failure it lists every failed section and says that nothing was written. A
+ * snapshot run (spec 3.3) ends with the snapshot lines instead of the Path line.
+ */
+function doneLines({ saved, absent, failed, outputDir, mode, snapshotMode = false, snapshot = null }) {
 	const lines = ['', '=== Done ==='];
 	if (failed.length) {
 		lines.push(`  Failed: ${failed.length}`);
 		for (const f of failed) lines.push(`    ✗ ${f.what} (${f.reason})`);
-		lines.push(`  Nothing was written: ${outputDir} is unchanged.`);
+		lines.push(snapshotMode ? '  Nothing was written: no snapshot was taken.' : `  Nothing was written: ${outputDir} is unchanged.`);
 		for (const fix of fixesFor(failed)) lines.push(`  ${fix}`);
 		return lines;
 	}
 	lines.push(`  Saved: ${saved} file(s)`, `  Absent: ${absent} (empty or not set on the server)`);
 	if (mode === 'public') lines.push('  Visibility: unknown (public mode)');
-	lines.push(`  Path: ${outputDir}`);
+	if (snapshot) lines.push(...snapshotDoneLines(snapshot));
+	else lines.push(`  Path: ${outputDir}`);
 	return lines;
+}
+
+/** The stderr lines when a snapshot could not be written: the error code and the step that clears it. */
+function snapshotWriteErrorLines(code) {
+	return [`ERROR: the snapshot could not be written (${code || 'error'}), so none was kept.`, 'Check that ~/.make-custom-app/snapshots can be written, then run the same command again.'];
 }
 
 /** The last line on stderr when a section failed. */
@@ -139,6 +173,9 @@ module.exports = {
 	MAX_RETRIES,
 	AUTH_FIX,
 	RETRY_FIX,
+	USAGE_LINES,
+	SNAPSHOT_WITH_OUTPUT_DIR,
+	takeSnapshotFlag,
 	classifySection,
 	failureReason,
 	readJson,
@@ -146,8 +183,10 @@ module.exports = {
 	readDetail,
 	gateFailure,
 	planOrigin,
+	visibilityHeader,
 	visibilityOutcome,
 	fixesFor,
 	doneLines,
+	snapshotWriteErrorLines,
 	failedErrorLine,
 };

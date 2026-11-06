@@ -254,8 +254,28 @@ describe('messages', () => {
 		]);
 		assert.deepEqual(logic.employeeOnlyMessage('test-component.js').split('\n'), [
 			'test-component.js is for Make employees only, and this Make API token is in public mode (the Make admin API refused it).',
-			'Do not retry or work around it: tell the user that this step needs a Make employee account.',
+			'Do not retry it. Tell the user that no component test ran here. Test an RPC or an Endpoint with run-component.js, and a module in a test scenario.',
 		]);
+	});
+
+	it('employeeOnlyMessage: one instruction per script, and a default for any other', () => {
+		const instead = {
+			'post-review-transition.js': 'There is no ticket flow in public mode. Skip this step and go on with the close-out.',
+			'download-jira-ticket-attachment.js': 'There is no ticket flow in public mode. Ask the user to drop the screenshots or logs into the chat or to give local file paths, and read them directly.',
+			'commit-changes.js compile': 'Compiling is not a step for the owner of an app: a push to an app that is not approved is live at once. Do not offer it again.',
+			'commit-changes.js --issue': 'There is no ticket flow in public mode. Run the same command without --issue.',
+			'foo.js': 'Tell the user that this step needs a Make employee account, and go on without it.',
+		};
+		for (const [what, text] of Object.entries(instead)) {
+			assert.deepEqual(
+				logic.employeeOnlyMessage(what).split('\n'),
+				[`${what} is for Make employees only, and this Make API token is in public mode (the Make admin API refused it).`, `Do not retry it. ${text}`],
+				what,
+			);
+		}
+		assert.deepEqual(Object.keys(logic.EMPLOYEE_ONLY_INSTEAD), ['test-component.js', 'post-review-transition.js', 'download-jira-ticket-attachment.js', 'commit-changes.js compile', 'commit-changes.js --issue']);
+		assert.equal(logic.EMPLOYEE_ONLY_DEFAULT, instead['foo.js']);
+		assert.equal(logic.employeeOnlyMessage('toString').split('\n')[1], `Do not retry it. ${logic.EMPLOYEE_ONLY_DEFAULT}`);
 	});
 
 	it('cursorAdminWarning: one line when the Cursor admin flag disagrees with the probe', () => {

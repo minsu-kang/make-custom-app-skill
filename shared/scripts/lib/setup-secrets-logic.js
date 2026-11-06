@@ -204,6 +204,23 @@ function formatStatus(updates) {
 	return Object.entries(updates).map(([key, value]) => `  ${key}: ${maskForDisplay(key, value)}`);
 }
 
+/**
+ * What the wizard prints above the MCP server questions: a title, one line about what the search is for, the two
+ * key pages and where the keys go. Public mode has no shared index (spec 3.5 row 17), so line 2 says the step is
+ * optional and most users skip it.
+ */
+function mcpIntroLines(mode) {
+	return [
+		'── MCP server / Pinecone (optional) ──',
+		mode === 'public'
+			? 'Optional search over your app notes. It needs a Pinecone index of your own and an OpenAI key for embeddings. Most users skip it: the local context files already keep your notes.'
+			: 'Shared app-context search. Needs a Pinecone index and an OpenAI key for embeddings.',
+		'Pinecone key:  https://app.pinecone.io',
+		'OpenAI key:    https://platform.openai.com/api-keys',
+		'The keys go into the secrets file, where the make-app-context server reads them.',
+	];
+}
+
 /** What the wizard prints last: the check-setup command, with its path quoted like every printed script command. */
 function nextStepLines(scriptsDir) {
 	return ['', 'Done. Verify by asking the agent in your editor to run:', `  ${scriptCommand('check-setup.js', scriptsDir)}`];
@@ -244,6 +261,7 @@ module.exports = {
 	promptHint,
 	maskForDisplay,
 	formatStatus,
+	mcpIntroLines,
 	nextStepLines,
 	proxyRerunEnv,
 	rerunExitCode,

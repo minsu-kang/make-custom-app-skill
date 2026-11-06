@@ -180,3 +180,46 @@ describe('modeItem', () => {
 		assert.equal(admin.fix, 'Nothing was changed. Retry later, and check the network, VPN or proxy.');
 	});
 });
+
+describe('mcpServerItem', () => {
+	const SECRETS = '/home/u/.make-custom-app-skill-secrets';
+	const KEYS = [
+		{ key: 'pinecone-api-key', variable: 'MAKE_APP_CONTEXT_PINECONE_API_KEY' },
+		{ key: 'openai-api-key', variable: 'MAKE_APP_CONTEXT_OPENAI_API_KEY' },
+	];
+	const WIZARD_LINE = 'Optional — the wizard asks for the Pinecone and OpenAI keys of the shared app-context server and saves them in the secrets file.';
+	const item = (mode, missing) => logic.mcpServerItem({ mode, missing, secretsPath: SECRETS, setupHint: HINT });
+	const OK = {
+		key: 'mcp-server',
+		status: 'ok',
+		detail: `keys are set (environment or ${SECRETS}); cannot check whether the server is registered: plugin MCP servers are not listed in ~/.claude.json or ~/.cursor/mcp.json`,
+		fix: null,
+	};
+
+	it('is ok when no key is missing, in every mode', () => {
+		for (const mode of ['employee', 'public', null]) assert.deepEqual(item(mode, []), OK, String(mode));
+	});
+
+	it("keeps today's optional item and its fix for an employee or an unknown mode", () => {
+		for (const mode of ['employee', null]) {
+			assert.deepEqual(item(mode, KEYS), {
+				key: 'mcp-server',
+				status: 'optional-missing',
+				detail: `missing: pinecone-api-key, openai-api-key (set MAKE_APP_CONTEXT_PINECONE_API_KEY, MAKE_APP_CONTEXT_OPENAI_API_KEY or the same key in ${SECRETS})`,
+				fix: `${HINT}\n${WIZARD_LINE}`,
+			}, String(mode));
+		}
+		assert.equal(item('employee', [KEYS[1]]).detail, `missing: openai-api-key (set MAKE_APP_CONTEXT_OPENAI_API_KEY or the same key in ${SECRETS})`);
+	});
+
+	it('row 16: public mode stays optional-missing with no fix and the public detail', () => {
+		const expected = {
+			key: 'mcp-server',
+			status: 'optional-missing',
+			detail: 'not needed in public mode: the shared Make app-context index is not available to public users, and your app notes stay in ~/.make-custom-app/contexts. Set the two keys only if you run a Pinecone index of your own.',
+			fix: null,
+		};
+		assert.deepEqual(item('public', KEYS), expected);
+		assert.deepEqual(item('public', [KEYS[0]]), expected);
+	});
+});

@@ -95,4 +95,29 @@ function modeItem({ creds, probe }) {
 	return item('mode', 'ok', `${probe.verdict} (admin API ${probe.admin.status})`);
 }
 
-module.exports = { CLAUDE_ITEM, CURSOR_ITEM, SCOPES_TEXT, splitMessage, tokenHelp, reportedMode, modeLine, credentialItem, modeItem };
+const MCP_PUBLIC_DETAIL = 'not needed in public mode: the shared Make app-context index is not available to public users, and your app notes stay in ~/.make-custom-app/contexts. Set the two keys only if you run a Pinecone index of your own.';
+const MCP_WIZARD_LINE = 'Optional — the wizard asks for the Pinecone and OpenAI keys of the shared app-context server and saves them in the secrets file.';
+
+/**
+ * The mcp-server item. missing lists the keys that are set neither as a MAKE_APP_CONTEXT_* variable nor in the secrets
+ * file: [{ key, variable }]. Public mode has no shared index, so a missing key stays optional and has no fix (spec 3.5
+ * row 16); every other mode keeps the item that asks for the keys.
+ */
+function mcpServerItem({ mode, missing, secretsPath, setupHint }) {
+	if (missing.length === 0) {
+		return item(
+			'mcp-server',
+			'ok',
+			`keys are set (environment or ${secretsPath}); cannot check whether the server is registered: plugin MCP servers are not listed in ~/.claude.json or ~/.cursor/mcp.json`,
+		);
+	}
+	if (mode === 'public') return item('mcp-server', 'optional-missing', MCP_PUBLIC_DETAIL);
+	return item(
+		'mcp-server',
+		'optional-missing',
+		`missing: ${missing.map(({ key }) => key).join(', ')} (set ${missing.map(({ variable }) => variable).join(', ')} or the same key in ${secretsPath})`,
+		`${setupHint}\n${MCP_WIZARD_LINE}`,
+	);
+}
+
+module.exports = { CLAUDE_ITEM, CURSOR_ITEM, SCOPES_TEXT, splitMessage, tokenHelp, reportedMode, modeLine, credentialItem, modeItem, mcpServerItem };

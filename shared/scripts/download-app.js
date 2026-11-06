@@ -3,11 +3,13 @@
  * Make Custom App full source code download script
  *
  * Usage:
- *   node download-app.js <app-slug> <app-version> [output-dir]
+ *   node download-app.js <app-slug> <app-version> [output-dir | --snapshot]
  *   node download-app.js google-docs 1
  *   node download-app.js instagram 5 /tmp/instagram-v5
+ *   node download-app.js google-docs 1 --snapshot
  *
- * Saves to ~/.make-custom-app/contexts/{slug}-v{version}/ (the same folder for every editor)
+ * Saves to ~/.make-custom-app/contexts/{slug}-v{version}/ (the same folder for every editor). With --snapshot it saves
+ * to a new ~/.make-custom-app/snapshots/{slug}-v{version}/{id}/ instead and leaves that folder alone (lib/snapshot-store.js).
  *
  * API key sources (resolved by lib/settings.js):
  *   Cursor      → ~/Library/Application Support/Cursor/User/settings.json (apps-sdk.environments)
@@ -17,14 +19,20 @@
  * version or on a component list fails. Files are written only when nothing failed; otherwise the Done block lists the
  * failed sections, nothing is written, and the exit code is 1. In public mode (lib/mode.js) the script reads the public
  * API, skips the admin visibility call, and fails on an app of another zone instead of switching hosts.
+ * HTTP 429, 502, 503 and 504 and network errors are retried (lib/api-read.js).
+ * In public mode every string and number of the app and connection common data is saved as a marker (lib/common-mask-logic.js).
  */
 
 const fs = require('fs');
 const path = require('path');
 const { getContextsDir } = require('./lib/paths');
-const { baseFor, errorCode, testOrigin, TEST_ORIGIN_VAR } = require('./lib/mode-logic');
+const { baseFor, testOrigin, TEST_ORIGIN_VAR } = require('./lib/mode-logic');
 const logic = require('./lib/download-app-logic');
+const read = require('./lib/api-read');
+const mask = require('./lib/common-mask-logic');
+const { appSnapshotsDir, writeSnapshot } = require('./lib/snapshot-store');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
+const SNAPSHOT = logic.takeSnapshotFlag(process.argv);
 
 const DEFAULT_CONTEXTS_DIR = getContextsDir();
 const TEST_API_ORIGIN = testOrigin(process.env[TEST_ORIGIN_VAR]);
@@ -57,45 +65,10 @@ const ENDPOINT_FILES = [
 	{ apiPath: 'scope', file: 'scope.imljson' },
 ];
 
-function sleep(ms) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * One GET: { status, body, error }. body is the response text; after a network failure status and body are null and
- * error is a short code (err.message is never printed: for a bad header value it holds the Authorization value).
- * With retry, a 429 and a network error are retried up to MAX_RETRIES times.
- */
-async function apiGet(url, auth, { retry = true } = {}) {
-	for (let retries = 0; ; retries++) {
-		const canRetry = retry && retries < logic.MAX_RETRIES;
-		try {
-			const resp = await fetch(url, {
-				headers: {
-					Authorization: auth,
-					'x-imt-apps-sdk-version': '2.4.0',
-				},
-			});
-			if (resp.status === 429 && canRetry) {
-				concurrency = Math.max(2, Math.floor(concurrency / 2));
-				const retryAfter = resp.headers.get('retry-after');
-				const delay = retryAfter
-					? parseInt(retryAfter, 10) * 1000
-					: BASE_DELAY_MS * Math.pow(2, retries);
-				console.error(`  ⏳ 429 Rate Limit → retrying in ${delay}ms (concurrency: ${concurrency})`);
-				await sleep(delay);
-				continue;
-			}
-			return { status: resp.status, body: await resp.text(), error: null };
-		} catch (err) {
-			if (canRetry) {
-				await sleep(BASE_DELAY_MS * Math.pow(2, retries));
-				continue;
-			}
-			return { status: null, body: null, error: errorCode(err) };
-		}
-	}
-}
+const onBackoff = (status) => {
+	if (status === 429 || status === 503) concurrency = Math.max(2, Math.floor(concurrency / 2));
+};
+const apiGet = (url, auth, { retry = true } = {}) => read.apiGet(url, { auth, retry, baseDelayMs: BASE_DELAY_MS, onBackoff });
 
 async function runBatch(tasks) {
 	const results = [];
@@ -109,20 +82,21 @@ async function runBatch(tasks) {
 	return results;
 }
 
-async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
+async function downloadApp(settings, appSlug, appVersion, customOutputDir, { snapshot: snapshotMode = false } = {}) {
 	let { baseUrl, host } = settings;
 	const { auth, mode } = settings;
 	const stats = { saved: 0, absent: 0 };
 	const failed = [];
 	const files = [];
+	const masked = [];
 	const outputDir = customOutputDir || path.join(DEFAULT_CONTEXTS_DIR, `${appSlug}-v${appVersion}`);
 
 	const fail = (failure) => {
 		failed.push(failure);
 		console.error(`  ✗ ${failure.what} (${failure.reason})`);
 	};
-	const finish = () => {
-		for (const line of logic.doneLines({ ...stats, failed, outputDir, mode })) console.log(line);
+	const finish = (snapshot = null) => {
+		for (const line of logic.doneLines({ ...stats, failed, outputDir, mode, snapshotMode, snapshot })) console.log(line);
 		if (failed.length) {
 			console.error(logic.failedErrorLine(failed.length, appSlug, appVersion));
 			process.exitCode = 1;
@@ -130,14 +104,17 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 	};
 	const keep = (relPath, result) => {
 		const outcome = logic.classifySection(result);
-		if (outcome === 'saved') {
-			files.push([relPath, result.body]);
-			stats.saved++;
-		} else if (outcome === 'absent') {
-			stats.absent++;
-		} else {
-			fail({ what: relPath, reason: logic.failureReason(result) });
+		if (outcome === 'absent') return void stats.absent++;
+		if (outcome !== 'saved') return fail({ what: relPath, reason: logic.failureReason(result) });
+		let body = result.body;
+		if (mode === 'public' && mask.isCommonFile(relPath)) {
+			const r = mask.maskCommon(body);
+			if (r.error) return fail({ what: relPath, reason: 'common data is not a JSON object, so it cannot be masked' });
+			body = r.text;
+			masked.push({ file: relPath, values: r.count });
 		}
+		files.push([relPath, body]);
+		stats.saved++;
 	};
 	const list = async (what, noun, url, key) => {
 		const r = logic.readList(await apiGet(url, auth), key);
@@ -172,7 +149,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 	}
 
 	console.log(`Actual API: ${baseUrl}`);
-	console.log(`Output: ${outputDir}\n`);
+	console.log(snapshotMode ? `Output: ${appSnapshotsDir(appSlug, appVersion)} (a new snapshot)\n` : `Output: ${outputDir}\n`);
 
 	const appBase = `${baseUrl}/sdk/apps`;
 	const verBase = `${appBase}/${appSlug}/${appVersion}`;
@@ -190,7 +167,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 	const modules = await list(
 		'module list',
 		'module(s)',
-		`${verBase}/modules?cols[]=name&cols[]=label&cols[]=typeId&cols[]=crud&cols[]=deprecated&cols[]=public`,
+		`${verBase}/modules?cols[]=name&cols[]=label&cols[]=description&cols[]=typeId&cols[]=crud&cols[]=deprecated&cols[]=public`,
 		'appModules',
 	);
 
@@ -288,7 +265,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 	//   404 → app compiled but NOT IPM-deployed to this zone (unusable in builder)
 	// Public mode has no admin API, so the call is not made. Only a run without failures gets here: the
 	// answer is used only for metadata.json.
-	console.log('\n=== Visibility (admin app endpoint) ===');
+	console.log(`\n${logic.visibilityHeader(mode)}`);
 	const adminResult = mode === 'public' ? null : await apiGet(`${baseUrl}/apps/${appSlug}`, auth, { retry: false });
 	const visibility = logic.visibilityOutcome(adminResult, appVersion, origin || host);
 	console.log(visibility.line);
@@ -309,6 +286,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 		compilationError: appObj.compilationError ?? null,
 		ipmDeployedToZone: ipmDeployed,
 		...(mode === 'public' ? { visibility: 'unknown (public mode)' } : {}),
+		...(mode === 'public' ? { commonMasked: { marker: mask.MARKER_DESCRIPTION, files: [...masked].sort((a, b) => (a.file < b.file ? -1 : 1)) } } : {}),
 		theme: appObj.theme ?? null,
 		public: appObj.public ?? null,
 		private: verRow?.private ?? null,
@@ -318,7 +296,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 		language: appObj.language ?? null,
 		countries: appObj.countries ?? null,
 		global: appObj.global ?? null,
-		downloadedAt: new Date().toISOString(),
+		downloadedAt: null,
 		modules: modules.map((m) => {
 			const vis = moduleVisibility.get(m.name) || {};
 			// `deprecated` and `public` come from the SDK modules endpoint.
@@ -331,6 +309,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 			return {
 				name: m.name,
 				label: m.label,
+				description: m.description ?? null,
 				typeId: m.typeId,
 				public: m.public ?? null,
 				private: vis.private ?? null,
@@ -362,6 +341,19 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 		}),
 	};
 
+	if (snapshotMode) {
+		metadata.downloadedAt = new Date().toISOString();
+		let taken;
+		try {
+			taken = writeSnapshot({ slug: appSlug, version: appVersion, files, metadata });
+		} catch (err) {
+			for (const line of logic.snapshotWriteErrorLines(err.code)) console.error(line);
+			process.exitCode = 1;
+			return;
+		}
+		return finish(taken);
+	}
+
 	console.log('\n=== Files ===');
 	for (const [relPath, content] of files) {
 		const filepath = path.join(outputDir, relPath);
@@ -370,6 +362,7 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 		console.log(`  ✓ ${relPath}`);
 	}
 	fs.mkdirSync(outputDir, { recursive: true });
+	metadata.downloadedAt = new Date().toISOString();
 	fs.writeFileSync(path.join(outputDir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8');
 	console.log('  ✓ metadata.json');
 
@@ -379,15 +372,19 @@ async function downloadApp(settings, appSlug, appVersion, customOutputDir) {
 const [appSlug, appVersion, outputDir] = process.argv.slice(2);
 
 if (!appSlug || !appVersion) {
-	console.log('Usage: node download-app.js <app-slug> <app-version> [output-dir]');
-	console.log('Example: node download-app.js google-docs 1');
-	console.log('        node download-app.js instagram 5 /tmp/instagram-v5');
+	for (const line of logic.USAGE_LINES) console.log(line);
+	process.exit(1);
+}
+
+if (SNAPSHOT && outputDir) {
+	console.error(logic.SNAPSHOT_WITH_OUTPUT_DIR);
+	for (const line of logic.USAGE_LINES) console.log(line);
 	process.exit(1);
 }
 
 const settings = require('./lib/mode').requireMode();
 
-downloadApp(settings, appSlug, appVersion, outputDir).catch((err) => {
+downloadApp(settings, appSlug, appVersion, outputDir, { snapshot: SNAPSHOT }).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);
 });

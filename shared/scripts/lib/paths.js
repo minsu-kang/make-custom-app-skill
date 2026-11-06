@@ -25,6 +25,11 @@ function getContextsDir(home = os.homedir()) {
 	return path.join(home, '.make-custom-app', 'contexts');
 }
 
+/** Snapshots of an app (spec 3.3) live next to the contexts. */
+function getSnapshotsDir(home = os.homedir()) {
+	return path.join(home, '.make-custom-app', 'snapshots');
+}
+
 /**
  * Which editor runs the script. It selects the Make credential source, so there is no silent default.
  * Order: --editor flag, CLAUDECODE, CURSOR_AGENT, the `editor:` line of the secrets file.
@@ -109,6 +114,7 @@ module.exports = {
 	PLUGIN_ROOT,
 	EditorError,
 	getContextsDir,
+	getSnapshotsDir,
 	resolveEditor,
 	scriptCommand,
 	setupCommand,

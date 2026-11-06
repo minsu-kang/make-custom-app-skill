@@ -20,7 +20,7 @@
  *     webhook-type: web, web-shared
  *
  *   endpoint <name> <label> [connection] [description] [initMode]
- *     initMode: example (default — clones the `model` app endpoint scaffold), blank
+ *     initMode: example (copies the endpoint scaffold of Make's model app; the default in employee mode), blank (an empty endpoint; the default in public mode)
  *     connection is stored as attachedAccounts: [connection]
  *
  * Examples:
@@ -39,6 +39,7 @@
 const fs = require('fs');
 const { announceTarget } = require('./lib/settings');
 const { originStop } = require('./lib/mode-logic');
+const cc = require('./lib/create-component-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -157,7 +158,7 @@ const TYPE_LABELS = {
 	12: 'Universal',
 };
 
-function buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args) {
+function buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args, mode) {
 	const appBase = `${baseUrl}/sdk/apps`;
 	const verBase = `${appBase}/${appSlug}/${appVersion}`;
 
@@ -229,18 +230,18 @@ function buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args) {
 		case 'endpoint': {
 			const [name, label, connection, description, initMode] = args;
 			if (!name || !label) {
-				console.error('Usage: create-component.js <slug> <version> endpoint <name> <label> [connection] [description] [initMode]');
-				console.error('  initMode: example (default — clones the model app endpoint scaffold), blank');
+				console.error(cc.endpointUsageLines().join('\n'));
 				process.exit(1);
 			}
-			if (initMode && !['example', 'blank'].includes(initMode)) {
-				console.error(`ERROR: Invalid initMode "${initMode}". Valid: example, blank`);
+			if (initMode && !cc.INIT_MODES.includes(initMode)) {
+				console.error(`ERROR: Invalid initMode "${initMode}". Valid: ${cc.INIT_MODES.join(', ')}`);
 				process.exit(1);
 			}
 			const body = { name, label };
 			if (description) body.description = description;
 			if (connection) body.attachedAccounts = [connection];
-			if (initMode) body.endpointInitMode = initMode;
+			const endpointInitMode = cc.endpointInitMode({ mode, initMode });
+			if (endpointInitMode) body.endpointInitMode = endpointInitMode;
 			return { url: `${verBase}/endpoints`, body, display: `Endpoint "${label}"` };
 		}
 
@@ -261,7 +262,7 @@ async function createComponent(appSlug, appVersion, type, args) {
 
 	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 
-	const { url, body, display } = buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args);
+	const { url, body, display } = buildEndpointAndBody(baseUrl, appSlug, appVersion, type, args, settings.mode);
 
 	console.log(`  Creating: ${display}`);
 	console.log(`  POST ${url}`);
@@ -279,6 +280,8 @@ async function createComponent(appSlug, appVersion, type, args) {
 	} else {
 		console.error(`  ✗ Creation failed (HTTP ${result.status})`);
 		console.error(`    ${result.message}`);
+		const more = cc.creationFailedLines({ mode: settings.mode, type });
+		if (more.length) console.error(more.join('\n'));
 		process.exit(1);
 	}
 }
@@ -286,32 +289,7 @@ async function createComponent(appSlug, appVersion, type, args) {
 const [appSlug, appVersion, type, ...args] = process.argv.slice(2);
 
 if (!appSlug || !appVersion || !type) {
-	console.log('Usage: node create-component.js <app-slug> <app-version> <type> [args...]');
-	console.log('');
-	console.log('Types:');
-	console.log('  module <name> <label> <type_id> [connection] [description]');
-	console.log('    type_id: 1=trigger, 4=action, 9=search, 10=instant_trigger, 11=responder, 12=universal');
-	console.log('');
-	console.log('  rpc <name> <label> [connection]');
-	console.log('');
-	console.log('  function <name>');
-	console.log('');
-	console.log('  connection <label> <auth-type>');
-	console.log('    auth-type: tokenAuth, oAuth, basic, digest, apiCert, apiKey, ...');
-	console.log('');
-	console.log('  webhook <label> <webhook-type> [connection]');
-	console.log('    webhook-type: web, web-shared');
-	console.log('');
-	console.log('  endpoint <name> <label> [connection] [description] [initMode]');
-	console.log('    initMode: example (default — clones the model app endpoint scaffold), blank');
-	console.log('');
-	console.log('Examples:');
-	console.log('  node create-component.js monday 2 module aggregateTableV2 "Aggregate Table (beta)" 4 monday');
-	console.log('  node create-component.js monday 2 rpc RpcAggregateColumns "Aggregate columns" monday');
-	console.log('  node create-component.js monday 2 function buildAggregateSelect');
-	console.log('  node create-component.js monday 2 connection "Monday v3" oAuth');
-	console.log('  node create-component.js monday 2 webhook "Monday Events" web monday');
-	console.log('  node create-component.js google-docs 1 endpoint listFiles "List Files" google-docs');
+	console.log(cc.USAGE_LINES.join('\n'));
 	process.exit(1);
 }
 

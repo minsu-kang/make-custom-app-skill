@@ -40,6 +40,7 @@ const MAKE_CALLERS = ['commit-changes', 'create-component', 'delete-component', 
 const CONTEXT_READERS = ['download-app', 'download-jira-ticket-attachment', 'review-changes', 'test-function'];
 // The scripts that read the app origin and switch zones in employee mode (download-app has its own tests).
 const ORIGIN_READERS = ['commit-changes', 'create-component', 'delete-component', 'review-changes', 'update-app', 'update-component'];
+const GATED = ['update-app', 'update-component', 'delete-component'];
 const OLD_LAYOUT = [/version-guard/, /skill-root/, /ensureFreshSkill/, /getSkillRoot/, /getEditorDir/, /SKILL_ROOT/];
 const ZONE = 'eu1.make.com';
 // An app origin that is not the token's zone. localhost, so that a switch to it reaches the mock and never the network.
@@ -171,6 +172,13 @@ describe('entry scripts in a fake HOME', () => {
 		fs.writeFileSync(secretsPath, `${lines.join('\n')}\n${extra}`, { mode: 0o600 });
 	}
 
+	/** A snapshot of my-app v1 taken now, so the snapshot gate of a public run lets the script reach its first request. */
+	function seedSnapshot() {
+		const dir = path.join(home, '.make-custom-app', 'snapshots', 'my-app-v1', '20261105-120000');
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify({ snapshot: { id: '20261105-120000', takenAt: new Date().toISOString() } }));
+	}
+
 	/** A Cursor settings file with one environment on the zone and the fake key; returns a function that removes it again. */
 	function writeCursorSettings() {
 		const file = cursorSettingsPath(process.platform, home);
@@ -299,6 +307,7 @@ describe('entry scripts in a fake HOME', () => {
 		for (const name of ORIGIN_READERS) {
 			it(`${name} in public mode stops when the app lives in another zone, before any request there`, async () => {
 				seed({ jira: false, tokenMode: 'public', mock: answerOrigin('/api/v2') });
+				if (GATED.includes(name)) seedSnapshot();
 				mode = '404';
 				const r = await run(name, originArgs(name));
 				assert.equal(r.code, 1, r.stdout + r.stderr);
@@ -326,6 +335,7 @@ describe('entry scripts in a fake HOME', () => {
 			for (const name of MAKE_CALLERS) {
 				it(`${name} in ${tokenMode} mode sends its first request to the ${tokenMode === 'employee' ? 'admin' : 'public'} API`, async () => {
 					seed({ jira: tokenMode === 'employee', tokenMode });
+					if (tokenMode === 'public' && GATED.includes(name)) seedSnapshot();
 					const r = await run(name, args(name), { untilRequest: true });
 					assert.deepEqual(requests, [firstRequest(name, tokenMode)], r.stdout + r.stderr);
 					assert.ok(!r.stdout.includes(FAKE_KEY) && !r.stderr.includes(FAKE_KEY), 'API key leaked');
@@ -502,8 +512,21 @@ describe('entry scripts in a fake HOME', () => {
 			assert.ok(!fs.existsSync(path.join(contexts(), 'my-app-v1')));
 		});
 
-		it('review-changes saves its review under ~/.make-custom-app/contexts', async () => {
+		it('review-changes exits 1 and creates no reviews folder when the app cannot be read', async () => {
 			seed();
+			mode = '404';
+			const r = await run('review-changes', ARGS['review-changes']);
+			assert.equal(r.code, 1, r.stdout + r.stderr);
+			assert.ok(!fs.existsSync(path.join(contexts(), 'my-app-v1', 'reviews')));
+		});
+
+		it('review-changes saves its review under ~/.make-custom-app/contexts', async () => {
+			seed({
+				mock: {
+					'GET /api/v2/admin/sdk/apps/my-app/1?cols[0]=origin': [200, { app: {} }],
+					'GET /api/v2/admin/sdk/apps/my-app/1?cols[0]=changes&cols[1]=approved': [200, { app: { approved: true, changes: [] } }],
+				},
+			});
 			mode = '404';
 			const r = await run('review-changes', ARGS['review-changes']);
 			assert.equal(r.code, 0, r.stdout + r.stderr);

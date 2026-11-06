@@ -5,6 +5,7 @@ const { spawnSync } = require('child_process');
 const { setupCommand } = require('./paths');
 const { loadSettings } = require('./settings');
 const { proxyEnv } = require('./access-guard-logic');
+const { readOwnedJson, writeOwnedJson } = require('./safe-file');
 const logic = require('./mode-logic');
 
 /**
@@ -12,7 +13,8 @@ const logic = require('./mode-logic');
  * Entry scripts call requireMode(); check-setup and the wizard call detectMode() and saveVerdict().
  *
  * requireMode() runs the probe in a child process because entry scripts are synchronous. The token goes to the child
- * over stdin, never on its command line. A verdict is cached for 24 hours under a hash of host and token.
+ * over stdin, never on its command line. A verdict is cached for 24 hours under a hash of host and token; the cache is
+ * read and written through safe-file.js.
  * MAKE_CUSTOM_APP_TEST_API_ORIGIN (http(s) on a loopback host only) sends every call and baseUrl to a local mock.
  */
 const CACHE_FILE = path.join(os.tmpdir(), logic.CACHE_FILE_NAME);
@@ -74,11 +76,7 @@ function probeSync(host, apiKey, { origin = envTestOrigin() } = {}) {
 }
 
 function readCache(file) {
-	try {
-		return JSON.parse(fs.readFileSync(file, 'utf8'));
-	} catch {
-		return null;
-	}
+	return readOwnedJson(file);
 }
 
 /** 'employee' | 'public' from a fresh cache entry of this host and token, else null. */
@@ -90,7 +88,7 @@ function cachedMode(host, apiKey, { cacheFile = CACHE_FILE, now = Date.now } = {
 /** employee and public are cached, badToken drops the cache, retry leaves it as it is. Never throws. */
 function saveVerdict(host, apiKey, verdict, { cacheFile = CACHE_FILE, now = Date.now } = {}) {
 	try {
-		if (logic.MODES.includes(verdict)) fs.writeFileSync(cacheFile, JSON.stringify(logic.cacheEntry(host, apiKey, verdict, now())), { mode: 0o600 });
+		if (logic.MODES.includes(verdict)) writeOwnedJson(cacheFile, logic.cacheEntry(host, apiKey, verdict, now()));
 		else if (verdict === 'badToken') fs.unlinkSync(cacheFile);
 	} catch {
 		/* tmp not writable, or nothing cached: the next run probes again */

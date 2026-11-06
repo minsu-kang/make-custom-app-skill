@@ -9,7 +9,7 @@
  *   node update-component.js <app-slug> <app-version> <type> <name> <key=value> [key=value...]
  *
  * Types and supported fields:
- *   module     label, description, connection, altConnection, webhook, typeId, crud, public
+ *   module     label, description, connection, altConnection, webhook, typeId, crud, public, deprecated (public mode only)
  *   rpc        label, connection, altConnection
  *   connection label
  *   webhook    label, connection, altConnection
@@ -19,14 +19,14 @@
  *   function   (not supported — functions have no patchable metadata)
  *
  * The "public" field (modules, endpoints) uses a separate API endpoint (POST .../public or
- * .../private); endpoint "deprecated"/"archived" use POST .../deprecate|undeprecate /
- * .../archive|unarchive. All can be combined with other fields in a single command.
+ * .../private); endpoint "deprecated"/"archived" and, in public mode, module "deprecated" use POST
+ * .../deprecate|undeprecate / .../archive|unarchive. All can be combined with other fields in a single command.
  *
  * Examples:
  *   node update-component.js monday 2 module aggregateTableV2 label="Aggregate Table"
  *   node update-component.js monday 2 module aggregateTableV2 label="New Label" description="New desc" connection=monday
- *   node update-component.js monday 2 module newModule public=true
- *   node update-component.js monday 2 module oldModule public=false
+ *   node update-component.js monday 2 module newModule public=true     # show the module in the scenario editor
+ *   node update-component.js monday 2 module oldModule public=false    # hide the module
  *   node update-component.js monday 2 rpc RpcAggregateColumns label="Aggregate columns"
  *   node update-component.js monday 2 connection monday label="Monday v2 Updated"
  *   node update-component.js monday 2 webhook monday label="Monday Webhook Updated"
@@ -38,6 +38,8 @@
 
 const { announceTarget } = require('./lib/settings');
 const { originStop } = require('./lib/mode-logic');
+const uc = require('./lib/update-component-logic');
+const { componentNameError } = require('./lib/common-mask-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -173,14 +175,6 @@ async function resolveOrigin(baseUrl, auth, appSlug, appVersion, { mode, host })
 	return baseUrl;
 }
 
-const ALLOWED_FIELDS = {
-	module: ['label', 'description', 'connection', 'altConnection', 'webhook', 'typeId', 'crud', 'public'],
-	rpc: ['label', 'connection', 'altConnection'],
-	connection: ['label'],
-	webhook: ['label', 'connection', 'altConnection'],
-	endpoint: ['label', 'description', 'public', 'deprecated', 'archived'],
-};
-
 const INTEGER_FIELDS = new Set(['typeId']);
 const BOOLEAN_FIELDS = new Set(['public', 'deprecated', 'archived']);
 
@@ -230,7 +224,7 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 		process.exit(1);
 	}
 
-	const allowed = ALLOWED_FIELDS[type];
+	const allowed = uc.ALLOWED_FIELDS[type];
 	if (!allowed) {
 		console.error(`ERROR: Unknown type "${type}". Supported: module, rpc, connection, webhook, endpoint`);
 		process.exit(1);
@@ -251,6 +245,18 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 
 	const settings = require('./lib/mode').requireMode();
 	announceTarget(settings);
+	const fieldError = uc.employeeFieldError({ mode: settings.mode, type, body });
+	if (fieldError) {
+		console.error(fieldError.join('\n'));
+		process.exit(1);
+	}
+	if (settings.mode === 'public') {
+		const gate = require('./lib/snapshot-store').pushGate({ slug: appSlug, version: appVersion });
+		if (!gate.ok) {
+			console.error(gate.lines.join('\n'));
+			process.exit(2);
+		}
+	}
 	let { baseUrl, auth } = settings;
 
 	console.log(`Configured API: ${baseUrl}`);
@@ -262,24 +268,13 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 	let hasError = false;
 
 	// Flag flips that use dedicated POST routes instead of PATCH fields.
-	const flagActions = [];
-	if ('public' in body && (type === 'module' || type === 'endpoint')) {
-		flagActions.push({ verb: body.public ? 'Publish' : 'Unpublish', path: body.public ? 'public' : 'private' });
-		delete body.public;
-	}
-	if ('deprecated' in body && type === 'endpoint') {
-		flagActions.push({ verb: body.deprecated ? 'Deprecate' : 'Undeprecate', path: body.deprecated ? 'deprecate' : 'undeprecate' });
-		delete body.deprecated;
-	}
-	if ('archived' in body && type === 'endpoint') {
-		flagActions.push({ verb: body.archived ? 'Archive' : 'Unarchive', path: body.archived ? 'archive' : 'unarchive' });
-		delete body.archived;
-	}
+	const { actions, rest } = uc.flagActions({ mode: settings.mode, type, body });
 
-	for (const action of flagActions) {
+	for (const action of actions) {
 		const actionUrl = `${url}/${action.path}`;
 
-		console.log(`  ${action.verb}: ${type} "${name}"`);
+		console.log(`  ${action.title}: ${type} "${name}"`);
+		if (action.note) console.log(action.note);
 		console.log(`  POST ${actionUrl}\n`);
 
 		const result = await apiPost(actionUrl, auth);
@@ -293,12 +288,12 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 		}
 	}
 
-	if (Object.keys(body).length > 0) {
+	if (Object.keys(rest).length > 0) {
 		console.log(`  Updating: ${type} "${name}"`);
 		console.log(`  PATCH ${url}`);
-		console.log(`  Fields: ${JSON.stringify(body, null, 2)}\n`);
+		console.log(`  Fields: ${JSON.stringify(rest, null, 2)}\n`);
 
-		const result = await apiPatch(url, auth, body);
+		const result = await apiPatch(url, auth, rest);
 
 		if (result.ok) {
 			console.log(`  ✓ Updated successfully (HTTP ${result.status})`);
@@ -315,26 +310,13 @@ async function updateComponent(appSlug, appVersion, type, name, kvArgs) {
 const [appSlug, appVersion, type, name, ...kvArgs] = process.argv.slice(2);
 
 if (!appSlug || !appVersion || !type || !name || kvArgs.length === 0) {
-	console.log('Usage: node update-component.js <app-slug> <app-version> <type> <name> <key=value> [key=value...]');
-	console.log('');
-	console.log('Updates component metadata (NOT file contents — use update-app.js for that).');
-	console.log('');
-	console.log('Types and supported fields:');
-	console.log('  module     label, description, connection, altConnection, webhook, typeId, crud, public');
-	console.log('  rpc        label, connection, altConnection');
-	console.log('  connection label');
-	console.log('  webhook    label, connection, altConnection');
-	console.log('  endpoint   label, description, public, deprecated, archived (context, annotations → update-app.js)');
-	console.log('  function   (not supported)');
-	console.log('');
-	console.log('Examples:');
-	console.log('  node update-component.js monday 2 module aggregateTableV2 label="Aggregate Table"');
-	console.log('  node update-component.js monday 2 module newModule public=true');
-	console.log('  node update-component.js monday 2 module oldModule public=false');
-	console.log('  node update-component.js monday 2 rpc RpcBoards label="List Boards" connection=monday');
-	console.log('  node update-component.js monday 2 connection monday label="Monday v2 Updated"');
-	console.log('  node update-component.js google-docs 1 endpoint getDocument label="Get a Document" public=true');
-	console.log('  node update-component.js google-docs 1 endpoint oldEndpoint deprecated=true');
+	console.log(uc.USAGE_LINES.join('\n'));
+	process.exit(1);
+}
+
+const nameError = componentNameError(type, name);
+if (nameError) {
+	console.error(nameError);
 	process.exit(1);
 }
 

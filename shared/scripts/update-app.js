@@ -36,6 +36,7 @@ const path = require('path');
 const { announceTarget } = require('./lib/settings');
 const { originStop } = require('./lib/mode-logic');
 const { parseAnnotations } = require('./lib/endpoint-annotations');
+const { isCommonComponentPath, componentPathError, commonRefusal } = require('./lib/common-mask-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
@@ -246,9 +247,16 @@ function buildApiUrl(baseUrl, appSlug, appVersion, componentPath) {
 	}
 }
 
-async function updateComponent(appSlug, appVersion, componentPath, filePath) {
+async function updateComponent(appSlug, appVersion, componentPath, filePath, checkedText) {
 	const settings = require('./lib/mode').requireMode();
 	announceTarget(settings);
+	if (settings.mode === 'public') {
+		const gate = require('./lib/snapshot-store').pushGate({ slug: appSlug, version: appVersion });
+		if (!gate.ok) {
+			console.error(gate.lines.join('\n'));
+			process.exit(2);
+		}
+	}
 	let { baseUrl, auth } = settings;
 
 	console.log(`Configured API: ${baseUrl}`);
@@ -258,7 +266,7 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 
 	baseUrl = await resolveOrigin(baseUrl, auth, appSlug, appVersion, settings);
 
-	const content = fs.readFileSync(filePath, 'utf-8');
+	const content = checkedText ?? fs.readFileSync(filePath, 'utf-8');
 	const [type, name, section] = componentPath.split('/');
 
 	// Endpoint `context` (markdown) and `annotations` (JSON) are metadata, not sections — no
@@ -280,7 +288,7 @@ async function updateComponent(appSlug, appVersion, componentPath, filePath) {
 	}
 
 	const apiUrl = buildApiUrl(baseUrl, appSlug, appVersion, componentPath);
-	const contentType = type === 'function' ? 'application/javascript' : type === 'common' ? 'application/json' : 'application/jsonc';
+	const contentType = type === 'function' ? 'application/javascript' : isCommonComponentPath(componentPath) ? 'application/json' : 'application/jsonc';
 
 	console.log(`  PUT ${apiUrl}`);
 	console.log(`  Content-Type: ${contentType}`);
@@ -322,7 +330,29 @@ if (!appSlug || !appVersion || !componentPath || !filePath) {
 	process.exit(1);
 }
 
-updateComponent(appSlug, appVersion, componentPath, filePath).catch((err) => {
+const pathError = componentPathError(componentPath);
+if (pathError) {
+	console.error(pathError);
+	process.exit(1);
+}
+
+// A common file is read once here: the guard checks exactly the text that is pushed.
+let checkedText = null;
+if (isCommonComponentPath(componentPath)) {
+	try {
+		checkedText = fs.readFileSync(filePath, 'utf-8');
+	} catch (err) {
+		console.error(`ERROR: cannot read ${filePath} (${err.code || 'error'})`);
+		process.exit(1);
+	}
+	const refusal = commonRefusal(checkedText, { componentPath, slug: appSlug, version: appVersion });
+	if (refusal) {
+		console.error(refusal);
+		process.exit(1);
+	}
+}
+
+updateComponent(appSlug, appVersion, componentPath, filePath, checkedText).catch((err) => {
 	console.error('ERROR:', err.message);
 	process.exit(1);
 });

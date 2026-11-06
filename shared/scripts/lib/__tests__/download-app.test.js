@@ -14,7 +14,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { cacheEntry, CACHE_FILE_NAME, TEST_ORIGIN_VAR } = require('../mode-logic');
 const { cacheKey: accessKey, JIRA_BASE_URL } = require('../access-guard-logic');
-const { RETRY_FIX, AUTH_FIX } = require('../download-app-logic');
+const { RETRY_FIX, AUTH_FIX, USAGE_LINES, SNAPSHOT_WITH_OUTPUT_DIR } = require('../download-app-logic');
 
 const SCRIPT = path.resolve(__dirname, '..', '..', 'download-app.js');
 const FAKE_KEY = 'FAKEKEY_download_SECRET';
@@ -22,6 +22,7 @@ const EMAIL = 'dev@make.com';
 const JIRA_TOKEN = 'FAKE_JIRA_TOKEN_dl';
 const ZONE = 'eu1.make.com';
 const DESTROY = Symbol('destroy');
+const flaky = (status, times, body) => { let n = 0; return () => (n++ < times ? status : body); };
 
 const GATE = { app: { origin: ZONE } };
 const ROUTES = () => ({
@@ -72,12 +73,18 @@ let port;
 let routes;
 let log;
 
+/** A route answer is a body, a status number, DESTROY, or a function of the URL that gives one of them or a promise of one. */
 function handle(req, res) {
 	const u = new URL(req.url, 'http://x');
-	log.push({ path: u.pathname, auth: req.headers.authorization, sdk: req.headers['x-imt-apps-sdk-version'] });
+	log.push({ path: u.pathname, url: req.url, auth: req.headers.authorization, sdk: req.headers['x-imt-apps-sdk-version'] });
 	const m = /^\/api\/v2(?:\/admin)?(\/.*)$/.exec(u.pathname);
 	let answer = m ? routes[m[1]] : undefined;
 	if (typeof answer === 'function') answer = answer(u);
+	if (answer instanceof Promise) return void answer.then((later) => respond(req, res, later));
+	return respond(req, res, answer);
+}
+
+function respond(req, res, answer) {
 	if (answer === DESTROY) return req.socket.destroy();
 	if (answer === undefined || typeof answer === 'number') {
 		const code = answer || 404;
@@ -89,6 +96,8 @@ function handle(req, res) {
 }
 
 const appDir = () => path.join(home, '.make-custom-app', 'contexts', 'my-app-v1');
+const snapshotsDir = () => path.join(home, '.make-custom-app', 'snapshots', 'my-app-v1');
+const walkFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]));
 const hits = (p) => log.filter((r) => r.path === p).length;
 const readMetadata = () => JSON.parse(fs.readFileSync(path.join(appDir(), 'metadata.json'), 'utf8'));
 
@@ -104,13 +113,14 @@ function seed(mode) {
 	fs.writeFileSync(path.join(tmp, CACHE_FILE_NAME), JSON.stringify(cacheEntry(ZONE, FAKE_KEY, mode, Date.now())));
 }
 
-/** Runs download-app.js my-app 1 against the mock with ROUTES plus `override`. */
-async function run({ mode = 'employee', override = {} } = {}) {
+/** Runs download-app.js with `args` (my-app 1 by default) against the mock with ROUTES plus `override`; `nodeArgs` go before the script. */
+async function run({ mode = 'employee', override = {}, args = ['my-app', '1'], nodeArgs = [] } = {}) {
 	routes = { ...ROUTES(), ...override };
 	log = [];
 	seed(mode);
 	const r = await new Promise((resolve) => {
-		const child = spawn(process.execPath, [SCRIPT, 'my-app', '1'], {
+		const child = spawn(process.execPath, [...nodeArgs, SCRIPT, ...args], {
+			cwd: work,
 			env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: tmp, TEMP: tmp, TMP: tmp, CLAUDECODE: '1', [TEST_ORIGIN_VAR]: `http://127.0.0.1:${port}` },
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
@@ -157,6 +167,7 @@ describe('download-app.js: a complete download', () => {
 		assert.ok(r.stdout.includes('  Absent: 10 (empty or not set on the server)'), r.stdout);
 		assert.ok(r.stdout.includes(`  Path: ${appDir()}`), r.stdout);
 		assert.doesNotMatch(r.out, /Failed|✗|Visibility: unknown/);
+		assert.ok(r.stdout.includes('\n=== Visibility (admin app endpoint) ===\n  ✓ IPM-deployed to'), r.stdout);
 		const written = r.stdout.slice(r.stdout.indexOf('\n=== Files ===\n'));
 		for (const f of [...SAVED, 'metadata.json']) assert.ok(written.includes(`\n  ✓ ${f}\n`), `no ✓ line for ${f} under Files: ${r.stdout}`);
 		assert.equal((r.stdout.match(/^ {2}✓ (?!IPM)/gm) || []).length, 17, r.stdout);
@@ -179,7 +190,7 @@ describe('download-app.js: a complete download', () => {
 		const r = await run({ mode: 'public' });
 		assert.equal(r.code, 0, r.out);
 		assert.ok(r.stdout.includes(`Configured API: http://127.0.0.1:${port}/api/v2\n`), r.stdout);
-		assert.ok(r.stdout.includes('visibility unknown (public mode)'), r.stdout);
+		assert.ok(r.stdout.includes('\n=== Visibility ===\n  · Visibility flags (private, packagePrivate, ipmDeployedToZone) are not available in public mode. metadata.json keeps them as null.\n'), r.stdout);
 		assert.ok(r.stdout.includes('  Visibility: unknown (public mode)'), r.stdout);
 		assert.ok(r.stdout.includes('  Saved: 16 file(s)'), r.stdout);
 		assert.ok(log.every((q) => q.path.startsWith('/api/v2/sdk/')), log.map((q) => q.path).join('\n'));
@@ -236,6 +247,51 @@ describe('download-app.js: a complete download', () => {
 		assert.deepEqual(meta.webhooks, [{ name: 'hook', label: 'Hook' }]);
 		assert.deepEqual(meta.rpcs, [{ name: 'listOptions', label: 'List options' }]);
 		assert.equal(meta.connections[0].type, 'oauth');
+	});
+
+	it('reads the module descriptions and keeps them in metadata.json', async () => {
+		const r = await run({ override: { '/sdk/apps/my-app/1/modules': { appModules: [{ name: 'listItems', label: 'List items', description: 'Lists the items.', typeId: 9, crud: 'read', deprecated: false, public: true }] } } });
+		assert.equal(r.code, 0, r.out);
+		const list = log.find((q) => q.path === '/api/v2/admin/sdk/apps/my-app/1/modules');
+		assert.ok(list.url.includes('cols[]=description'), list.url);
+		assert.equal(readMetadata().modules[0].description, 'Lists the items.');
+	});
+
+	it('keeps a module description that Make leaves out as null', async () => {
+		const r = await run({ mode: 'public' });
+		assert.equal(r.code, 0, r.out);
+		assert.equal(readMetadata().modules[0].description, null);
+	});
+
+	it('sets downloadedAt after the files are written, whatever the precision of file times', async () => {
+		const orderFile = path.join(work, 'write-order.json');
+		const preload = path.join(work, 'write-order.js');
+		// Loaded before the script: after each section file it waits for the clock to move on and notes the time.
+		fs.writeFileSync(
+			preload,
+			[
+				"const fs = require('fs');",
+				"const path = require('path');",
+				'const write = fs.writeFileSync;',
+				'const times = [];',
+				'fs.writeFileSync = function (file, ...rest) {',
+				'	const result = write.call(this, file, ...rest);',
+				"	if (String(file).includes(`${path.sep}contexts${path.sep}`) && path.basename(String(file)) !== 'metadata.json') {",
+				'		const t = Date.now();',
+				'		while (Date.now() <= t);',
+				'		times.push(Date.now());',
+				'	}',
+				'	return result;',
+				'};',
+				`process.on('exit', () => write(${JSON.stringify(orderFile)}, JSON.stringify(times)));`,
+			].join('\n'),
+		);
+		const r = await run({ nodeArgs: ['--require', preload] });
+		assert.equal(r.code, 0, r.out);
+		const times = JSON.parse(fs.readFileSync(orderFile, 'utf8'));
+		assert.equal(times.length, 16);
+		const downloadedAt = Date.parse(readMetadata().downloadedAt);
+		assert.ok(downloadedAt >= Math.max(...times), `downloadedAt ${readMetadata().downloadedAt} is before the last section write`);
 	});
 
 	it('a 404 on the endpoint detail counts context.md as absent and keeps the endpoint in metadata.json', async () => {
@@ -305,12 +361,51 @@ describe('download-app.js: failures', () => {
 		assert.ok(r.stderr.includes('ERROR: 2 section(s) of my-app v1 could not be read'), r.stderr);
 	});
 
-	it('a 5xx fails without a retry', async () => {
-		const r = await run({ override: { '/sdk/apps/my-app/1/base': 500, '/sdk/apps/my-app/1/endpoints/getItem': 503 } });
+	it('a 500 fails without a retry', async () => {
+		const r = await run({ override: { '/sdk/apps/my-app/1/base': 500, '/sdk/apps/my-app/1/endpoints/getItem': 500 } });
 		assert.equal(r.code, 1, r.out);
 		assert.ok(r.stdout.includes('    ✗ base.imljson (HTTP 500)'), r.stdout);
-		assert.ok(r.stdout.includes('    ✗ endpoints/getItem (detail) (HTTP 503)'), r.stdout);
+		assert.ok(r.stdout.includes('    ✗ endpoints/getItem (detail) (HTTP 500)'), r.stdout);
 		assert.equal(hits('/api/v2/admin/sdk/apps/my-app/1/base'), 1);
+		assert.equal(hits('/api/v2/admin/sdk/apps/my-app/1/endpoints/getItem'), 1);
+	});
+
+	for (const status of [502, 503, 504]) {
+		it(`a ${status} that clears is retried and the run succeeds`, async () => {
+			const r = await run({ override: { '/sdk/apps/my-app/1/base': flaky(status, 2, '{ "baseUrl": "https://api.example.com" }') } });
+			assert.equal(r.code, 0, r.out);
+			assert.ok(r.stdout.includes('Saved: 16 file(s)'), r.stdout);
+			assert.equal(hits('/api/v2/admin/sdk/apps/my-app/1/base'), 3);
+			assert.match(r.stderr, new RegExp(`⏳ HTTP ${status} → retrying in 0ms`));
+		});
+	}
+
+	it('halves the concurrency after a 503 or a 429, and not after a 502', async () => {
+		const modules = ['a', 'b', 'c', 'd'].map((name) => ({ name, label: name, typeId: 9, crud: 'read', deprecated: false, public: true }));
+		for (const status of [503, 429, 502]) {
+			let open = 0;
+			let most = 0;
+			const held = async () => {
+				open += 1;
+				most = Math.max(most, open);
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				open -= 1;
+				return '[]';
+			};
+			const override = { '/sdk/apps/my-app/1/base': flaky(status, 1, '{}'), '/sdk/apps/my-app/1/modules': { appModules: modules } };
+			for (const { name } of modules) for (const section of ['api', 'parameters', 'expect', 'interface', 'samples', 'scope']) override[`/sdk/apps/my-app/1/modules/${name}/${section}`] = held;
+			const r = await run({ override });
+			assert.equal(r.code, 0, r.out);
+			if (status === 502) assert.ok(most > 5, `${status}: at most ${most} module requests were open at once`);
+			else assert.ok(most <= 5 && most >= 2, `${status}: ${most} module requests were open at once`);
+		}
+	});
+
+	it('a 503 that stays fails after the 5 retries', async () => {
+		const r = await run({ override: { '/sdk/apps/my-app/1/base': 503 } });
+		assert.equal(r.code, 1, r.out);
+		assert.ok(r.stdout.includes('    ✗ base.imljson (HTTP 503 after 5 retries)'), r.stdout);
+		assert.equal(hits('/api/v2/admin/sdk/apps/my-app/1/base'), 6);
 	});
 
 	it('a 429 fails after the 5 retries', async () => {
@@ -349,5 +444,188 @@ describe('download-app.js: failures', () => {
 		assert.equal(fs.readFileSync(path.join(appDir(), 'metadata.json'), 'utf8'), '{"downloadedAt":"OLD"}');
 		assert.equal(fs.readFileSync(path.join(appDir(), 'base.imljson'), 'utf8'), 'OLD BASE');
 		assert.deepEqual(fs.readdirSync(appDir()).sort(), ['base.imljson', 'metadata.json']);
+	});
+});
+
+describe('download-app.js: common masking', () => {
+	const MARKER_STRING = '***MASKED:string***';
+	const MARKER_NUMBER = '***MASKED:number***';
+	const COMMONS = {
+		'/sdk/apps/my-app/1/common': '{ "clientSecret": "SECRET_VALUE_1", "nested": { "n": 42, "flag": true, "empty": "" }, "list": ["SECRET_VALUE_2"] }',
+		'/sdk/apps/connections/my-app/common': '{ "liveSecret": "SECRET_VALUE_3" }',
+	};
+	const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+	const readApp = (rel) => fs.readFileSync(path.join(appDir(), rel), 'utf8');
+
+	it('public mode saves both commons masked, lists them in commonMasked, and no real value reaches a file or the output', async () => {
+		const r = await run({ mode: 'public', override: COMMONS });
+		assert.equal(r.code, 0, r.out);
+		assert.deepEqual(JSON.parse(readApp('common.imljson')), { clientSecret: MARKER_STRING, nested: { n: MARKER_NUMBER, flag: true, empty: '' }, list: [MARKER_STRING] });
+		assert.deepEqual(JSON.parse(readApp('connections/my-app/common.imljson')), { liveSecret: MARKER_STRING });
+		assert.deepEqual(readMetadata().commonMasked, {
+			marker: '***MASKED:<type>***',
+			files: [
+				{ file: 'common.imljson', values: 3 },
+				{ file: 'connections/my-app/common.imljson', values: 1 },
+			],
+		});
+		for (const file of walk(appDir())) assert.ok(!fs.readFileSync(file, 'utf8').includes('SECRET_VALUE_'), `a real value in ${file}`);
+		assert.ok(!r.stdout.includes('SECRET_VALUE_') && !r.stderr.includes('SECRET_VALUE_'), r.out);
+	});
+
+	it('employee mode saves the raw commons and writes no commonMasked', async () => {
+		const r = await run({ override: COMMONS });
+		assert.equal(r.code, 0, r.out);
+		assert.equal(readApp('common.imljson'), COMMONS['/sdk/apps/my-app/1/common']);
+		assert.equal(readApp('connections/my-app/common.imljson'), COMMONS['/sdk/apps/connections/my-app/common']);
+		assert.ok(!('commonMasked' in readMetadata()));
+	});
+
+	it('public mode lists an empty common object with 0 values', async () => {
+		const r = await run({ mode: 'public' });
+		assert.equal(r.code, 0, r.out);
+		assert.equal(readApp('common.imljson'), '{}\n');
+		assert.deepEqual(readMetadata().commonMasked.files, [
+			{ file: 'common.imljson', values: 0 },
+			{ file: 'connections/my-app/common.imljson', values: 0 },
+		]);
+	});
+
+	it('public mode does not list an absent connection common', async () => {
+		const r = await run({ mode: 'public', override: { '/sdk/apps/connections/my-app/common': 404 } });
+		assert.equal(r.code, 0, r.out);
+		assert.deepEqual(readMetadata().commonMasked.files, [{ file: 'common.imljson', values: 0 }]);
+	});
+
+	it('public mode writes commonMasked with an empty list when neither common was saved', async () => {
+		const r = await run({ mode: 'public', override: { '/sdk/apps/my-app/1/common': 404, '/sdk/apps/connections/my-app/common': 'null' } });
+		assert.equal(r.code, 0, r.out);
+		assert.ok(!fs.existsSync(path.join(appDir(), 'common.imljson')));
+		assert.deepEqual(readMetadata().commonMasked, { marker: '***MASKED:<type>***', files: [] });
+	});
+
+	it('public mode fails on a common that is not a JSON object and writes nothing', async () => {
+		const r = await run({ mode: 'public', override: { '/sdk/apps/my-app/1/common': '[1,2]' } });
+		assert.equal(r.code, 1, r.out);
+		assert.ok(r.stdout.includes('    ✗ common.imljson (common data is not a JSON object, so it cannot be masked)'), r.stdout);
+		assert.ok(!fs.existsSync(appDir()));
+	});
+});
+
+describe('download-app.js --snapshot', () => {
+	const COMMONS = {
+		'/sdk/apps/my-app/1/common': '{ "clientSecret": "SECRET_VALUE_1", "n": 42 }',
+		'/sdk/apps/connections/my-app/common': '{ "liveSecret": "SECRET_VALUE_3" }',
+	};
+	const entries = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []);
+	const tailOf = (stdout) => stdout.trimEnd().split('\n').slice(-4);
+	const plant = (id, takenAt) => {
+		fs.mkdirSync(path.join(snapshotsDir(), id), { recursive: true });
+		fs.writeFileSync(path.join(snapshotsDir(), id, 'metadata.json'), JSON.stringify({ snapshot: { id, takenAt } }));
+	};
+
+	it('public mode saves a masked snapshot under snapshots/ and ends with the four snapshot lines', async () => {
+		const r = await run({ mode: 'public', override: COMMONS, args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 0, r.out);
+		const [idLine, pathLine, keptLine, lastLine] = tailOf(r.stdout);
+		const id = idLine.slice('Snapshot: '.length);
+		assert.match(idLine, /^Snapshot: \d{8}-\d{6}$/);
+		assert.equal(pathLine, `Path: ${path.join(snapshotsDir(), id)}`);
+		assert.equal(keptLine, 'Kept: 1 of 5');
+		assert.equal(lastLine, 'Taken before the push: its files can be pushed back by hand.');
+		assert.ok(r.stdout.includes(`Output: ${snapshotsDir()} (a new snapshot)\n`), r.stdout);
+		assert.doesNotMatch(r.stdout, /=== Files ===|\n {2}Path: /);
+		const dir = path.join(snapshotsDir(), id);
+		assert.equal(fs.readFileSync(path.join(dir, 'base.imljson'), 'utf8'), '{ "baseUrl": "https://api.example.com" }');
+		assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'common.imljson'), 'utf8')), { clientSecret: '***MASKED:string***', n: '***MASKED:number***' });
+		for (const file of walkFiles(dir)) assert.ok(!fs.readFileSync(file, 'utf8').includes('SECRET_VALUE_'), `a real value in ${file}`);
+		const meta = JSON.parse(fs.readFileSync(path.join(dir, 'metadata.json'), 'utf8'));
+		assert.equal(meta.snapshot.id, id);
+		assert.equal(meta.snapshot.id, path.basename(dir));
+		assert.deepEqual(meta.commonMasked.files, [
+			{ file: 'common.imljson', values: 2 },
+			{ file: 'connections/my-app/common.imljson', values: 1 },
+		]);
+		assert.ok(!fs.existsSync(appDir()), 'the working folder was written');
+		assert.deepEqual(entries(snapshotsDir()), [id]);
+	});
+
+	it('leaves the working folder byte for byte as it was', async () => {
+		fs.mkdirSync(appDir(), { recursive: true });
+		fs.writeFileSync(path.join(appDir(), 'metadata.json'), '{"downloadedAt":"OLD"}');
+		fs.writeFileSync(path.join(appDir(), 'base.imljson'), 'OLD BASE');
+		const r = await run({ mode: 'public', args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 0, r.out);
+		assert.deepEqual(fs.readdirSync(appDir()).sort(), ['base.imljson', 'metadata.json']);
+		assert.equal(fs.readFileSync(path.join(appDir(), 'metadata.json'), 'utf8'), '{"downloadedAt":"OLD"}');
+		assert.equal(fs.readFileSync(path.join(appDir(), 'base.imljson'), 'utf8'), 'OLD BASE');
+	});
+
+	it('keeps five snapshots: the oldest of five old ones is gone after the run', async () => {
+		for (let n = 1; n <= 5; n++) plant(`20200101-00000${n}`, `2020-01-01T00:00:0${n}.000Z`);
+		const r = await run({ mode: 'public', args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 0, r.out);
+		const id = tailOf(r.stdout)[0].slice('Snapshot: '.length);
+		assert.deepEqual(entries(snapshotsDir()), ['20200101-000002', '20200101-000003', '20200101-000004', '20200101-000005', id]);
+		assert.ok(r.stdout.includes('\nKept: 5 of 5\n'), r.stdout);
+	});
+
+	it('removes a temp folder older than a day', async () => {
+		const stale = path.join(snapshotsDir(), '20200101-000000.tmp');
+		fs.mkdirSync(stale, { recursive: true });
+		const twoDaysAgo = new Date(Date.now() - 2 * 86400000);
+		fs.utimesSync(stale, twoDaysAgo, twoDaysAgo);
+		const r = await run({ mode: 'public', args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 0, r.out);
+		assert.ok(!fs.existsSync(stale), 'the stale temp folder is still there');
+		assert.equal(entries(snapshotsDir()).length, 1);
+	});
+
+	it('a read failure prints the Failed block, takes no snapshot and exits 1', async () => {
+		const r = await run({ mode: 'public', override: { '/sdk/apps/my-app/1/base': 500 }, args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 1, r.out);
+		assert.ok(r.stdout.includes('  Failed: 1\n    ✗ base.imljson (HTTP 500)\n  Nothing was written: no snapshot was taken.\n'), r.stdout);
+		assert.ok(r.stderr.includes('ERROR: 1 section(s) of my-app v1 could not be read, so nothing was written.'), r.stderr);
+		assert.deepEqual(entries(snapshotsDir()), []);
+		assert.ok(!fs.existsSync(appDir()));
+	});
+
+	it('a snapshot that cannot be written exits 1 with the write error and leaves no folder', async () => {
+		fs.mkdirSync(path.dirname(snapshotsDir()), { recursive: true });
+		fs.writeFileSync(snapshotsDir(), 'a file where the app folder goes');
+		const r = await run({ mode: 'public', args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 1, r.out);
+		assert.match(r.stderr, /^ERROR: the snapshot could not be written \([A-Z]+\), so none was kept\.\nCheck that ~\/\.make-custom-app\/snapshots can be written, then run the same command again\.$/m);
+		assert.ok(fs.statSync(snapshotsDir()).isFile(), 'the planted file was replaced');
+		assert.deepEqual(fs.readdirSync(path.dirname(snapshotsDir())), ['my-app-v1']);
+		assert.ok(!fs.existsSync(appDir()));
+		assert.doesNotMatch(r.stdout, /^Snapshot: /m);
+	});
+
+	it('refuses an output dir next to --snapshot before any request', async () => {
+		const out = path.join(work, 'out');
+		const r = await run({ mode: 'public', args: ['my-app', '1', out, '--snapshot'] });
+		assert.equal(r.code, 1, r.out);
+		assert.equal(r.stderr, `${SNAPSHOT_WITH_OUTPUT_DIR}\n`);
+		assert.equal(r.stdout, `${USAGE_LINES.join('\n')}\n`);
+		assert.equal(log.length, 0);
+		assert.ok(!fs.existsSync(out));
+	});
+
+	it('prints the usage with --snapshot when the version is missing', async () => {
+		const r = await run({ args: ['my-app', '--snapshot'] });
+		assert.equal(r.code, 1, r.out);
+		assert.equal(r.stdout, `${USAGE_LINES.join('\n')}\n`);
+		assert.equal(log.length, 0);
+	});
+
+	it('employee mode saves the raw commons in the snapshot and writes no commonMasked', async () => {
+		const r = await run({ override: COMMONS, args: ['my-app', '1', '--snapshot'] });
+		assert.equal(r.code, 0, r.out);
+		const dir = path.join(snapshotsDir(), tailOf(r.stdout)[0].slice('Snapshot: '.length));
+		assert.equal(fs.readFileSync(path.join(dir, 'common.imljson'), 'utf8'), COMMONS['/sdk/apps/my-app/1/common']);
+		assert.equal(fs.readFileSync(path.join(dir, 'connections/my-app/common.imljson'), 'utf8'), COMMONS['/sdk/apps/connections/my-app/common']);
+		assert.ok(!('commonMasked' in JSON.parse(fs.readFileSync(path.join(dir, 'metadata.json'), 'utf8'))));
+		assert.ok(!fs.existsSync(appDir()));
 	});
 });

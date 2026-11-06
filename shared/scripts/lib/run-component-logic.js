@@ -11,7 +11,7 @@ const EXIT = { OK: 0, USAGE: 1, ACTION: 4, UNKNOWN: 5 };
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_FIELD_CHARS = 500;
 const VALUE_FLAGS = ['team', 'connection', 'input'];
-const SWITCH_FLAGS = ['dry-run', 'save-team'];
+const SWITCH_FLAGS = ['dry-run', 'save-team', 'accept-live-notice'];
 const SLUG_RE = /^[a-z][0-9a-z-]{1,35}[0-9a-z]$/;
 const COMPONENT_NAME_RE = /^[a-zA-Z][0-9a-zA-Z]{1,126}[0-9a-zA-Z]$/;
 const SECRET_KEY_RE = /api[-_]?key|token|secret|passw|auth|credential|private|bearer|cookie/i;
@@ -34,7 +34,7 @@ function parseId(value, label) {
 	return Number(value);
 }
 
-/** Parse `<slug> <ver> endpoint|rpc <name> [--team= --connection= --input= --dry-run --save-team]`. */
+/** Parse `<slug> <ver> endpoint|rpc <name> [--team= --connection= --input= --dry-run --save-team --accept-live-notice]`. */
 function parseArgs(argv) {
 	const positional = [];
 	const flags = {};
@@ -75,6 +75,7 @@ function parseArgs(argv) {
 		inputPath: flags.input || null,
 		dryRun: flags['dry-run'] === true,
 		saveTeam: flags['save-team'] === true,
+		acceptLiveNotice: flags['accept-live-notice'] === true,
 	};
 }
 
@@ -328,7 +329,7 @@ function connectionsUrl(host, teamId, connectionId) {
 }
 
 /** Lines for the user who owns no connection of the needed type. `request` is `{uri}` or `{reason}` or undefined. */
-function createConnectionLines({ host, teamId, connection, foreign, request, slug }) {
+function createConnectionLines({ host, teamId, connection, foreign, request, slug, kind }) {
 	const type = typeText(connection);
 	const lines = [`You have no connection of type ${type} in team ${teamId}.`];
 	if (foreign > 0) lines.push(`${foreign} connection(s) of that type from other people exist there; the live run never uses them.`);
@@ -338,9 +339,15 @@ function createConnectionLines({ host, teamId, connection, foreign, request, slu
 		lines.push(`Create one in Make: open ${connectionsUrl(host, teamId)} and add a connection for the app (type ${type}).`);
 		if (request && request.reason) lines.push(`(An authorization link could not be requested: ${request.reason}.)`);
 		const appName = `app#${plain(slug)}`;
-		lines.push(
-			`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
-		);
+		if (kind === 'rpc') {
+			lines.push(
+				`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). The user types the credentials on Make's own page. The account type above is the form's connection type, not the app name.`,
+			);
+		} else {
+			lines.push(
+				`Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team ${teamId}, appName ${appName}). Pass endpointNames for every endpoint this live run covers; omitting endpointNames leaves endpoints out. The compiled name ${plain(slug)} has no uncommitted SDK endpoints. The account type above is the form's connection type, not the app name.`,
+			);
+		}
 		const scopes = scopeLines(connection);
 		if (scopes.length) lines.push('Grant these scopes:', ...scopes);
 	}
@@ -349,11 +356,11 @@ function createConnectionLines({ host, teamId, connection, foreign, request, slu
 }
 
 /** Human-action message for a non-ok connection state. Returns `{action, lines}` or null when the state is ok. */
-function connectionAction(result, { host, teamId, connectionId, connection, request, slug }) {
+function connectionAction(result, { host, teamId, connectionId, connection, request, slug, kind }) {
 	if (result.state === 'ok') return null;
 	const types = typeText(connection);
 	if (result.state === 'none') {
-		return { action: 'CREATE_CONNECTION', lines: createConnectionLines({ host, teamId, connection, foreign: result.foreign, request, slug }) };
+		return { action: 'CREATE_CONNECTION', lines: createConnectionLines({ host, teamId, connection, foreign: result.foreign, request, slug, kind }) };
 	}
 	if (result.state === 'blocked') {
 		const lines = [`Your connection(s) of type ${types} in team ${teamId} cannot be used yet:`];
@@ -456,7 +463,7 @@ function orgAdminLines({ slug, version, orgId, teamId, elsewhere, incomplete }) 
 	lines.push(
 		`To install it in organization ${orgId} you need the Owner, Admin or App Developer role there; a private app can be installed only by its author:`,
 		`  1. In Make, switch to organization ${orgId} and open any team of it.`,
-		'  2. Create a scenario, add any module of this app (a private app shows a Private tag), save the scenario, and confirm the install dialog.',
+		'  2. Create a scenario, add any module of this app (a private app shows a Private tag), save the scenario, and confirm the install dialog. An app with no module cannot be installed this way: add a module first.',
 		'     The install makes the app usable for all users of that organization.',
 		'  3. Run this script again.',
 		'Do not publish the app just to install it: publishing cannot be undone. If you lack the role or are not the author of a private app, ask an organization admin or the author.',
@@ -664,7 +671,7 @@ function pickOutput(transport, json) {
  * outcome: ok | rejected (exit 1, nothing ran) | action (exit 4) | unknown (exit 5, may have run, never rerun).
  * `fallback` is true only when v1 provably did not execute and the legacy route may be tried once.
  */
-function classifyExecResponse({ transport, status, bodyText }) {
+function classifyExecResponse({ transport, status, bodyText, mode }) {
 	if (status === 200) {
 		let json = null;
 		try {
@@ -688,7 +695,10 @@ function classifyExecResponse({ transport, status, bodyText }) {
 	if (legacyFallbackApplies(transport, status, fields)) {
 		return result('rejected', EXIT.USAGE, 'v1 did not execute the request (not enabled or missing endpoints:run)', { fallback: true });
 	}
-	if (status === 400 && fields.code === 'IM903') return result('action', EXIT.ACTION, 'Endpoint execution is disabled for this environment', { action: 'ORG_ADMIN' });
+	if (status === 400 && fields.code === 'IM903') {
+		const reason = mode === 'public' ? 'Endpoint execution is disabled for this environment (SDK Endpoints are a closed beta)' : 'Endpoint execution is disabled for this environment';
+		return result('action', EXIT.ACTION, reason, { action: 'ORG_ADMIN' });
+	}
 	if (status === 400) {
 		const proven = fields.code === 'IM005' || !!fields.detail || (fields.suberrors && fields.suberrors.length > 0);
 		return proven
@@ -700,7 +710,10 @@ function classifyExecResponse({ transport, status, bodyText }) {
 	if (status === 403 && /not installed in organization/i.test(text)) return result('action', EXIT.ACTION, 'the app is not installed in the organization', { action: 'ORG_ADMIN' });
 	if (status === 403 && fields.code === 'IM001') return result('action', EXIT.ACTION, 'the API key lacks a scope', { action: 'KEY_SCOPES' });
 	if (status === 403) return result('action', EXIT.ACTION, 'access to the app, team or connection was denied', { action: 'MAKE_UI' });
-	if (status === 429 && /paused/i.test(text)) return result('action', EXIT.ACTION, 'the organization or team is paused', { action: 'ORG_ADMIN' });
+	if (status === 429 && /paused/i.test(text)) {
+		const reason = mode === 'public' ? 'the organization or team is paused (check its status in Make or ask an organization admin)' : 'the organization or team is paused';
+		return result('action', EXIT.ACTION, reason, { action: 'ORG_ADMIN' });
+	}
 	if (status === 424) {
 		const hit = CONNECTION_424_HINTS.find(([re]) => re.test(text));
 		return result('unknown', EXIT.UNKNOWN, 'the component, connection or vendor call failed (billed even on failure)', { hint: hit ? hit[1] : undefined });
@@ -756,6 +769,64 @@ function sideEffectLabel({ kind, annotations, rpcApi }) {
 
 const DRAFT_NOTE = 'The app author runs the pushed draft; anyone else runs the committed version.';
 
+/** One measured RPC run (spec 3.5 row 14, set from live-check step W44): null not measured, 0 no charge seen, n credits. */
+const RPC_MEASURED_CREDITS = null;
+
+const NOTICE_SCHEMA = 1;
+const NOTICE_VERSION = 1;
+const NOTICE_DRY_RUN_NOTE = 'note: the first real run stops once with a live-run notice (ACTION: CONFIRM_LIVE_RUN).';
+/** Printed on stderr before the run when the accepted notice cannot be written. */
+const NOTICE_NOT_SAVED_NOTE = 'note: the answer could not be saved in ~/.make-custom-app/live-run-notice.json, so the next live run asks again.';
+
+/** What the notice file keeps (spec 3.6): the hashed key of the token and zone, never the token. */
+function liveNoticeEntry(key, nowMs) {
+	return { schema: NOTICE_SCHEMA, noticeVersion: NOTICE_VERSION, key, acceptedAt: new Date(nowMs).toISOString() };
+}
+
+/** True for an entry of this schema and notice version that belongs to this key; anything else asks again. */
+function liveNoticeAccepted(entry, key, version = NOTICE_VERSION) {
+	return Boolean(entry) && entry.schema === NOTICE_SCHEMA && entry.noticeVersion === version && entry.key === key;
+}
+
+/** The RPC sentence of the notice, from the one measured RPC run (null: not measured, 0: no charge seen, n credits). */
+function rpcNoticeSentence(credits = RPC_MEASURED_CREDITS) {
+	if (credits === null) return 'An RPC run is not expected to be charged, but this was not measured.';
+	return credits > 0 ? `An RPC run is charged too: one measured run cost ${credits} credits.` : 'An RPC run showed no charge in one measured run, but Make may charge for it.';
+}
+
+/** The live-run notice of public mode without its `ACTION:` line (renderAction adds it). */
+function liveNoticeLines({ kind, credits = RPC_MEASURED_CREDITS }) {
+	const lines = [
+		'This is the first live run for this Make API token. Tell the user the following, then ask once whether to go on.',
+		"A live run is not a simulation. It calls the vendor's real API with the user's own connection.",
+		'  - It can create, change or delete real data in the vendor account. The summary above gives the side-effect label of this component.',
+		`  - Make can charge for it. An Endpoint run costs about 0.1 credit, also when the run fails. ${rpcNoticeSentence(credits)}`,
+		'  - Records the run creates stay in the vendor account until they are deleted. After the run, list them and delete the ones the app can delete.',
+		'  - The output can contain personal data. Show it to the user only. Do not save it in the app folder, a context file or a ticket.',
+	];
+	if (kind === 'endpoint') lines.push('  - SDK Endpoints are a closed beta. If this account has no access, Make refuses the call and nothing runs.');
+	lines.push('If the user agrees, run the same command again with --accept-live-notice. The script then remembers the answer for this token and does not ask again. If the user declines, stop: nothing was sent.');
+	return lines;
+}
+
+/** The two lines for an input form that answers HTTP 501. */
+function formNotEnabledLines(mode) {
+	if (mode === 'public') {
+		return ['Endpoint execution is not enabled on this environment. SDK Endpoints are a closed beta.', 'You can still run an RPC with this script, or leave the live run out and tell the user.'];
+	}
+	return ['Endpoint execution is not enabled on this environment.', 'Ask a Make admin whether it is planned for this zone.'];
+}
+
+function draftNote(mode) {
+	return mode === 'public' ? 'You run the draft of your own app, with the files you pushed. If someone else owns this app, you run its committed version, which can differ.' : DRAFT_NOTE;
+}
+
+function billingLine({ kind, mode, credits = RPC_MEASURED_CREDITS }) {
+	if (kind === 'endpoint') return 'billing: about 0.1 credit per run, also when the run fails';
+	if (mode !== 'public' || credits === null) return 'billing: no charge expected (not verified)';
+	return credits > 0 ? `billing: one measured run cost ${credits} credits` : 'billing: no charge seen in one measured run';
+}
+
 /** The summary printed right before the execution. Pure text; input must already be masked. */
 function renderRunSummary(c) {
 	const lines = ['== run-component =='];
@@ -770,8 +841,8 @@ function renderRunSummary(c) {
 	lines.push(`input: ${JSON.stringify(c.input)}`);
 	if (c.maskedKeys && c.maskedKeys.length) lines.push(`input values masked in this summary: ${c.maskedKeys.join(', ')}`);
 	lines.push(`side effects: ${c.sideEffects}`);
-	lines.push(`billing: ${c.kind === 'endpoint' ? 'about 0.1 credit per run, also when the run fails' : 'no charge expected (not verified)'}`);
-	lines.push(`note: ${DRAFT_NOTE}`);
+	lines.push(billingLine({ kind: c.kind, mode: c.mode }));
+	lines.push(`note: ${draftNote(c.mode)}`);
 	return lines.join('\n');
 }
 
@@ -799,6 +870,18 @@ module.exports = {
 	teamName,
 	teamOrganizationId,
 	renderRunSummary,
+	RPC_MEASURED_CREDITS,
+	NOTICE_SCHEMA,
+	NOTICE_VERSION,
+	NOTICE_DRY_RUN_NOTE,
+	NOTICE_NOT_SAVED_NOTE,
+	liveNoticeEntry,
+	liveNoticeAccepted,
+	rpcNoticeSentence,
+	liveNoticeLines,
+	formNotEnabledLines,
+	draftNote,
+	billingLine,
 	chooseTeamLines,
 	isValidId,
 	CONNECTION_SCOPES,

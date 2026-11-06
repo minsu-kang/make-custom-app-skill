@@ -40,6 +40,7 @@ const {
 	mcpConfigured,
 	promptHint,
 	formatStatus,
+	mcpIntroLines,
 	nextStepLines,
 	proxyRerunEnv,
 	rerunExitCode,
@@ -341,11 +342,7 @@ async function main() {
 	console.log(`Wrote ${SECRETS_PATH}`);
 
 	console.log('');
-	console.log('── MCP server / Pinecone (optional) ──');
-	console.log('Shared app-context search. Needs a Pinecone index and an OpenAI key for embeddings.');
-	console.log('Pinecone key:  https://app.pinecone.io');
-	console.log('OpenAI key:    https://platform.openai.com/api-keys');
-	console.log('The keys go into the secrets file, where the make-app-context server reads them.');
+	for (const line of mcpIntroLines(checked.mode)) console.log(line);
 	console.log('');
 
 	const mcpCurrent = {
