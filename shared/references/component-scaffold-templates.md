@@ -10,12 +10,12 @@ For any change that has an `old_value`, compare the `old_value` (whitespace-/com
 
 - **`old_value` matches a scaffold → the component is NEW.** Skip the `old_value → new_value` diff (the diff is meaningless) and skip the **Breaking Changes** category for that component. Still review the quality of `new_value`.
 - **`old_value` is a genuine implementation (no scaffold match) → real existing component.** Do the full `old_value → new_value` diff and the Breaking Changes evaluation. This includes shared components (`base`, a shared RPC, …) that a new-component task happens to touch.
-- **Module publish/visibility state is never a finding.** A new module is normally `private: true` / `private: null` in `metadata.json` during implementation/review; the deployer makes it public after QA. Do not flag it.
+- **Module publish/visibility state is never a finding.** A new module is normally `private: true` / `private: null` in `metadata.json` during implementation/review; the deployer makes it public after QA. Do not flag it. (public mode: a module's visibility is a note to the owner, not a finding)
 - **When ambiguous**, run the Breaking eval rather than skipping (a false-positive breaking flag is safer than a missed one).
 
 ## Source / refresh
 
-These are copied from the Make template app **`model`, version 1**. To refresh after an SDK template change, run `download-app.js model 1` and re-copy from `~/.make-custom-app/contexts/model-v1/`. The model app exposes one example component per kind.
+These are copied from the Make template app **`model`, version 1**. To refresh after an SDK template change, run `download-app.js model 1` and re-copy from `~/.make-custom-app/contexts/model-v1/`. The model app exposes one example component per kind. (a public token may not read the `model` app: use the templates as shipped)
 
 `typeId` → module scaffold (read the reviewed component's `typeId` from the app's `metadata.json`):
 

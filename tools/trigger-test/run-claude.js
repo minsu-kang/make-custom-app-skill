@@ -4,7 +4,7 @@
 // Trigger test for Claude Code (spec section 5, verification item 8). It starts one headless Claude Code session per
 // prompt of prompts.json and records the first Skill tool call. A positive prompt passes when a make-custom-app:make-app-*
 // skill is picked (exact when it is the expected one); a negative prompt passes when none is picked. Run it after every
-// change to a skill description. The pass mark is 18 of 20 positive prompts.
+// change to a skill description. The pass marks are 18 of 20 employee positive prompts (ids 1 to 20) and 9 of 10 public positive prompts (ids 25 to 34).
 //
 //   node tools/trigger-test/run-claude.js --condition clean
 //     --condition clean|real  clean (default) loads this working tree (and the --org plugin) with --plugin-dir, reads project
@@ -69,6 +69,21 @@ function parseRun(text) {
 		}
 	}
 	return out;
+}
+
+const PASS_MARKS = { employee: '18 of 20', public: '9 of 10' };
+
+/** One summary line per prompt set that has results: positives, exact picks and clean negatives, with the set's pass mark. */
+function setSummaryLines(results) {
+	return Object.keys(PASS_MARKS)
+		.map((set) => {
+			const mine = results.filter((x) => x.set === set);
+			if (!mine.length) return null;
+			const pos = mine.filter((x) => x.kind === 'positive');
+			const neg = mine.filter((x) => x.kind === 'negative');
+			return `set=${set} positives: ${pos.filter((x) => x.pass).length}/${pos.length} (pass mark ${PASS_MARKS[set]}); exact: ${pos.filter((x) => x.exact).length}/${pos.length}; negatives clean: ${neg.filter((x) => x.pass).length}/${neg.length}`;
+		})
+		.filter(Boolean);
 }
 
 /** pass: a positive prompt picked one of our skills, or a negative prompt did not. exact: it was the expected skill. */
@@ -215,6 +230,7 @@ function main() {
 			lang: p.lang,
 			kind: p.kind,
 			expect: p.expect,
+			set: p.set,
 			picked: run.firstSkill,
 			calls: run.calls.join(','),
 			pass: c.pass,
@@ -233,12 +249,13 @@ function main() {
 	console.log(
 		`\ncondition=${condition} positives selecting a make-app skill: ${pos.filter((x) => x.pass).length}/${pos.length}; exact expected: ${pos.filter((x) => x.exact).length}/${pos.length}; negatives clean: ${neg.filter((x) => x.pass).length}/${neg.length}; cost $${results.reduce((s, x) => s + x.cost, 0).toFixed(2)}; legacy skill present in any run: ${results.some((x) => x.legacySkillPresent)}`,
 	);
+	for (const line of setSummaryLines(results)) console.log(line);
 	fs.mkdirSync(outDir, { recursive: true });
 	const file = path.join(outDir, `results-${condition}.json`);
 	fs.writeFileSync(file, JSON.stringify(results, null, 2));
 	console.log('wrote', file);
 }
 
-module.exports = { parseRun, classify, buildArgs, stubConfig, parseArgs, processError, orgPluginPrefix };
+module.exports = { setSummaryLines, parseRun, classify, buildArgs, stubConfig, parseArgs, processError, orgPluginPrefix };
 
 if (require.main === module) main();

@@ -2,7 +2,6 @@
 
 > Read when: verifying that an IML function used in `{{ }}` exists and how it behaves; includes the runtime extras (`jwt`, `parseJSON`, `errorFactory` …) and the no-inline-literal rule.
 
-Source: `@integromat/iml` package — `lib/functions.js`, `lib/operators.js`, `lib/keywords.js`, `lib/variables.js`, `lib/iml.js`
 Official docs: https://help.make.com/functions
 
 > In IMLJSON, the argument separator is comma (`,`). Semicolons (`;`) are for the Make scenario UI only.
@@ -36,6 +35,7 @@ Build collections with functions/keywords instead, then pass the result (or a `t
 | `ifempty` | `ifempty(value1, value2)` | `*` | Returns value1 if it's not empty (non-null, non-empty-string), otherwise value2. Uses lazy evaluation for value2. |
 | `switch` | `switch(expr, val1, result1, [val2, result2, ...], [else])` | `*` | Compares expr against values using `String()` coercion. Returns matching result or else value. |
 | `get` | `get(object_or_array, path)` | `*` | Extracts value from object/array using dot notation path. |
+| `set` | `set(object, path, value)` | `*` | Writes the value at the dot-notation path and returns the changed object. |
 | `pick` | `pick(object, key1, [key2, ...])` | `collection` | Returns new object with only specified keys. |
 | `omit` | `omit(object, key1, [key2, ...])` | `collection` | Returns new object excluding specified keys. |
 
@@ -55,7 +55,7 @@ Variables: `executionId`
 | `substring` | `substring(text, start, end)` | `text` | Extract substring (same as JS `String.substring`). |
 | `indexOf` | `indexOf(string, value, [start])` | `integer` | First position of value in string. Returns -1 if not found. |
 | `contains` | `contains(text, search)` | `boolean` | Check if text contains search string. Also works on arrays (overloaded). Optional 3rd arg for case-insensitive. |
-| `replace` | `replace(text, search, replacement)` | `text` | Replace occurrences. Supports regex: `replace(text, '/regex/flags', replacement)`. Without regex, replaces all occurrences (auto-escapes special chars). |
+| `replace` | `replace(text, search, replacement)` | `text` | Replace occurrences. Supports regex: `replace(text, '/regex/flags', replacement)`. Without regex, replaces all occurrences (auto-escapes special chars). A pattern written as `/pattern/` with at most one flag (`/x/i`) is read as a regular expression; with two flags (`/x/gi`) the whole string is read as plain text. |
 | `replaceEmojiCharacters` | `replaceEmojiCharacters(text, replacement)` | `text` | Replace all emoji characters with replacement string. Replacement is required. |
 | `split` | `split(text, separator, [keepEmpty])` | `array` | Split string into array. Trims each element. Empty strings are removed unless keepEmpty is true. |
 | `join` | `join(array, separator)` | `text` | Join array elements into string. Default separator: `,`. |
@@ -65,12 +65,13 @@ Variables: `executionId`
 | `sha256` | `sha256(text, [encoding], [key], [keyEncoding])` | `text` | SHA256 hash or HMAC. Same encoding options as sha1. |
 | `sha512` | `sha512(text, [encoding], [key], [keyEncoding])` | `text` | SHA512 hash or HMAC. Same encoding options as sha1. |
 | `ascii` | `ascii(text, [removeDiacritics])` | `text` | Remove non-ASCII characters. If removeDiacritics is true, normalizes diacritics first (e.g., `ě` → `e`). |
-| `toString` | `toString(value)` | `text` | Convert to string. Arrays become comma-joined, dates become ISO string, objects become `{object}`. Optional 2nd arg for buffer encoding. |
+| `toString` | `toString(value)` | `text` | Convert to string. Arrays become comma-joined, dates become ISO string, objects become `{object}`. Optional 2nd arg for buffer encoding. `toString([1, 'a', null])` gives `[1,a,]`. |
 | `toBinary` | `toBinary(value, [encoding])` | `buffer` | Convert to binary buffer. Encoding: `utf8`(default)/`ascii`/`hex`/`base64`/`binary`. |
 | `encodeURL` | `encodeURL(text)` | `text` | URL encoding via `encodeURIComponent()`. |
 | `decodeURL` | `decodeURL(text)` | `text` | URL decoding via `decodeURIComponent()`. |
 | `stripHTML` | `stripHTML(text)` | `text` | Remove HTML tags. Also removes `<style>` and `<script>` content. Converts `<br>` to newline. |
 | `escapeHTML` | `escapeHTML(text)` | `text` | Escape `&`, `<`, `>` to HTML entities. |
+| `escapeJSON` | `escapeJSON(text)` | `text` | Escape text for use inside a JSON string (quotes, backslashes and control characters). |
 | `escapeMarkdown` | `escapeMarkdown(text)` | `text` | Escape Markdown special characters (`#`, `*`, `_`, `` ` ``, `|`, etc.). |
 
 Keywords: `newline`, `tab`, `space`, `nbsp`, `emptystring`, `carriagereturn`
@@ -105,8 +106,8 @@ Variables: `pi` (3.14159...), `random` (0 ≤ x < 1, new value each evaluation)
 
 | Function | Signature | Return Type | Description |
 |----------|-----------|-------------|-------------|
-| `parseDate` | `parseDate(date, [format], [timezone])` | `date` | Parse string/number to Date. Without format: auto-detect. `'X'` = Unix seconds, `'x'` = Unix milliseconds. |
-| `formatDate` | `formatDate(date, [format], [timezone])` | `text` | Format date to string via `moment.format()`. **Always returns a string**, even for numeric formats like `'X'`. Default format: `YYYY-MM-DDTHH:mm:ss.SSSZ`. |
+| `parseDate` | `parseDate(date, [format], [timezone])` | `date` | Parse string/number to Date. Without format: auto-detect. `'X'` = Unix seconds, `'x'` = Unix milliseconds. A number is read as seconds: `parseDate(1700000000)` is 2023-11-14T22:13:20Z. |
+| `formatDate` | `formatDate(date, [format], [timezone])` | `text` | Format date to string via `moment.format()`. **Always returns a string**, even for numeric formats like `'X'`. Default format: `YYYY-MM-DDTHH:mm:ss.SSSZ`. A number is read as milliseconds: `formatDate(1700000000000, 'YYYY-MM-DD')` is 2023-11-14, while 1700000000 is 1970-01-20. |
 | `dateDiff` | `dateDiff(endDate, startDate, unit)` | `number` | Difference between dates. Units: `D` (days), `H` (hours), `m` (minutes), `s` (seconds), `RH` (residual hours), `Rm` (residual minutes), `Rs` (residual seconds). Throws if startDate > endDate. |
 | `addSeconds` | `addSeconds(date, number)` | `date` | Add seconds (negative to subtract). |
 | `addMinutes` | `addMinutes(date, number)` | `date` | Add minutes. |
@@ -158,6 +159,8 @@ This matters for comparisons — see [Operator Aliases](#operator-aliases-alt_op
 | `shuffle` | `shuffle(array)` | `array` | Random shuffle. Returns new array. |
 | `slice` | `slice(array, start, [end])` | `array` | Sub-array extraction (same as JS `Array.slice`). |
 | `merge` | `merge(array1, array2, ...)` | `array` | Concatenate arrays. Filters out non-array arguments. |
+| `arrayDiff` | `arrayDiff(array1, array2)` | `array` | Items of array1 that are not in array2, compared as text. Refuses arrays that hold collections or arrays. |
+| `arrayIntersect` | `arrayIntersect(array1, array2)` | `array` | Items of array1 that are also in array2, simple values only, compared as text. |
 | `flatten` | `flatten(array, [depth])` | `array` | Flatten nested arrays. Default depth: 1. |
 | `contains` | `contains(array, value)` | `boolean` | Check if array contains value. Optional 3rd arg for case-insensitive comparison. |
 | `distinct` | `distinct(array, [key])` | `array` | Remove duplicates. For objects: uses deep equality. For primitives: compares via `String()`. Optional key for complex arrays. |
@@ -171,8 +174,6 @@ This matters for comparisons — see [Operator Aliases](#operator-aliases-alt_op
 Keywords: `emptyarray` (creates new empty `[]` each time — safe for mutation patterns like `merge(temp.arr || emptyarray, newItems)`)
 
 ## Operators
-
-Source: `@integromat/iml/lib/operators.js`, `@integromat/iml/lib/iml.js` (ALT_OPS)
 
 ### Operator List
 
@@ -189,7 +190,7 @@ Source: `@integromat/iml/lib/operators.js`, `@integromat/iml/lib/iml.js` (ALT_OP
 | `<=` | math | 11 | `a <= b` | Less than or equal |
 | `>` | math | 11 | `a > b` | Greater than |
 | `>=` | math | 11 | `a >= b` | Greater than or equal |
-| `=` | general | 10 | `a == b` | Equality (**loose**, type coercion) |
+| `=` | general | 10 | `a == b` | Equality (**loose**, type coercion); the function `equal` on help.make.com is this operator. |
 | `!=` | general | 10 | `a != b` | Inequality (**loose**, type coercion) |
 | `&` | general | 6 | `a && b` | Logical AND |
 | `\|` | general | 5 | `a \|\| b` | Logical OR |
@@ -224,8 +225,6 @@ Math operators use `Decimal.js` for arbitrary-precision arithmetic. This avoids 
 
 ## Keywords Reference
 
-Source: `@integromat/iml/lib/keywords.js`
-
 | Keyword | Group | Type | Value | Notes |
 |---------|-------|------|-------|-------|
 | `true` | general | boolean | `true` | |
@@ -242,8 +241,6 @@ Source: `@integromat/iml/lib/keywords.js`
 | `carriagereturn` | string | text | `\r` | |
 
 ## Variables Reference
-
-Source: `@integromat/iml/lib/variables.js`
 
 | Variable | Group | Type | Description |
 |----------|-------|------|-------------|

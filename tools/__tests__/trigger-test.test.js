@@ -276,27 +276,51 @@ test('jira-stub completes the handshake of the shared stdio helper', async () =>
 	assert.equal(JSON.parse(responses[0].result.content[0].text).summary, 'monday app: Search Items returns duplicate items');
 });
 
-test('prompts.json holds 24 prompts with ids 1 to 24, 20 positive and 4 negative', () => {
-	assert.equal(prompts.length, 24);
-	assert.deepEqual(prompts.map((p) => p.id), Array.from({ length: 24 }, (_, i) => i + 1));
-	assert.equal(prompts.filter((p) => p.kind === 'positive').length, 20);
-	assert.equal(prompts.filter((p) => p.kind === 'negative').length, 4);
+test('prompts.json holds 36 prompts with ids 1 to 36, 30 positive and 6 negative', () => {
+	assert.equal(prompts.length, 36);
+	assert.deepEqual(prompts.map((p) => p.id), Array.from({ length: 36 }, (_, i) => i + 1));
+	assert.equal(prompts.filter((p) => p.kind === 'positive').length, 30);
+	assert.equal(prompts.filter((p) => p.kind === 'negative').length, 6);
 	for (const p of prompts) {
 		assert.ok(['positive', 'negative'].includes(p.kind), `prompt ${p.id} kind`);
 		assert.ok(typeof p.prompt === 'string' && p.prompt.trim(), `prompt ${p.id} text`);
 	}
 });
 
-test('prompts.json expectations are the nine skill suffixes, any, or none, and 13 prompts are Korean', () => {
+test('prompts.json expectations are the nine skill suffixes, any, or none, and 19 prompts are Korean', () => {
 	const allowed = new Set([...SKILLS, 'any']);
 	for (const p of prompts) {
 		if (p.kind === 'positive') assert.ok(allowed.has(p.expect), `prompt ${p.id} expects "${p.expect}"`);
 		else assert.equal(p.expect, 'none', `prompt ${p.id}`);
 	}
-	assert.equal(prompts.filter((p) => p.lang === 'ko').length, 13);
-	assert.equal(prompts.filter((p) => p.lang === 'en').length, 11);
+	assert.equal(prompts.filter((p) => p.lang === 'ko').length, 19);
+	assert.equal(prompts.filter((p) => p.lang === 'en').length, 17);
 	assert.deepEqual(new Set(prompts.filter((p) => p.kind === 'positive' && p.expect !== 'any').map((p) => p.expect)), new Set(SKILLS));
 });
+
+test('every prompt has a set: employee for ids 1 to 24, public for ids 25 to 36, the public positives cover eight skills', () => {
+	for (const p of prompts) assert.equal(p.set, p.id <= 24 ? 'employee' : 'public', `prompt ${p.id} set`);
+	const publicPositives = prompts.filter((p) => p.set === 'public' && p.kind === 'positive');
+	assert.deepEqual(publicPositives.map((p) => p.id), [25, 26, 27, 28, 29, 30, 31, 32, 33, 34]);
+	assert.deepEqual(new Set(publicPositives.map((p) => p.expect)), new Set(['code-review', 'task-refinement', 'bug-investigation', 'feature-request', 'task', 'run-live', 'setup', 'question']));
+	assert.deepEqual(prompts.filter((p) => p.set === 'public' && p.kind === 'negative').map((p) => p.id), [35, 36]);
+});
+
+for (const [name, runner] of [['run-claude', claude], ['run-cursor', cursor]]) {
+	test(`${name} setSummaryLines prints one line per set with results`, () => {
+		const results = [
+			{ set: 'employee', kind: 'positive', pass: true, exact: true },
+			{ set: 'employee', kind: 'positive', pass: false, exact: false },
+			{ set: 'employee', kind: 'negative', pass: true, exact: true },
+			{ set: 'public', kind: 'positive', pass: true, exact: false },
+		];
+		assert.deepEqual(runner.setSummaryLines(results), [
+			'set=employee positives: 1/2 (pass mark 18 of 20); exact: 1/2; negatives clean: 1/1',
+			'set=public positives: 1/1 (pass mark 9 of 10); exact: 0/1; negatives clean: 0/0',
+		]);
+		assert.deepEqual(runner.setSummaryLines([]), []);
+	});
+}
 
 test('the nine skill suffixes of the tests match the skills folder', () => {
 	const folders = fs.readdirSync(path.join(__dirname, '..', '..', 'skills')).filter((n) => n.startsWith('make-app-'));
@@ -491,6 +515,7 @@ test('run-claude runs the clean condition by default, with the sentinel set, and
 	const result = runScript(RUN_CLAUDE, ['--only', '1,21', '--stub', '--turns', '3', '--allow', 'Extra', '--out', out, '--no-org'], { CLAUDE_BIN: bin, FAKE_LOG: log });
 	assert.equal(result.status, 0, result.stderr);
 	assert.match(result.stdout, /condition=clean positives selecting a make-app skill: 1\/1; exact expected: 1\/1; negatives clean: 1\/1/);
+	assert.match(result.stdout, /^set=employee positives:/m);
 	const calls = logLines(log);
 	assert.equal(calls.length, 2);
 	for (const call of calls) {
@@ -579,6 +604,7 @@ test('run-cursor runs in plan mode by default in an empty workspace under the ou
 	assert.equal(row.stoppedBy, 'skill-read');
 	assert.equal(row.model, 'fake-model');
 	assert.match(result.stdout, /cursor positives selecting a make-app skill: 1\/1/);
+	assert.match(result.stdout, /^set=employee positives:/m);
 	assert.match(result.stdout, /missed positives stopped by unsafe-tool: 0;/);
 });
 

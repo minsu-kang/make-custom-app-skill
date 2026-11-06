@@ -37,6 +37,8 @@ This section describes the **app-level** scope. The connection-level scope is co
 
 ### Admin Panel — Where Values Are Entered
 
+Public mode: there is no admin panel for an owner's own app; the owner keeps app-wide values in common data (the Common data section of the app's Base page in the Make UI), and a review finding that asks for `installSpec` is advisory.
+
 After the app is deployed via IPM to a zone, an admin user opens:
 
 ```

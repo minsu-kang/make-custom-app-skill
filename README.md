@@ -1,17 +1,17 @@
 # Make Custom App plugin for Claude Code and Cursor
 
-A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and the runtime internals of `imt-app-runtime`.
+A plugin that helps you build, review, and maintain [Make](https://www.make.com/) custom apps (IMLJSON, the Make Apps SDK) in [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://cursor.sh/). It works with the **Make Apps SDK** extension and knows Make's IMLJSON format, module types, connections, RPCs, webhooks, SDK Endpoints, pagination, error handling, and how the Make runtime handles them.
 
 Any Make user can use the plugin with a Make API token. Before they work, the scripts check the token on your zone and pick a mode: employee mode when the token can call the Make admin API, public mode otherwise. Public mode works on your own apps through the public Make API. Employee mode keeps the Make employee flow: the admin API, a local `imt-app-runtime` clone, and Jira. In employee mode the scripts refuse to run when the Atlassian account behind your Jira API token is not a `@make.com` account; `check-setup.js` and `setup-secrets.js` only report it, and `cleanup-legacy.js` checks nothing because it only moves local files.
 
-A few steps need a Make employee account: Jira tickets, compile, component tests, and ownership transfer. In public mode the skills tell you when a step needs one, and the scripts behind these steps stop with a message that says so.
+A few steps need a Make employee account: Jira tickets, compile, component tests, and ownership transfer. In public mode your chat request takes the place of a ticket, a test scenario in your Make account (after your yes) the place of component tests, and a push on an unapproved app is live at once, with a local snapshot taken before the first write of a task.
 
 ## What it does
 
 - **Nine task skills.** Each starts from one kind of request and loads only the workflow it needs: refine a ticket, investigate a bug, review code, add a feature, maintain an app, build an SDK Endpoint, answer a question, run an Endpoint or RPC live, and set up the tools.
-- **App context.** Downloads the full source of an app once, keeps it in `~/.make-custom-app/contexts` for both editors, and shares summaries through a Pinecone index.
-- **Jira integration.** Reads the ticket, reviews changes against its acceptance criteria, and writes Developer Notes, through the Atlassian MCP server.
-- **Safe writes.** Scripts that change an app run only after you have seen and approved the change. Dev work ends at the push: committing or compiling an app happens only when you ask for it.
+- **App context.** Downloads the full source of an app once, keeps it in `~/.make-custom-app/contexts` for both editors, and shares summaries through a Pinecone index (the shared index is optional and serves Make's team).
+- **Jira integration (Make employees).** Reads the ticket, reviews changes against its acceptance criteria, and writes Developer Notes, through the Atlassian MCP server.
+- **Safe writes.** Scripts that change an app run only after you have seen and approved the change. Dev work ends at the push: committing or compiling an app happens only when you ask for it. The plugin never makes an app public or requests Make's review.
 
 ## Prerequisites
 
@@ -71,14 +71,14 @@ In Cursor, on a machine without Claude Code, release 2.4.0 says once a month tha
 
 | Skill | Use it for |
 |---|---|
-| `make-app-task-refinement` | Read-only feasibility study and implementation plan for a ticket in Preparation status |
+| `make-app-task-refinement` | Read-only feasibility study and implementation plan for a change request, or a ticket in Preparation status |
 | `make-app-bug-investigation` | Root cause and fix of a bug, regression, or returned ticket, with a failing test first |
-| `make-app-code-review` | Review of a developer's changes against the Jira acceptance criteria |
+| `make-app-code-review` | Review of a developer's changes against the Jira acceptance criteria, or of your own app against your request |
 | `make-app-feature-request` | New module, RPC, webhook, connection, custom function, or app |
 | `make-app-task` | Refactor, label or UX change, metadata edit, deprecation, cleanup |
-| `make-app-endpoint` | Create or update an SDK Endpoint |
+| `make-app-endpoint` | Create or update an SDK Endpoint (a beta for most accounts) |
 | `make-app-question` | Questions about an app or an IMLJSON file; the default skill for any other Make app request |
-| `make-app-run-live` | Run an Endpoint or RPC once against the real vendor API with your own connection |
+| `make-app-run-live` | Run an Endpoint or RPC once against the real vendor API with your own connection; in public mode also a module, in a test scenario |
 | `make-app-setup` | Check and fix credentials, paths, MCP servers, and leftovers of a 2.x install |
 
 Claude Code shows them as `make-custom-app:make-app-*`, Cursor as `make-app-*`. Every skill file carries the same hard rules, generated from `shared/hard-rules.md`. Workflows, references, and the component tables are in `shared/` (start at [shared/index.md](shared/index.md)); a skill loads them on demand.
@@ -87,23 +87,23 @@ Claude Code shows them as `make-custom-app:make-app-*`, Cursor as `make-app-*`. 
 
 Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/shared/scripts/<name>.js"`.
 
-| Script | Description |
-|---|---|
-| `check-setup.js` | One-screen setup diagnosis. It checks the Make API token on its zone and prints `MODE: employee`, `MODE: public` or, when it cannot check the token, `MODE: unknown` first, then the Make API credentials, the default team id, MCP keys, leftovers of a 2.x install, and an update notice; in employee mode also `imt-app-runtime-path`, the mockup path, and the `@make.com` account check. Exit 1 when a required item is missing, no usable Make zone is set, Make rejects the token, or the check cannot reach Make. |
-| `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back, `--decline <digest>` records a no for 7 days. Run by the `make-app-setup` skill; `check-setup.js` prints `LEGACY_INSTALL:` while the old install is there and `OLD_INSTALL_KEPT:` after a no. |
-| `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. It finds your zone from the Make API token and asks the employee questions only in employee mode. Run it in your own terminal, never through the agent. |
-| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts`. Exit 1, with the failed parts listed under `Failed:`, when a part cannot be read. In public mode every non-empty string and every number of the app and connection common data is saved as `***MASKED:string***` or `***MASKED:number***`. `--snapshot` saves the same read to `~/.make-custom-app/snapshots/{slug}-v{version}/{id}/` instead and leaves the local copy alone (the newest 5 are kept) |
-| `update-app.js` | Pushes one section of an app to Make. It refuses a `common` file that still holds a masked value; in public mode it first needs a snapshot (`download-app.js --snapshot`) taken since the last download |
-| `review-changes.js` | Fetches the uncommitted changes of an app for a code review, or with `--baseline <id\|latest>` compares the local copy with a snapshot (the default in public mode when Make lists no changes and the app is not marked approved). When a call fails it lists the failed calls, exits 1 and writes no review |
-| `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition. `compile` and the `--issue` chain are for Make employees only |
-| `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint |
-| `update-component.js` | Updates component metadata |
-| `delete-component.js` | Deletes a component (public apps: RPCs and functions only) |
-| `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`). In public mode, and for Make employees without a runtime clone that loads, the built-in IML functions come from the plugin's shim of the documented functions. Exit 2 means a test needed something the shim lacks and no test failed |
-| `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework (Make employees only) |
-| `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection. In public mode the first live run for a token stops once with a live-run notice (`ACTION: CONFIRM_LIVE_RUN`); `--accept-live-notice` goes on after the user agrees |
-| `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis (Make employees only) |
-| `post-review-transition.js` | Moves a Jira ticket after a code review is concluded (Make employees only) |
+| Script | Description | Mode |
+|---|---|---|
+| `check-setup.js` | One-screen setup diagnosis. It checks the Make API token on its zone and prints `MODE: employee`, `MODE: public` or, when it cannot check the token, `MODE: unknown` first, then the Make API credentials, the default team id, MCP keys, leftovers of a 2.x install, and an update notice; in employee mode also `imt-app-runtime-path`, the mockup path, and the `@make.com` account check. Exit 1 when a required item is missing, no usable Make zone is set, Make rejects the token, or the check cannot reach Make. | both |
+| `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back, `--decline <digest>` records a no for 7 days. Run by the `make-app-setup` skill; `check-setup.js` prints `LEGACY_INSTALL:` while the old install is there and `OLD_INSTALL_KEPT:` after a no. | both |
+| `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. It finds your zone from the Make API token and asks the employee questions only in employee mode. Run it in your own terminal, never through the agent. | both |
+| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts`. Exit 1, with the failed parts listed under `Failed:`, when a part cannot be read. In public mode every non-empty string and every number of the app and connection common data is saved as `***MASKED:string***` or `***MASKED:number***`. `--snapshot` saves the same read to `~/.make-custom-app/snapshots/{slug}-v{version}/{id}/` instead and leaves the local copy alone (the newest 5 are kept) | both |
+| `update-app.js` | Pushes one section of an app to Make. It refuses a `common` file that still holds a masked value; in public mode it first needs a snapshot (`download-app.js --snapshot`) taken since the last download | both |
+| `review-changes.js` | Fetches the uncommitted changes of an app for a code review, or with `--baseline <id\|latest>` compares the local copy with a snapshot (the default in public mode when Make lists no changes and the app is not marked approved). When a call fails it lists the failed calls, exits 1 and writes no review | both (partial in public) |
+| `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition. `compile` and the `--issue` chain are for Make employees only | both (partial in public) |
+| `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint | both |
+| `update-component.js` | Updates component metadata | both |
+| `delete-component.js` | Deletes a component (public apps: RPCs and functions only) | both |
+| `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`). In public mode, and for Make employees without a runtime clone that loads, the built-in IML functions come from the plugin's shim of the documented functions. Exit 2 means a test needed something the shim lacks and no test failed | both (partial in public) |
+| `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework (Make employees only) | employee |
+| `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection. In public mode the first live run for a token stops once with a live-run notice (`ACTION: CONFIRM_LIVE_RUN`); `--accept-live-notice` goes on after the user agrees | both |
+| `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis (Make employees only) | employee |
+| `post-review-transition.js` | Moves a Jira ticket after a code review is concluded (Make employees only) | employee |
 
 The scripts take `--editor claude|cursor` when no editor variable reaches them. The `lib/` folder holds their shared code and its tests.
 
@@ -181,3 +181,5 @@ Ask naturally:
 - *"Add error handling for 429 rate limits"*
 - *"Review my code changes: slug slack, version 4"*
 - *"Refine this ticket: https://make.atlassian.net/browse/PROJ-123, app monday"*
+- *"Review my app acme-crm v1 before I ask Make to review it"*
+- *"Test the Search Contacts module of my app"*
