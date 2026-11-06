@@ -12,12 +12,14 @@
  *        lib/__tests__/run-component.test.js runs this script against a mock API server in a fake HOME.
  *
  * Usage:
- *   node run-component.js <app-slug> <app-version> endpoint|rpc <name> [--team=<id>] [--connection=<id>] [--input=<file.json>] [--dry-run] [--save-team]
+ *   node run-component.js <app-slug> <app-version> endpoint|rpc <name> [--team=<id>] [--connection=<id>] [--input=<file.json>] [--dry-run] [--save-team] [--accept-live-notice]
  *
  * One command runs the component once. The connection is picked by the script and is always one the user created
  * (`authorId` equals `GET /users/me`); nobody else's connection is used. Without a connection of the right type the script
  * stops with a link to create one. `--dry-run` runs the preflight, prints the summary and sends no execution or
  * credential request; `--save-team` still stores the team.
+ * In public mode the first real run for a token stops once with ACTION: CONFIRM_LIVE_RUN; --accept-live-notice goes on
+ * after the user agrees (lib/live-notice.js).
  * The team comes from --team or the optional `make-team-id:` line in ~/.make-custom-app-skill-secrets; without either the
  * script lists the user's teams, and `--team=<id> --save-team` stores the chosen one as `make-team-id`.
  *
@@ -41,7 +43,7 @@ const EXEC_TIMEOUT_MS = 330000;
 const PREFLIGHT_RETRIES = 2;
 const DISCOVERY_CONCURRENCY = 4;
 const OUTPUT_LIMIT = 50 * 1024;
-const USAGE = 'Usage: run-component.js <app-slug> <app-version> endpoint|rpc <name> [--team=<id>] [--connection=<id>] [--input=<file.json>] [--dry-run] [--save-team]';
+const USAGE = 'Usage: run-component.js <app-slug> <app-version> endpoint|rpc <name> [--team=<id>] [--connection=<id>] [--input=<file.json>] [--dry-run] [--save-team] [--accept-live-notice]';
 
 /** Thrown to end the run with an exit code; stdout/stderr text is printed by the catcher. */
 class Stop extends Error {
@@ -309,7 +311,7 @@ async function run(argv) {
 
 	// 4. input form and connection
 	const formResp = await call(reqs.form);
-	if (formResp.status === 501) stopAction('ORG_ADMIN', ['Endpoint execution is not enabled on this environment.', 'Ask a Make admin whether it is planned for this zone.']);
+	if (formResp.status === 501) stopAction('ORG_ADMIN', rc.formNotEnabledLines(settings.mode));
 	if ((formResp.status === 401 || formResp.status === 403) && teamFromSetting) await chooseTeam(`make-team-id (${teamId}) is not accessible with this key: wrong zone, deleted team, or lost access.`);
 	if (formResp.status === 401 || formResp.status === 403) stopAction('MAKE_UI', [`The input form of ${args.kind} ${args.name} is not accessible for team ${teamId} (HTTP ${formResp.status}). Check the team id and your access in Make.`, ...fieldLines(rc.pickErrorFields(formResp.text))]);
 	if (formResp.status !== 200) throw fail(`could not read the input form of ${args.kind} ${args.name}`, formResp);
@@ -349,7 +351,7 @@ async function run(argv) {
 			else if (r.status >= 200 && r.status < 300) request = { reason: 'the response had no usable link' };
 			else request = { reason: `HTTP ${r.status}${rc.pickErrorFields(r.text).message ? `: ${rc.pickErrorFields(r.text).message}` : ''}` };
 		}
-		const action = rc.connectionAction(pick, { host, teamId, slug: args.slug, connectionId: args.connectionId, connection: form.connection, request });
+		const action = rc.connectionAction(pick, { host, teamId, slug: args.slug, connectionId: args.connectionId, connection: form.connection, request, kind: args.kind });
 		if (action) stopAction(action.action, action.lines);
 		connectionRow = pick.connection;
 		otherConnections = pick.others;
@@ -385,11 +387,18 @@ async function run(argv) {
 	const { masked, maskedKeys } = rc.maskInput(input);
 	console.log(rc.renderRunSummary({
 		kind: args.kind, slug: args.slug, version: args.version, name: args.name, host, teamId, teamName, orgId, installed: args.kind === 'endpoint',
-		transportNote, connection: connectionRow, others: otherConnections, warnings, notes, input: masked, maskedKeys, sideEffects,
+		transportNote, connection: connectionRow, others: otherConnections, warnings, notes, input: masked, maskedKeys, sideEffects, mode: settings.mode,
 	}));
+	const notice = settings.mode === 'public' ? require('./lib/live-notice') : null;
+	const accepted = notice === null || notice.isAccepted({ host: settings.host, apiKey: settings.apikey });
 	if (args.dryRun) {
 		console.log('dry run: nothing was sent');
+		if (!accepted) console.log(rc.NOTICE_DRY_RUN_NOTE);
 		return;
+	}
+	if (!accepted) {
+		if (!args.acceptLiveNotice) stopAction('CONFIRM_LIVE_RUN', rc.liveNoticeLines({ kind: args.kind }));
+		if (!notice.accept({ host: settings.host, apiKey: settings.apikey })) console.error(rc.NOTICE_NOT_SAVED_NOTE);
 	}
 
 	// 8. execute: one request, no retries
@@ -400,7 +409,7 @@ async function run(argv) {
 		const req = rc.buildExecRequest({ ...base, transport: t });
 		const r = await http(req, { retries: 0, timeoutMs: EXEC_TIMEOUT_MS, auth: settings.auth });
 		if (r.error) throw new Stop(rc.EXIT.UNKNOWN, `RESULT UNKNOWN: the request was sent but no response arrived (${r.error}).\nThe request may have run and may have been billed. ${rerun}`);
-		return { ...rc.classifyExecResponse({ transport: t, status: r.status, bodyText: r.text }), multiple: r.multiple };
+		return { ...rc.classifyExecResponse({ transport: t, status: r.status, bodyText: r.text, mode: settings.mode }), multiple: r.multiple };
 	};
 	let used = transport;
 	let result = await send(used);

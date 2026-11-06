@@ -6,6 +6,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const logic = require('../download-app-logic');
 const { originStop, TOKEN_SCOPES, formatScopes } = require('../mode-logic');
+const { snapshotDoneLines } = require('../snapshot-logic');
 
 const ok = (body) => ({ status: 200, body, error: null });
 const status = (n) => ({ status: n, body: '{"message":"x"}', error: null });
@@ -33,11 +34,14 @@ describe('classifySection', () => {
 });
 
 describe('failureReason', () => {
-	it('names the error code, the status, the 429 retries, or an unexpected 2xx answer', () => {
+	it('names the error code, the status, the retries after 429, 502, 503 or 504, or an unexpected 2xx answer', () => {
 		assert.equal(logic.failureReason(network('UND_ERR_SOCKET')), 'UND_ERR_SOCKET');
 		assert.equal(logic.failureReason(status(429)), 'HTTP 429 after 5 retries');
 		assert.equal(logic.failureReason(status(403)), 'HTTP 403');
-		assert.equal(logic.failureReason(status(502)), 'HTTP 502');
+		assert.equal(logic.failureReason(status(502)), 'HTTP 502 after 5 retries');
+		assert.equal(logic.failureReason(status(503)), 'HTTP 503 after 5 retries');
+		assert.equal(logic.failureReason(status(504)), 'HTTP 504 after 5 retries');
+		assert.equal(logic.failureReason(status(500)), 'HTTP 500');
 		assert.equal(logic.failureReason(ok('not json')), 'unexpected response');
 	});
 });
@@ -71,7 +75,7 @@ describe('readJson, readList and readDetail', () => {
 		assert.deepEqual(logic.readDetail(ok('{"appEndpoint":{"context":"x"}}')), { body: { appEndpoint: { context: 'x' } } });
 		assert.deepEqual(logic.readDetail(status(404)), { absent: true });
 		assert.deepEqual(logic.readDetail(status(403)), { reason: 'HTTP 403' });
-		assert.deepEqual(logic.readDetail(status(503)), { reason: 'HTTP 503' });
+		assert.deepEqual(logic.readDetail(status(503)), { reason: 'HTTP 503 after 5 retries' });
 		assert.deepEqual(logic.readDetail(network('ECONNRESET')), { reason: 'ECONNRESET' });
 		assert.deepEqual(logic.readDetail(ok('<html>')), { reason: 'unexpected response' });
 	});
@@ -117,6 +121,13 @@ describe('planOrigin', () => {
 	});
 });
 
+describe('visibilityHeader', () => {
+	it('names the admin endpoint only in employee mode', () => {
+		assert.equal(logic.visibilityHeader('public'), '=== Visibility ===');
+		assert.equal(logic.visibilityHeader('employee'), '=== Visibility (admin app endpoint) ===');
+	});
+});
+
 describe('visibilityOutcome', () => {
 	const versions = { app: { versions: [{ version: '1.2.0', private: true }, { version: 2, private: false }] } };
 
@@ -124,7 +135,7 @@ describe('visibilityOutcome', () => {
 		assert.deepEqual(logic.visibilityOutcome(null, '1', 'eu1.make.com'), {
 			ipmDeployed: null,
 			verRow: null,
-			line: '  · visibility unknown (public mode): the admin app endpoint was not called.',
+			line: '  · Visibility flags (private, packagePrivate, ipmDeployedToZone) are not available in public mode. metadata.json keeps them as null.',
 		});
 	});
 
@@ -221,10 +232,52 @@ describe('doneLines and failedErrorLine', () => {
 		]);
 	});
 
+	it('ends a snapshot run with the four snapshot lines instead of the Path line', () => {
+		const snapshot = { id: '20261105-141200', dir: '/s/my-app-v1/20261105-141200', kept: 3 };
+		const lines = logic.doneLines({ saved: 2, absent: 1, failed: [], outputDir: '/o', mode: 'public', snapshotMode: true, snapshot });
+		assert.deepEqual(lines.slice(-4), snapshotDoneLines(snapshot));
+		assert.deepEqual(lines.slice(0, -4), ['', '=== Done ===', '  Saved: 2 file(s)', '  Absent: 1 (empty or not set on the server)', '  Visibility: unknown (public mode)']);
+		assert.ok(!lines.some((line) => line.startsWith('  Path:')), lines.join('\n'));
+	});
+
+	it('says that no snapshot was taken when a snapshot run failed', () => {
+		const lines = logic.doneLines({ saved: 0, absent: 0, failed: [{ what: 'base.imljson', reason: 'HTTP 500' }], outputDir: '/o', mode: 'employee', snapshotMode: true });
+		assert.deepEqual(lines, ['', '=== Done ===', '  Failed: 1', '    ✗ base.imljson (HTTP 500)', '  Nothing was written: no snapshot was taken.', `  ${logic.RETRY_FIX}`]);
+	});
+
 	it('names the count and the app on the stderr line', () => {
 		assert.equal(
 			logic.failedErrorLine(2, 'my-app', '1'),
 			'ERROR: 2 section(s) of my-app v1 could not be read, so nothing was written. Show the failed sections above to the user; do not answer from the local copy.',
 		);
+	});
+});
+
+describe('takeSnapshotFlag, USAGE_LINES and SNAPSHOT_WITH_OUTPUT_DIR', () => {
+	it('removes every --snapshot from argv in place and says whether there was one', () => {
+		const argv = ['node', 's', 'a', '--snapshot', '1'];
+		assert.equal(logic.takeSnapshotFlag(argv), true);
+		assert.deepEqual(argv, ['node', 's', 'a', '1']);
+		const twice = ['node', 's', '--snapshot', 'a', '1', '--snapshot'];
+		assert.equal(logic.takeSnapshotFlag(twice), true);
+		assert.deepEqual(twice, ['node', 's', 'a', '1']);
+	});
+
+	it('leaves argv as it was without the flag', () => {
+		const argv = ['node', 's', 'a', '1', '/tmp/out', '--snapshots'];
+		assert.equal(logic.takeSnapshotFlag(argv), false);
+		assert.deepEqual(argv, ['node', 's', 'a', '1', '/tmp/out', '--snapshots']);
+	});
+
+	it('gives the usage with --snapshot and the usage error of an output dir', () => {
+		assert.deepEqual(logic.USAGE_LINES, [
+			'Usage: node download-app.js <app-slug> <app-version> [output-dir | --snapshot]',
+			'Example: node download-app.js google-docs 1',
+			'        node download-app.js instagram 5 /tmp/instagram-v5',
+			'        node download-app.js google-docs 1 --snapshot',
+		]);
+		assert.equal(logic.SNAPSHOT_WITH_OUTPUT_DIR, 'ERROR: --snapshot saves to ~/.make-custom-app/snapshots and takes no output dir.');
+		assert.deepEqual(logic.snapshotWriteErrorLines('EEXIST'), ['ERROR: the snapshot could not be written (EEXIST), so none was kept.', 'Check that ~/.make-custom-app/snapshots can be written, then run the same command again.']);
+		assert.equal(logic.snapshotWriteErrorLines(undefined)[0], 'ERROR: the snapshot could not be written (error), so none was kept.');
 	});
 });

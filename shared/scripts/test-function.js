@@ -3,7 +3,7 @@
  * Make Custom App IML Function Test Runner
  *
  * Usage:
- *   node test-function.js <app-slug> <app-version> [function-name ...] [--tz=TIMEZONE]
+ *   node test-function.js <app-slug> <app-version> [function-name ...] [--tz=TIMEZONE] [--engine=shim|runtime]
  *   node test-function.js google-docs 1                     # test all functions
  *   node test-function.js google-docs 1 parseError          # test specific function
  *   node test-function.js google-docs 1 parseError getError # test multiple
@@ -12,6 +12,8 @@
  * Reads code.js and test.js from
  *   ~/.make-custom-app/contexts/{slug}-v{version}/functions/ (the same folder for every editor).
  * Uses @integromat/iml from imt-app-runtime for built-in IML functions.
+ * In public mode, and in employee mode without a runtime that loads, the built-ins come from the plugin's shim
+ * (lib/iml-shim.js); exit 0 means every test passed, 1 a failure or a stop, 2 a test blocked by the shim and none failed.
  */
 
 const fs = require('fs');
@@ -22,6 +24,8 @@ const { getContextsDir } = require('./lib/paths');
 const DEFAULT_CONTEXTS_DIR = getContextsDir();
 const { readSkillConfig, SECRETS_PATH } = require('./lib/settings');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
+const logic = require('./lib/test-function-logic');
+const { createImlShim } = require('./lib/iml-shim');
 
 function getRuntimePath() {
 	return readSkillConfig('imt-app-runtime-path');
@@ -145,184 +149,127 @@ function loadAppFunctions(functionsDir) {
 		if (!fs.statSync(dir).isDirectory()) continue;
 		const codeFile = path.join(dir, 'code.js');
 		if (fs.existsSync(codeFile)) {
+			const testFile = path.join(dir, 'test.js');
+			const hasTest = fs.existsSync(testFile);
 			functions[name] = {
 				code: fs.readFileSync(codeFile, 'utf-8'),
-				testFile: path.join(dir, 'test.js'),
-				hasTest: fs.existsSync(path.join(dir, 'test.js')),
+				testCode: hasTest ? fs.readFileSync(testFile, 'utf-8') : undefined,
+				hasTest,
 			};
 		}
 	}
 	return functions;
 }
 
-function runTests(functionsDir, targetNames, imlBuiltins, timezone) {
-	const functions = loadAppFunctions(functionsDir);
-	const allNames = Object.keys(functions);
-
-	if (allNames.length === 0) {
-		console.log('No functions found.');
-		return { total: 0, passed: 0, failed: 0, skipped: 0, errors: [] };
-	}
-
-	const namesToTest = targetNames.length > 0
-		? targetNames.filter((n) => {
-				if (!functions[n]) {
-					console.log(`\n⚠ Function "${n}" not found. Available: ${allNames.join(', ')}`);
-					return false;
-				}
-				return true;
-			})
-		: allNames;
-
-	const environment = { timezone };
-
-	const iml = { ...imlBuiltins };
-
-	const loadedNames = [];
-	const failedNames = [];
-
-	for (const [name, fn] of Object.entries(functions)) {
-		try {
-			const codeToWrap = `(${fn.code}).apply({timezone: environment.timezone}, __arguments__)`;
-			iml[name] = (...args) => {
-				const execFn = new Function('environment', '__arguments__', 'iml', 'debug', `return ${codeToWrap}`);
-				return execFn(environment, args, iml, () => {});
-			};
-			loadedNames.push(name);
-		} catch (e) {
-			failedNames.push(name);
-			console.error(`  ⚠ Failed to load ${name}/code.js: ${e.message}`);
-		}
-	}
-
-	console.log(`Functions: ${loadedNames.length} loaded${failedNames.length ? `, ${failedNames.length} failed (${failedNames.join(', ')})` : ''}`);
-	console.log(`  → ${loadedNames.join(', ')}`);
-
-	let totalTests = 0;
-	let passedTests = 0;
-	let failedTests = 0;
-	let skippedFunctions = 0;
-	const errors = [];
-
-	for (const name of namesToTest) {
-		const fn = functions[name];
-
-		console.log(`\n━━━ ${name} ━━━`);
-
-		if (!fn.hasTest) {
-			console.log('  ⏭ No test.js found — skipped');
-			skippedFunctions++;
-			continue;
-		}
-
-		const testCode = fs.readFileSync(fn.testFile, 'utf-8');
-		if (!testCode || testCode.trim() === 'undefined') {
-			console.log('  ⏭ test.js is empty — skipped');
-			skippedFunctions++;
-			continue;
-		}
-
-		const testResults = [];
-
-		const itFn = (description, testFn) => {
-			testResults.push({ description, testFn });
-		};
-		const describeFn = (_description, suiteFn) => {
-			suiteFn();
-		};
-
-		const codeToRun = `${fn.code}\r\n\r\n/* === TEST CODE === */\r\n\r\n${testCode}`;
-
-		try {
-			const runFn = new Function('assert', 'iml', 'it', 'describe', 'environment', 'debug', codeToRun);
-			runFn(assert, iml, itFn, describeFn, environment, () => {});
-		} catch (e) {
-			console.log(`  ✗ Failed to parse test: ${e.message}`);
-			errors.push({ function: name, test: '(parse)', error: e.message });
-			failedTests++;
-			totalTests++;
-			continue;
-		}
-
-		for (const { description, testFn } of testResults) {
-			totalTests++;
-			try {
-				testFn();
-				passedTests++;
-				console.log(`  ✓ ${description}`);
-			} catch (e) {
-				failedTests++;
-				const msg = e.code === 'ERR_ASSERTION'
-					? `Expected: ${JSON.stringify(e.expected)}\n            Actual:   ${JSON.stringify(e.actual)}`
-					: e.message;
-				console.log(`  ✗ ${description}`);
-				console.log(`          ${msg}`);
-				errors.push({ function: name, test: description, error: msg });
-			}
-		}
-	}
-
-	console.log('\n════════════════════════════════════════');
-	console.log(`Results: ${passedTests} passed, ${failedTests} failed, ${skippedFunctions} skipped (${totalTests} total tests)`);
-	if (errors.length > 0) {
-		console.log('\nFailed tests:');
-		for (const e of errors) {
-			console.log(`  ✗ ${e.function} › ${e.test}`);
-		}
-	}
-	console.log('════════════════════════════════════════');
-
-	return { total: totalTests, passed: passedTests, failed: failedTests, skipped: skippedFunctions, errors };
+function readIfExists(file) {
+	return fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
 }
 
-const args = process.argv.slice(2);
-const tzArg = args.find(a => a.startsWith('--tz='));
-const positional = args.filter(a => !a.startsWith('--'));
-const [slug, version, ...targetNames] = positional;
+const USAGE = [
+	'Usage: node test-function.js <app-slug> <app-version> [function-name ...] [--tz=TIMEZONE] [--engine=shim|runtime]',
+	'',
+	'Examples:',
+	'  node test-function.js google-docs 1                     # test all functions',
+	'  node test-function.js google-docs 1 parseError          # test one function',
+	'  node test-function.js google-docs 1 parseError getError # test multiple',
+	'  node test-function.js monday 2 --tz=Europe/Prague       # custom timezone',
+	'',
+	'Default timezone: UTC (matches Make Apps SDK extension)',
+];
 
-if (!slug || !version) {
-	console.log('Usage: node test-function.js <app-slug> <app-version> [function-name ...] [--tz=TIMEZONE]');
-	console.log('');
-	console.log('Examples:');
-	console.log('  node test-function.js google-docs 1                     # test all functions');
-	console.log('  node test-function.js google-docs 1 parseError          # test one function');
-	console.log('  node test-function.js google-docs 1 parseError getError # test multiple');
-	console.log('  node test-function.js monday 2 --tz=Europe/Prague       # custom timezone');
-	console.log('');
-	console.log('Default timezone: UTC (matches Make Apps SDK extension)');
+const args = logic.parseArgs(process.argv.slice(2));
+
+if (args.error || !args.slug || !args.version) {
+	if (args.error) console.error(args.error);
+	for (const line of USAGE) console.log(line);
 	process.exit(1);
 }
 
-require('./lib/mode').requireMode();
+const settings = require('./lib/mode').requireMode();
 
-const functionsDir = path.join(DEFAULT_CONTEXTS_DIR, `${slug}-v${version}`, 'functions');
+const functionsDir = path.join(DEFAULT_CONTEXTS_DIR, `${args.slug}-v${args.version}`, 'functions');
 
 if (!fs.existsSync(functionsDir)) {
 	console.error(`Functions directory not found: ${functionsDir}`);
-	console.error(`Run download-app.js first: node download-app.js ${slug} ${version}`);
+	console.error(`Run download-app.js first: node download-app.js ${args.slug} ${args.version}`);
 	process.exit(1);
 }
 
-const timezone = tzArg ? tzArg.split('=')[1] : 'UTC';
 const runtimePath = getRuntimePath();
-let imlBuiltins = {};
-
-if (runtimePath && fs.existsSync(runtimePath)) {
-	const loaded = loadImlFunctions(runtimePath, timezone);
-	if (loaded) {
-		imlBuiltins = loaded;
-		console.log(`IML: @integromat/iml loaded (${Object.keys(imlBuiltins).length} built-in functions)`);
-	} else {
-		console.log('IML: Failed to load @integromat/iml — using passthrough stubs');
+const wantsRuntime = settings.mode === 'employee' && args.engine !== 'shim';
+let runtimeBuiltins = null;
+if (wantsRuntime && runtimePath) {
+	try {
+		runtimeBuiltins = loadImlFunctions(runtimePath, args.tz);
+	} catch {
+		runtimeBuiltins = null;
 	}
-} else {
-	console.log('IML: imt-app-runtime path not configured — using passthrough stubs');
-	console.log(`     Set imt-app-runtime-path in ${SECRETS_PATH} for full IML function support`);
 }
 
-console.log(`Testing: ${slug} v${version}`);
-console.log(`Timezone: ${timezone}`);
-console.log(`Path: ${functionsDir}`);
+const choice = logic.chooseEngine({
+	mode: settings.mode,
+	engineFlag: args.engine,
+	runtimePathSet: Boolean(runtimePath),
+	runtimeLoaded: Boolean(runtimeBuiltins),
+	secretsPath: SECRETS_PATH,
+});
+if (choice.error) {
+	console.error(choice.error);
+	process.exit(1);
+}
 
-const result = runTests(functionsDir, targetNames, imlBuiltins, timezone);
-process.exit(result.failed > 0 ? 1 : 0);
+const environment = { timezone: args.tz };
+const gaps = [];
+let builtins;
+let common = {};
+
+if (choice.engine === 'runtime') {
+	builtins = runtimeBuiltins;
+	console.log(`IML: @integromat/iml loaded (${Object.keys(builtins).length} built-in functions)`);
+	console.log(`Testing: ${args.slug} v${args.version}`);
+	console.log(`Timezone: ${args.tz}`);
+	console.log(`Path: ${functionsDir}`);
+} else {
+	// The parity file was recorded in UTC, so the shim and the function code run in UTC, not in the zone of this computer.
+	process.env.TZ = 'UTC';
+	const contextDir = path.dirname(functionsDir);
+	const { manifest, known } = logic.manifestOf(readIfExists(path.join(contextDir, 'metadata.json')));
+	const parsed = logic.commonOf(readIfExists(path.join(contextDir, 'common.imljson')));
+	common = parsed.common;
+	let zoneKnown = true;
+	builtins = createImlShim({
+		timezone: args.tz,
+		manifest,
+		onGap: (fn, detail) => gaps.push({ fn, detail }),
+		onWarning: (kind) => {
+			if (kind === 'unknown-zone') zoneKnown = false;
+		},
+	});
+	const header = logic.shimHeaderLines({
+		fallbackLine: choice.line,
+		slug: args.slug,
+		version: args.version,
+		timezone: args.tz,
+		zoneKnown,
+		manifest,
+		manifestKnown: known,
+		commonState: parsed.state,
+		mode: settings.mode,
+		functionsDir,
+	});
+	for (const line of header) console.log(line);
+}
+
+const result = logic.runSuite({
+	functions: loadAppFunctions(functionsDir),
+	targetNames: args.names,
+	engine: choice.engine,
+	builtins,
+	environment,
+	common,
+	assert,
+	print: (line) => console.log(line),
+	gaps,
+});
+for (const line of logic.tailLines({ engine: choice.engine, result })) console.log(line);
+process.exit(logic.exitCode(result));

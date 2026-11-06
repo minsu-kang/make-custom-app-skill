@@ -13,7 +13,8 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { cacheKey, JIRA_BASE_URL } = require('../access-guard-logic');
-const { cacheEntry, CACHE_FILE_NAME, TEST_ORIGIN_VAR } = require('../mode-logic');
+const { cacheEntry, CACHE_FILE_NAME, TEST_ORIGIN_VAR, cacheKey: modeCacheKey } = require('../mode-logic');
+const { liveNoticeLines, NOTICE_DRY_RUN_NOTE, NOTICE_NOT_SAVED_NOTE } = require('../run-component-logic');
 const { setupCommand } = require('../paths');
 const { cursorSettingsPath } = require('../settings');
 
@@ -61,6 +62,7 @@ function reset(over = {}) {
 		...over,
 	};
 	log = [];
+	fs.rmSync(noticeFile(), { force: true });
 }
 
 function handle(req, res, data) {
@@ -100,7 +102,7 @@ function handle(req, res, data) {
 		if (state.appsStatus[apps[1]]) return send(state.appsStatus[apps[1]], { code: 'IM002', message: 'Insufficient rights.' });
 		return state.appsRaw !== undefined ? send(200, state.appsRaw) : send(200, { installedApps: state.orgApps[apps[1]] || [] });
 	}
-	if (M === 'GET' && p === '/api/v2/imt-forms/endpoints/app%23my-app/1/listItems') return send(200, state.endpointForm);
+	if (M === 'GET' && p === '/api/v2/imt-forms/endpoints/app%23my-app/1/listItems') return state.endpointFormStatus ? send(state.endpointFormStatus, { message: 'not enabled' }) : send(200, state.endpointForm);
 	if (M === 'GET' && p === '/api/v2/imt-forms/rpcs/app%23my-app/1/listBoards') return state.rpcFormStatus ? send(state.rpcFormStatus, { code: 'IM002', message: 'Insufficient rights.' }) : send(200, state.rpcForm);
 	if (M === 'GET' && p === '/api/v2/connections') {
 		if (state.connStatus) return send(state.connStatus, { code: 'IM002', message: 'Insufficient rights.' });
@@ -135,6 +137,13 @@ function writeSecrets(extra = '', key = FAKE_KEY) {
 }
 
 const modeCache = () => path.join(tmp, CACHE_FILE_NAME);
+const noticeFile = () => path.join(home, '.make-custom-app', 'live-run-notice.json');
+
+/** Seeds the answer to the live-run notice for ZONE and the key (`key` for another token). */
+function acceptNotice(key = FAKE_KEY, acceptedAt = new Date().toISOString()) {
+	fs.mkdirSync(path.dirname(noticeFile()), { recursive: true });
+	fs.writeFileSync(noticeFile(), JSON.stringify({ schema: 1, noticeVersion: 1, key: modeCacheKey(ZONE, key), acceptedAt }), { mode: 0o600 });
+}
 
 /** `mode` seeds a fresh mode cache entry for ZONE and the key (`modeKey` for a key that is not in the secrets file); null probes. */
 function runScript(args, { secretsExtra = '', keepSecrets = false, key, env = { CLAUDECODE: '1' }, mode = 'employee', modeKey } = {}) {
@@ -941,6 +950,7 @@ describe('the mode of the token', () => {
 	it('public mode: every request goes to the public API, and no Jira token is needed', async () => {
 		for (const [args, reads] of [[EP, ['/api/v2/sdk/apps/my-app/1', '/api/v2/sdk/apps/my-app/1/endpoints/listItems']], [RPC, ['/api/v2/sdk/apps/my-app/1', '/api/v2/sdk/apps/my-app/1/rpcs/listBoards/api']]]) {
 			reset();
+			acceptNotice();
 			fs.writeFileSync(secretsPath, `make-api-key: ${FAKE_KEY}\nmake-zone: ${ZONE}\n`, { mode: 0o600 });
 			const r = await runScript(args, { keepSecrets: true, mode: 'public' });
 			assert.equal(r.code, 0, r.stderr);
@@ -955,6 +965,7 @@ describe('the mode of the token', () => {
 	it('without a fresh mode cache it probes the token first, prints nothing for it, and caches the verdict', async () => {
 		for (const [adminProbe, verdict, origin] of [[403, 'public', '/api/v2/sdk/apps/my-app/1'], [200, 'employee', '/api/v2/admin/sdk/apps/my-app/1']]) {
 			reset({ adminProbe });
+			acceptNotice();
 			const r = await runScript(EP, { mode: null });
 			assert.equal(r.code, 0, r.stderr);
 			assert.equal(r.stderr, `${targetLine()}\n`);
@@ -976,5 +987,241 @@ describe('the mode of the token', () => {
 		assert.ok(r.stderr.includes(setupCommand('claude')), r.stderr);
 		assert.deepEqual(log.map((e) => e.url), ['/api/v2/users/me']);
 		noLeak(r, 'bad token');
+	});
+});
+
+describe('public texts', () => {
+	const RPC_CONN_FORM = { config: [{ name: '__IMTCONN__', type: 'account:app#my-app-account', required: true, options: { scope: { 'app#my-app-account': ['read'] } } }, { name: 'board', type: 'text' }] };
+	const PUBLIC_NOTE = 'You run the draft of your own app, with the files you pushed. If someone else owns this app, you run its committed version, which can differ.';
+	const EMPLOYEE_NOTE = 'The app author runs the pushed draft; anyone else runs the committed version.';
+
+	it('row 8: an input form 501 stops with the closed-beta lines in public mode and sends nothing', async () => {
+		reset({ endpointFormStatus: 501 });
+		const r = await runScript(EP, { mode: 'public' });
+		assert.equal(r.code, 4);
+		const lines = r.stderr.split('\n');
+		assert.equal(lines[1], 'ACTION: ORG_ADMIN');
+		assert.equal(lines[2], 'Endpoint execution is not enabled on this environment. SDK Endpoints are a closed beta.');
+		assert.equal(lines[3], 'You can still run an RPC with this script, or leave the live run out and tell the user.');
+		assert.equal(log.filter((e) => e.method === 'POST').length, 0);
+		noLeak(r, 'row 8 public');
+	});
+
+	it('row 8: employee mode keeps today\'s two lines', async () => {
+		reset({ endpointFormStatus: 501 });
+		const r = await runScript(EP);
+		assert.equal(r.code, 4);
+		const lines = r.stderr.split('\n');
+		assert.equal(lines[1], 'ACTION: ORG_ADMIN');
+		assert.equal(lines[2], 'Endpoint execution is not enabled on this environment.');
+		assert.equal(lines[3], 'Ask a Make admin whether it is planned for this zone.');
+		assert.equal(log.filter((e) => e.method === 'POST').length, 0);
+		noLeak(r, 'row 8 employee');
+	});
+
+	it('row 12: an RPC with no own connection gets the short connection text in both modes', async () => {
+		for (const mode of ['public', 'employee']) {
+			reset({ rpcForm: RPC_CONN_FORM, connections: [] });
+			const r = await runScript(RPC, { mode });
+			assert.equal(r.code, 4, mode);
+			assert.equal(firstLine(r), 'ACTION: CREATE_CONNECTION', mode);
+			assert.ok(r.stderr.split('\n').includes("Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team 7, appName app#my-app). The user types the credentials on Make's own page. The account type above is the form's connection type, not the app name."), mode);
+			assert.doesNotMatch(r.stderr, /endpointNames/, mode);
+			assert.equal(execPosts().length, 0, mode);
+			noLeak(r, `row 12 ${mode}`);
+		}
+	});
+
+	it('rows 10, 13 and 14: a paused organization in public mode prints the public reason, the public draft note and the billing line', async () => {
+		reset({ v1: { status: 429, body: { message: 'The organization is paused.' } } });
+		acceptNotice();
+		const r = await runScript(EP, { mode: 'public' });
+		assert.equal(r.code, 4);
+		const err = r.stderr.split('\n');
+		assert.equal(err[1], 'ACTION: ORG_ADMIN');
+		assert.equal(err[2], 'the organization or team is paused (check its status in Make or ask an organization admin)');
+		const out = r.stdout.split('\n');
+		assert.ok(out.includes(`note: ${PUBLIC_NOTE}`), r.stdout);
+		assert.ok(out.includes('billing: about 0.1 credit per run, also when the run fails'), r.stdout);
+		assert.equal(execPosts().length, 1);
+		noLeak(r, 'paused public');
+	});
+
+	it('rows 10 and 13: the same run in employee mode keeps the employee reason and note', async () => {
+		reset({ v1: { status: 429, body: { message: 'The organization is paused.' } } });
+		const r = await runScript(EP);
+		assert.equal(r.code, 4);
+		const err = r.stderr.split('\n');
+		assert.equal(err[1], 'ACTION: ORG_ADMIN');
+		assert.equal(err[2], 'the organization or team is paused');
+		assert.ok(r.stdout.split('\n').includes(`note: ${EMPLOYEE_NOTE}`), r.stdout);
+		noLeak(r, 'paused employee');
+	});
+
+	it('row 9: IM903 on the legacy route in public mode prints the closed-beta reason', async () => {
+		reset({ scopes: BASE_SCOPES.filter((s) => s !== 'endpoints:run'), legacy: { status: 400, body: { code: 'IM903', message: 'disabled' } } });
+		acceptNotice();
+		const r = await runScript(EP, { mode: 'public' });
+		assert.equal(r.code, 4);
+		assert.equal(r.stderr.split('\n')[2], 'Endpoint execution is disabled for this environment (SDK Endpoints are a closed beta)');
+		noLeak(r, 'row 9 public');
+		const employee = await runScript(EP);
+		assert.equal(employee.code, 4);
+		assert.equal(employee.stderr.split('\n')[2], 'Endpoint execution is disabled for this environment');
+		noLeak(employee, 'row 9 employee');
+	});
+});
+
+describe('the live-run notice (spec 3.6)', () => {
+	const publicRun = (args) => {
+		fs.writeFileSync(secretsPath, `make-api-key: ${FAKE_KEY}\nmake-zone: ${ZONE}\n`, { mode: 0o600 });
+		return runScript(args, { keepSecrets: true, mode: 'public' });
+	};
+	const NOTICE_KEYS = ['acceptedAt', 'key', 'noticeVersion', 'schema'];
+
+	it('the first public RPC run stops once with CONFIRM_LIVE_RUN, shows the summary and sends nothing', async () => {
+		reset();
+		const r = await publicRun(RPC);
+		assert.equal(r.code, 4, r.stderr);
+		assert.equal(firstLine(r), 'ACTION: CONFIRM_LIVE_RUN');
+		assert.deepEqual(r.stderr.split('\n').slice(2, -1), liveNoticeLines({ kind: 'rpc' }));
+		assert.match(r.stdout, /== run-component ==/);
+		assert.match(r.stdout, /side effects: read-only calls \(GET\)/);
+		assert.equal(execPosts().length, 0);
+		assert.ok(!fs.existsSync(noticeFile()));
+		noLeak(r, 'first rpc');
+	});
+
+	it('the first public Endpoint run stops the same way, with the closed-beta bullet', async () => {
+		reset();
+		const r = await publicRun(EP);
+		assert.equal(r.code, 4, r.stderr);
+		assert.equal(firstLine(r), 'ACTION: CONFIRM_LIVE_RUN');
+		const lines = r.stderr.split('\n').slice(2, -1);
+		assert.deepEqual(lines, liveNoticeLines({ kind: 'endpoint' }));
+		assert.equal(lines[lines.length - 2], '  - SDK Endpoints are a closed beta. If this account has no access, Make refuses the call and nothing runs.');
+		assert.match(r.stdout, /== run-component ==/);
+		assert.equal(execPosts().length, 0);
+		assert.ok(!fs.existsSync(noticeFile()));
+		noLeak(r, 'first endpoint');
+	});
+
+	it('--accept-live-notice runs once and writes the answer with mode 0600 and no token', async () => {
+		reset();
+		fs.rmSync(path.dirname(noticeFile()), { recursive: true, force: true });
+		const r = await publicRun([...RPC, '--accept-live-notice']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(execPosts().length, 1);
+		const text = fs.readFileSync(noticeFile(), 'utf8');
+		const entry = JSON.parse(text);
+		assert.deepEqual(Object.keys(entry).sort(), NOTICE_KEYS);
+		assert.equal(entry.key, modeCacheKey(ZONE, FAKE_KEY));
+		assert.equal(entry.schema, 1);
+		assert.equal(entry.noticeVersion, 1);
+		assert.ok(!Number.isNaN(Date.parse(entry.acceptedAt)));
+		assert.ok(!text.includes(FAKE_KEY), 'API key in the notice file');
+		if (!WINDOWS) {
+			assert.equal(fs.statSync(noticeFile()).mode & 0o777, 0o600);
+			assert.equal(fs.statSync(path.dirname(noticeFile())).mode & 0o777, 0o700);
+		}
+		noLeak(r, 'accept');
+	});
+
+	it('says before the run when the answer cannot be saved, and the next run asks again', async () => {
+		reset();
+		fs.rmSync(noticeFile(), { recursive: true, force: true });
+		fs.mkdirSync(noticeFile(), { recursive: true });
+		const r = await publicRun([...RPC, '--accept-live-notice']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(execPosts().length, 1);
+		assert.ok(r.stderr.includes(`${NOTICE_NOT_SAVED_NOTE}\n`), r.stderr);
+		const again = await publicRun(RPC);
+		assert.equal(again.code, 4, again.stderr);
+		assert.equal(firstLine(again), 'ACTION: CONFIRM_LIVE_RUN');
+		assert.equal(execPosts().length, 1);
+		fs.rmSync(noticeFile(), { recursive: true, force: true });
+		noLeak(r, 'unsaved answer');
+		noLeak(again, 'asks again');
+	});
+
+	it('after the answer, the same command without the flag executes', async () => {
+		reset();
+		const first = await publicRun([...RPC, '--accept-live-notice']);
+		assert.equal(first.code, 0, first.stderr);
+		noLeak(first, 'flag run');
+		const r = await publicRun(RPC);
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(execPosts().length, 2);
+		noLeak(r, 'later run');
+	});
+
+	it('--dry-run never stops and never writes; before the answer it ends with the note', async () => {
+		reset();
+		for (const extra of [[], ['--accept-live-notice']]) {
+			const r = await publicRun([...RPC, '--dry-run', ...extra]);
+			assert.equal(r.code, 0, r.stderr);
+			assert.ok(r.stdout.endsWith(`dry run: nothing was sent\n${NOTICE_DRY_RUN_NOTE}\n`), r.stdout);
+			assert.equal(execPosts().length, 0);
+			assert.ok(!fs.existsSync(noticeFile()));
+			noLeak(r, `dry run ${extra.length}`);
+		}
+		acceptNotice();
+		const r = await publicRun([...RPC, '--dry-run']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.ok(r.stdout.endsWith('dry run: nothing was sent\n'), r.stdout);
+		assert.ok(!r.stdout.includes(NOTICE_DRY_RUN_NOTE));
+		noLeak(r, 'dry run after the answer');
+	});
+
+	it('a preflight stop does not consume the answer', async () => {
+		reset({ rpcFormStatus: 403 });
+		const r = await publicRun([...RPC, '--accept-live-notice']);
+		assert.equal(r.code, 4, r.stderr);
+		assert.equal(firstLine(r), 'ACTION: MAKE_UI');
+		assert.ok(!fs.existsSync(noticeFile()));
+		assert.equal(execPosts().length, 0);
+		noLeak(r, 'preflight stop');
+	});
+
+	it('employee mode never stops and never writes, with or without the flag', async () => {
+		for (const extra of [[], ['--accept-live-notice']]) {
+			reset();
+			const r = await runScript([...RPC, ...extra]);
+			assert.equal(r.code, 0, r.stderr);
+			assert.equal(execPosts().length, 1);
+			assert.ok(!fs.existsSync(noticeFile()));
+			noLeak(r, 'employee');
+		}
+	});
+
+	it('an answer for another token asks again', async () => {
+		reset();
+		acceptNotice('ANOTHER_TOKEN');
+		const r = await publicRun(RPC);
+		assert.equal(r.code, 4, r.stderr);
+		assert.equal(firstLine(r), 'ACTION: CONFIRM_LIVE_RUN');
+		assert.equal(execPosts().length, 0);
+		noLeak(r, 'foreign answer');
+	});
+
+	it('an answer in an unreadable file asks again', async () => {
+		reset();
+		fs.mkdirSync(path.dirname(noticeFile()), { recursive: true });
+		fs.writeFileSync(noticeFile(), '{ not json');
+		const r = await publicRun(RPC);
+		assert.equal(r.code, 4, r.stderr);
+		assert.equal(firstLine(r), 'ACTION: CONFIRM_LIVE_RUN');
+		noLeak(r, 'unreadable answer');
+	});
+
+	it('a run with the flag after the answer leaves the file as it was', async () => {
+		reset();
+		acceptNotice(FAKE_KEY, '2026-01-01T00:00:00.000Z');
+		const before = fs.readFileSync(noticeFile(), 'utf8');
+		const r = await publicRun([...RPC, '--accept-live-notice']);
+		assert.equal(r.code, 0, r.stderr);
+		assert.equal(execPosts().length, 1);
+		assert.equal(fs.readFileSync(noticeFile(), 'utf8'), before);
+		noLeak(r, 'flag after the answer');
 	});
 });

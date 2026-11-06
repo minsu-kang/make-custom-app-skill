@@ -108,6 +108,17 @@ function fakeFetch(routes) {
 
 const refused = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
 
+/**
+ * Runs `code` in a child Node process that is killed after 10 s and returns its stdout. A read that blocks on a FIFO
+ * blocks the whole process, so a node:test timeout cannot end it; in a child the case fails instead of hanging the run.
+ */
+function runBounded(code, args) {
+	const r = spawnSync(process.execPath, ['-e', code, ...args], { encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL' });
+	assert.equal(r.signal, null, 'the read blocked on the FIFO');
+	assert.equal(r.status, 0, r.stderr);
+	return r.stdout;
+}
+
 describe('detectMode with injected answers', () => {
 	it('asks users/me and then the admin probe with the token, and says employee on 2xx', async () => {
 		const fetchFn = fakeFetch({ '/api/v2/users/me': { status: 200, body: ME_BODY }, '/api/v2/admin/sdk/apps': { status: 200, body: { apps: [] } } });
@@ -292,6 +303,43 @@ describe('the mode cache', () => {
 	it('writes the file readable by its owner only', { skip: process.platform === 'win32' }, () => {
 		mode.saveVerdict(HOST, TOKEN, 'public', { cacheFile, now: () => NOW });
 		assert.equal(fs.statSync(cacheFile).mode & 0o777, 0o600);
+	});
+
+	it('replaces a planted symlink and leaves the file it pointed at as it was', { skip: process.platform === 'win32' }, () => {
+		const victim = path.join(work, `victim-${n}.txt`);
+		fs.writeFileSync(victim, 'VICTIM');
+		fs.symlinkSync(victim, cacheFile);
+		mode.saveVerdict(HOST, TOKEN, 'public', { cacheFile, now: () => NOW });
+		assert.equal(fs.readFileSync(victim, 'utf8'), 'VICTIM');
+		assert.equal(fs.lstatSync(cacheFile).isSymbolicLink(), false);
+		assert.equal(mode.cachedMode(HOST, TOKEN, { cacheFile, now: () => NOW }), 'public');
+	});
+
+	it('reads a symlinked cache as empty even when its target holds a fresh entry', { skip: process.platform === 'win32' }, () => {
+		const target = path.join(work, `target-${n}.json`);
+		fs.writeFileSync(target, JSON.stringify(logic.cacheEntry(HOST, TOKEN, 'public', NOW)));
+		fs.symlinkSync(target, cacheFile);
+		assert.equal(mode.cachedMode(HOST, TOKEN, { cacheFile, now: () => NOW }), null);
+	});
+
+	it('replaces a 0644 file of the same owner with a 0600 one', { skip: process.platform === 'win32' }, () => {
+		fs.writeFileSync(cacheFile, '{}', { mode: 0o644 });
+		fs.chmodSync(cacheFile, 0o644);
+		mode.saveVerdict(HOST, TOKEN, 'public', { cacheFile, now: () => NOW });
+		assert.equal(fs.statSync(cacheFile).mode & 0o777, 0o600);
+	});
+
+	it('reads a FIFO as empty without hanging', { skip: process.platform === 'win32' }, (t) => {
+		if (spawnSync('mkfifo', [cacheFile]).status !== 0) return t.skip('mkfifo failed');
+		const code = 'const [file, host, cacheFile] = process.argv.slice(1); process.stdout.write(String(require(file).cachedMode(host, "FIFO_CASE_KEY", { cacheFile })))';
+		assert.equal(runBounded(code, [MODE, HOST, cacheFile]), 'null');
+	});
+
+	it('is not stopped by a leftover temp file of the same process', () => {
+		fs.writeFileSync(`${cacheFile}.${process.pid}.tmp`, 'junk');
+		mode.saveVerdict(HOST, TOKEN, 'public', { cacheFile, now: () => NOW });
+		assert.equal(mode.cachedMode(HOST, TOKEN, { cacheFile, now: () => NOW }), 'public');
+		assert.equal(fs.existsSync(`${cacheFile}.${process.pid}.tmp`), false);
 	});
 
 	it('ignores a file that is not JSON and a folder that cannot be written', () => {

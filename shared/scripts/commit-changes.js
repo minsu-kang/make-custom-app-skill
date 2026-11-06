@@ -10,8 +10,9 @@
  *
  * Usage:
  *   node commit-changes.js <app-slug> <app-version> commit --message="..." [--change-ids=1,2] [--notify] [--issue=KEY]
- *   node commit-changes.js <app-slug> <app-version> rollback --confirm
- *   node commit-changes.js <app-slug> <app-version> compile [--issue=KEY]
+ *       (--issue is for Make employees only)
+ *   node commit-changes.js <app-slug> <app-version> rollback --confirm   (discards ALL pending changes)
+ *   node commit-changes.js <app-slug> <app-version> compile [--issue=KEY]   (Make employees only)
  *
  * Examples:
  *   node commit-changes.js google-docs 1 commit --message="PROJ-123 fix pagination"
@@ -29,12 +30,12 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { announceTarget } = require('./lib/settings');
 const { originStop } = require('./lib/mode-logic');
+const logic = require('./lib/commit-changes-logic');
 require('./lib/settings').takeEditorFlagOrExit(process.argv);
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
 const SDK_VERSION_HEADER = '2.4.0';
-const MESSAGE_MAX_LENGTH = 1000;
 
 const ACTIONS = ['commit', 'rollback', 'compile'];
 
@@ -183,12 +184,10 @@ function runTransition(issueKey, editor) {
 	}
 }
 
-async function doCommit(verBase, auth, flags) {
+async function doCommit(verBase, auth, flags, mode) {
 	const message = flags.message;
-	if (!message || message.length === 0 || message.length > MESSAGE_MAX_LENGTH) {
-		console.error(
-			`ERROR: --message is required and must be 1–${MESSAGE_MAX_LENGTH} characters (Validator.commitMessage).`,
-		);
+	if (!logic.isValidMessage(message)) {
+		console.error(logic.MESSAGE_ERROR);
 		process.exit(1);
 	}
 
@@ -196,13 +195,7 @@ async function doCommit(verBase, auth, flags) {
 	if (!state) process.exit(1);
 
 	if (state.changes.length === 0) {
-		console.error('ABORT: no pending changes to commit.');
-		if (state.approved === false) {
-			console.error(
-				'  App is not approved (approved: false) → SDK edits write directly to the DB and never create change rows.',
-			);
-			console.error('  There is nothing to commit; the forward action for this app is `compile`.');
-		}
+		console.error(logic.noChangesLines({ mode, approved: state.approved }).join('\n'));
 		process.exit(2);
 	}
 
@@ -240,7 +233,7 @@ async function doCommit(verBase, auth, flags) {
 	}
 
 	console.log(`✓ Committed ${selected.length} change(s) (HTTP ${result.status})`);
-	console.log('  A compile is enqueued automatically by the commit routine.');
+	console.log(logic.afterCommitLine(mode));
 
 	const remaining = state.changes.length - selected.length;
 	if (remaining > 0) console.log(`  ${remaining} change(s) still pending.`);
@@ -272,7 +265,7 @@ async function doRollback(verBase, auth, flags) {
 		process.exit(1);
 	}
 	console.log(`✓ Rolled back ${state.changes.length} change(s) (HTTP ${result.status})`);
-	console.log('  Re-run download-app.js to resync the local snapshot.');
+	console.log(logic.AFTER_ROLLBACK_LINE);
 }
 
 async function doCompile(verBase, auth) {
@@ -302,13 +295,7 @@ async function main() {
 	const [appSlug, appVersion, action] = positional;
 
 	if (!appSlug || !appVersion || !ACTIONS.includes(action)) {
-		console.log('Usage: node commit-changes.js <app-slug> <app-version> <commit|rollback|compile> [options]');
-		console.log('');
-		console.log('  commit    --message="..." [--change-ids=1,2] [--notify] [--issue=KEY]');
-		console.log('  rollback  --confirm            (discards ALL pending changes)');
-		console.log('  compile   [--issue=KEY]');
-		console.log('');
-		console.log('Example: node commit-changes.js google-docs 1 commit --message="PROJ-123 fix pagination"');
+		console.log(logic.usageLines().join('\n'));
 		process.exit(1);
 	}
 
@@ -327,7 +314,7 @@ async function main() {
 	const verBase = `${baseUrl}/sdk/apps/${appSlug}/${appVersion}`;
 
 	if (action === 'commit') {
-		await doCommit(verBase, auth, flags);
+		await doCommit(verBase, auth, flags, settings.mode);
 	} else if (action === 'rollback') {
 		await doRollback(verBase, auth, flags);
 	} else {

@@ -190,8 +190,19 @@ function retryMessage(host, detail) {
 	return `Could not check the Make API token for ${host} (${detail}).\nNothing was changed. Retry later, and check the network, VPN or proxy.`;
 }
 
+/** What the agent does instead, by script (spec 3.5 row 7); a name that is not here gets EMPLOYEE_ONLY_DEFAULT. */
+const EMPLOYEE_ONLY_INSTEAD = {
+	'test-component.js': 'Tell the user that no component test ran here. Test an RPC or an Endpoint with run-component.js, and a module in a test scenario.',
+	'post-review-transition.js': 'There is no ticket flow in public mode. Skip this step and go on with the close-out.',
+	'download-jira-ticket-attachment.js': 'There is no ticket flow in public mode. Ask the user to drop the screenshots or logs into the chat or to give local file paths, and read them directly.',
+	'commit-changes.js compile': 'Compiling is not a step for the owner of an app: a push to an app that is not approved is live at once. Do not offer it again.',
+	'commit-changes.js --issue': 'There is no ticket flow in public mode. Run the same command without --issue.',
+};
+const EMPLOYEE_ONLY_DEFAULT = 'Tell the user that this step needs a Make employee account, and go on without it.';
+
 function employeeOnlyMessage(what) {
-	return `${what} is for Make employees only, and this Make API token is in public mode (the Make admin API refused it).\nDo not retry or work around it: tell the user that this step needs a Make employee account.`;
+	const instead = Object.hasOwn(EMPLOYEE_ONLY_INSTEAD, what) ? EMPLOYEE_ONLY_INSTEAD[what] : EMPLOYEE_ONLY_DEFAULT;
+	return `${what} is for Make employees only, and this Make API token is in public mode (the Make admin API refused it).\nDo not retry it. ${instead}`;
 }
 
 /** One warning line when the admin flag of the Cursor environment disagrees with the probe, else null. */
@@ -265,6 +276,8 @@ module.exports = {
 	TOKEN_SCOPES,
 	RUN_COMPONENT_SCOPES,
 	ACCOUNT_NAME_UNAVAILABLE,
+	EMPLOYEE_ONLY_INSTEAD,
+	EMPLOYEE_ONLY_DEFAULT,
 	hostFromUrl,
 	hostFromZone,
 	testOrigin,

@@ -30,7 +30,7 @@ const { checkAccess } = require('./lib/access-guard');
 const { denyMessage, proxyEnv } = require('./lib/access-guard-logic');
 const { detectMode, probeSync, saveVerdict } = require('./lib/mode');
 const { verdictFrom, cursorAdminWarning } = require('./lib/mode-logic');
-const { credentialItem, modeItem, reportedMode, modeLine } = require('./lib/check-setup-logic');
+const { credentialItem, modeItem, mcpServerItem, reportedMode, modeLine } = require('./lib/check-setup-logic');
 const { detectLegacyInstall, legacyInstallLines, keptInstallLines } = require('./lib/legacy-install');
 const { readDecline, gatherFacts } = require('./lib/legacy-cleanup-steps');
 const { buildPlan, declineState } = require('./lib/legacy-cleanup-logic');
@@ -121,26 +121,13 @@ function checkTeamId() {
 // MCP server (optional — shared Pinecone context). The plugin's server is not recorded in ~/.claude.json or
 // ~/.cursor/mcp.json, so registration cannot be checked. The server reads the two keys from the MAKE_APP_CONTEXT_*
 // variables first and then from the secrets file; the index name has a default and is not required.
-function checkMcpServer() {
+function checkMcpServer(mode) {
 	const keys = [
 		{ key: 'pinecone-api-key', variable: 'MAKE_APP_CONTEXT_PINECONE_API_KEY' },
 		{ key: 'openai-api-key', variable: 'MAKE_APP_CONTEXT_OPENAI_API_KEY' },
 	];
 	const missing = keys.filter(({ key, variable }) => !process.env[variable] && !readSkillConfig(key));
-	if (missing.length === 0) {
-		add(
-			'mcp-server',
-			'ok',
-			`keys are set (environment or ${SECRETS_PATH}); cannot check whether the server is registered: plugin MCP servers are not listed in ~/.claude.json or ~/.cursor/mcp.json`,
-		);
-	} else {
-		add(
-			'mcp-server',
-			'optional-missing',
-			`missing: ${missing.map(({ key }) => key).join(', ')} (set ${missing.map(({ variable }) => variable).join(', ')} or the same key in ${SECRETS_PATH})`,
-			`${SETUP_HINT}\nOptional — the wizard asks for the Pinecone and OpenAI keys of the shared app-context server and saves them in the secrets file.`,
-		);
-	}
+	items.push(mcpServerItem({ mode, missing, secretsPath: SECRETS_PATH, setupHint: SETUP_HINT }));
 }
 
 /**
@@ -180,7 +167,7 @@ async function main() {
 		checkMakeAccount();
 	}
 	checkTeamId();
-	checkMcpServer();
+	checkMcpServer(mode);
 	const warning = cursorAdminWarning({ cursorAdmin: creds.ok ? creds.cursorAdmin : null, mode });
 	const warnings = warning ? [warning] : [];
 	const ok = items.every((i) => i.status !== 'missing');

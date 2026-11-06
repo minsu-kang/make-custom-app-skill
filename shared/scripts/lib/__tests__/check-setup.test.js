@@ -331,6 +331,20 @@ describe('check-setup in a fake HOME, Claude Code', () => {
 		}
 	});
 
+	it('public without the MCP keys: mcp-server is OPTIONAL with the public detail and has no fix block', () => {
+		save({ 'make-api-key': KEYS.public, 'make-zone': 'eu1.make.com' });
+		const r = run([], CLAUDE);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.ok(r.stdout.startsWith('MODE: public\n'), r.stdout);
+		assert.deepEqual(parseItems(r.stdout)['mcp-server'], {
+			status: 'OPTIONAL',
+			detail: 'not needed in public mode: the shared Make app-context index is not available to public users, and your app notes stay in ~/.make-custom-app/contexts. Set the two keys only if you run a Pinecone index of your own.',
+		});
+		assert.doesNotMatch(r.stdout, /\[optional\] mcp-server/);
+		assert.ok(r.stdout.includes('[optional] make-team-id'), r.stdout);
+		assertNoSecrets(r);
+	});
+
 	it('users/me 403 and admin 403: MODE: public and exit 0, with the account name unavailable', () => {
 		save({ 'make-api-key': KEYS.me403Public, 'make-zone': 'eu1.make.com' });
 		const r = run([], CLAUDE);

@@ -601,3 +601,24 @@ describe('the zone and mode steps with an injected fetch', () => {
 		assert.deepEqual(fetchFn.calls.slice(-2).map((c) => c.url), ['https://eu2.make.com/api/v2/users/me', 'https://eu2.make.com/api/v2/admin/sdk/apps?all=true&name=__mode_probe__&cols[]=name']);
 	});
 });
+
+describe('mcpIntroLines', () => {
+	const EMPLOYEE = [
+		'── MCP server / Pinecone (optional) ──',
+		'Shared app-context search. Needs a Pinecone index and an OpenAI key for embeddings.',
+		'Pinecone key:  https://app.pinecone.io',
+		'OpenAI key:    https://platform.openai.com/api-keys',
+		'The keys go into the secrets file, where the make-app-context server reads them.',
+	];
+
+	it("employee mode keeps today's five lines", () => {
+		assert.deepEqual(logic.mcpIntroLines('employee'), EMPLOYEE);
+	});
+
+	it('row 17: public mode replaces line 2 and keeps the rest', () => {
+		const lines = logic.mcpIntroLines('public');
+		assert.equal(lines[1], 'Optional search over your app notes. It needs a Pinecone index of your own and an OpenAI key for embeddings. Most users skip it: the local context files already keep your notes.');
+		assert.deepEqual([lines[0], ...lines.slice(2)], [EMPLOYEE[0], ...EMPLOYEE.slice(2)]);
+		assert.equal(lines.length, 5);
+	});
+});

@@ -92,16 +92,16 @@ Entry scripts in `shared/scripts/`. A skill runs them as `node "<plugin root>/sh
 | `check-setup.js` | One-screen setup diagnosis. It checks the Make API token on its zone and prints `MODE: employee`, `MODE: public` or, when it cannot check the token, `MODE: unknown` first, then the Make API credentials, the default team id, MCP keys, leftovers of a 2.x install, and an update notice; in employee mode also `imt-app-runtime-path`, the mockup path, and the `@make.com` account check. Exit 1 when a required item is missing, no usable Make zone is set, Make rejects the token, or the check cannot reach Make. |
 | `cleanup-legacy.js` | Removes the leftovers of a 2.x install after you confirm: `--plan` lists them with a digest, `--apply <digest> --groups claude,cursor` moves them to `~/.make-custom-app/migration-backup-<time>/`, `--restore` puts them back, `--decline <digest>` records a no for 7 days. Run by the `make-app-setup` skill; `check-setup.js` prints `LEGACY_INSTALL:` while the old install is there and `OLD_INSTALL_KEPT:` after a no. |
 | `setup-secrets.js` | Interactive wizard for `~/.make-custom-app-skill-secrets`. It finds your zone from the Make API token and asks the employee questions only in employee mode. Run it in your own terminal, never through the agent. |
-| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts`. Exit 1, with the failed parts listed under `Failed:`, when a part cannot be read |
-| `update-app.js` | Pushes code changes to Make through the SDK Admin API |
-| `review-changes.js` | Fetches the uncommitted changes of an app for a code review |
+| `download-app.js` | Downloads the full source of an app from the Make API into `~/.make-custom-app/contexts`. Exit 1, with the failed parts listed under `Failed:`, when a part cannot be read. In public mode every non-empty string and every number of the app and connection common data is saved as `***MASKED:string***` or `***MASKED:number***`. `--snapshot` saves the same read to `~/.make-custom-app/snapshots/{slug}-v{version}/{id}/` instead and leaves the local copy alone (the newest 5 are kept) |
+| `update-app.js` | Pushes one section of an app to Make. It refuses a `common` file that still holds a masked value; in public mode it first needs a snapshot (`download-app.js --snapshot`) taken since the last download |
+| `review-changes.js` | Fetches the uncommitted changes of an app for a code review, or with `--baseline <id\|latest>` compares the local copy with a snapshot (the default in public mode when Make lists no changes and the app is not marked approved). When a call fails it lists the failed calls, exits 1 and writes no review |
 | `commit-changes.js` | Commits pending changes, rolls them back, or enqueues a compile; `--issue=KEY` chains the Jira transition. `compile` and the `--issue` chain are for Make employees only |
 | `create-component.js` | Creates a module, RPC, function, connection, webhook, or endpoint |
 | `update-component.js` | Updates component metadata |
 | `delete-component.js` | Deletes a component (public apps: RPCs and functions only) |
-| `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`) |
+| `test-function.js` | Runs the tests of a custom IML function (`code.js` and `test.js`). In public mode, and for Make employees without a runtime clone that loads, the built-in IML functions come from the plugin's shim of the documented functions. Exit 2 means a test needed something the shim lacks and no test failed |
 | `test-component.js` | Runs component integration tests through the `make-apps-mockup` framework (Make employees only) |
-| `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection |
+| `run-component.js` | Runs one SDK Endpoint or RPC live through the public API, in one step, with your own Make connection. In public mode the first live run for a token stops once with a live-run notice (`ACTION: CONFIRM_LIVE_RUN`); `--accept-live-notice` goes on after the user agrees |
 | `download-jira-ticket-attachment.js` | Downloads the attachments of a Jira ticket (images, videos) for analysis (Make employees only) |
 | `post-review-transition.js` | Moves a Jira ticket after a code review is concluded (Make employees only) |
 

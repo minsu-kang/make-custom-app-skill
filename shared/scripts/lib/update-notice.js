@@ -1,7 +1,8 @@
 /**
  * update-notice.js: the update notice of check-setup.js (spec 9.4). It fetches only the plugin.json of master, waits at
  * most 5 seconds, keeps the answer for an hour in a temp file (a failed fetch is kept too, so an offline machine
- * waits once an hour), and fails open: any error means "no notice". It installs nothing.
+ * waits once an hour), and fails open: any error means "no notice". It installs nothing. The cache is read and written
+ * through safe-file.js.
  *
  * The decisions are in lib/update-notice-logic.js.
  */
@@ -9,23 +10,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { UPDATE_URL, FETCH_TIMEOUT_MS, parseVersion, isNewer, isFresh, noticeLines } = require('./update-notice-logic');
+const { readOwnedJson, writeOwnedJson } = require('./safe-file');
 
 const CACHE_FILE = path.join(os.tmpdir(), 'make-custom-app-update-check.json');
 
 function readCache(file) {
-	try {
-		return JSON.parse(fs.readFileSync(file, 'utf8'));
-	} catch {
-		return null;
-	}
+	return readOwnedJson(file);
 }
 
 function writeCache(file, entry) {
-	try {
-		fs.writeFileSync(file, JSON.stringify(entry));
-	} catch {
-		/* a cache that cannot be written only costs one more fetch */
-	}
+	writeOwnedJson(file, entry);
 }
 
 /** The version of the plugin.json under `pluginRoot`, or null. */

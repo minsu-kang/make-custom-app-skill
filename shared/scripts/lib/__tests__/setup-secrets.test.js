@@ -132,6 +132,12 @@ describe('setup-secrets.js wiring', () => {
 		for (const step of questionSteps('employee')) assert.ok(source.includes(`'${step}': ask`), step);
 	});
 
+	it('prints the MCP step intro from mcpIntroLines with the checked mode, so the logic owns the public wording', () => {
+		const source = fs.readFileSync(SCRIPT, 'utf8');
+		assert.match(source, /for \(const line of mcpIntroLines\(checked\.mode\)\) console\.log\(line\);/);
+		assert.ok(!source.includes('Shared app-context search'), 'the intro text is in setup-secrets-logic.js only');
+	});
+
 	it('never writes make-api-url and has no built-in zone or admin URL', () => {
 		for (const file of [SCRIPT, path.join(SCRIPTS_DIR, 'lib', 'setup-secrets-logic.js')]) {
 			const source = fs.readFileSync(file, 'utf8');

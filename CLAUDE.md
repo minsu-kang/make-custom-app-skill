@@ -15,7 +15,7 @@ mcp/index.mjs     built MCP context server, committed
 mcp-server/       TypeScript source of that server (also the payload of the old installers)
 mcp.json          the three MCP servers (make-app-context, make, atlassian)
 hooks/            the Cursor sessionStart hook: hooks-cursor.json and session-start.js (Cursor only)
-tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js, migration-test.js
+tools/            repo-only tools: sync-hard-rules.js, build-mcp.js, legacy-bridge.js, verify-plugin.js, migration-test.js, record-iml-parity.js
 tools/trigger-test/   maintainer trigger test (spec 11 item 8): run-claude.js, run-cursor.js, jira-stub.js, prompts.json
 tools/shims/      drafts of the four installer shims (inactive until plan P6)
 .github/          workflows and the content checks (plugin-check.js, check-skill.js, old-tree-guard.js)
@@ -32,6 +32,9 @@ node tools/sync-hard-rules.js          # copy shared/hard-rules.md into every SK
 
 # Scripts (Node 22 and 24 in CI; 90% line, branch, and function coverage)
 node --test --experimental-test-coverage --test-coverage-exclude="**/__tests__/**" --test-coverage-exclude="shared/scripts/*.js" --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90 "shared/scripts/lib/__tests__/*.test.js"
+
+# IML shim parity (maintainer only; needs the imt-app-runtime clone; CI never runs it): re-record shared/scripts/lib/__tests__/iml-shim-parity.json after a change to the CASES of iml-shim-cases.js
+node tools/record-iml-parity.js --runtime <path of the runtime clone> --m2-flag <name>
 
 # MCP server (from mcp-server/), then rebuild and commit the bundle
 npm ci && npm run lint && npm run build && npm test

@@ -1,7 +1,7 @@
 {
   "name": "make-custom-app",
   "description": "Skills, scripts and MCP servers for building, reviewing and maintaining Make custom apps (IMLJSON, Make Apps SDK) for Make employees",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "author": { "name": "minsu-kang" },
   "homepage": "https://github.com/minsu-kang/make-app-ai-plugin",
   "repository": "https://github.com/minsu-kang/make-app-ai-plugin",

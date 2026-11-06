@@ -1,12 +1,14 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
 	SCRIPTS_DIR,
 	PLUGIN_ROOT,
 	EditorError,
 	getContextsDir,
+	getSnapshotsDir,
 	resolveEditor,
 	setupCommand,
 	scriptCommand,
@@ -25,6 +27,11 @@ test('SCRIPTS_DIR and PLUGIN_ROOT follow the shared/scripts layout', () => {
 
 test('getContextsDir is the editor-neutral folder under the given home', () => {
 	assert.equal(getContextsDir('/home/u'), path.join('/home/u', '.make-custom-app', 'contexts'));
+});
+
+test('getSnapshotsDir is the snapshots folder next to the contexts', () => {
+	assert.equal(getSnapshotsDir('/home/u'), path.join('/home/u', '.make-custom-app', 'snapshots'));
+	assert.equal(getSnapshotsDir(), path.join(os.homedir(), '.make-custom-app', 'snapshots'));
 });
 
 const CONTEXT_CASES = JSON.parse(

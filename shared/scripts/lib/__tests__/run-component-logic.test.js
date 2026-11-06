@@ -20,7 +20,7 @@ describe('parseArgs', () => {
 
 	it('parses positionals and flags', () => {
 		const a = rc.parseArgs([...ok, '--team=12', '--connection=34', '--input=/tmp/in.json', '--dry-run', '--save-team']);
-		assert.deepEqual(a, { slug: 'my-app', version: 2, kind: 'endpoint', name: 'listItems', teamId: 12, connectionId: 34, inputPath: '/tmp/in.json', dryRun: true, saveTeam: true });
+		assert.deepEqual(a, { slug: 'my-app', version: 2, kind: 'endpoint', name: 'listItems', teamId: 12, connectionId: 34, inputPath: '/tmp/in.json', dryRun: true, saveTeam: true, acceptLiveNotice: false });
 	});
 
 	it('leaves optional flags null and switches false', () => {
@@ -460,7 +460,7 @@ describe('pickConnection', () => {
 
 describe('connectionAction', () => {
 	const connection = { types: ['app#x-account'], scopes: { 'app#x-account': ['read'] } };
-	const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: 34, connection, slug: 'x-app' };
+	const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: 34, connection, slug: 'x-app', kind: 'endpoint' };
 
 	it('ok has no action', () => {
 		assert.equal(rc.connectionAction({ state: 'ok' }, ctx), null);
@@ -1158,5 +1158,147 @@ describe('ids', () => {
 	it('the connection scope list is one constant used by requiredKeyScopes', () => {
 		assert.deepEqual(rc.CONNECTION_SCOPES, ['connections:read', 'user:read']);
 		assert.deepEqual(rc.requiredKeyScopes({ kind: 'rpc', needsConnection: true }).slice(1), rc.CONNECTION_SCOPES);
+	});
+});
+
+describe('public texts (spec 3.5 rows 8 to 14)', () => {
+	it('row 8: the input form 501 lines by mode', () => {
+		assert.deepEqual(rc.formNotEnabledLines('public'), ['Endpoint execution is not enabled on this environment. SDK Endpoints are a closed beta.', 'You can still run an RPC with this script, or leave the live run out and tell the user.']);
+		assert.deepEqual(rc.formNotEnabledLines('employee'), ['Endpoint execution is not enabled on this environment.', 'Ask a Make admin whether it is planned for this zone.']);
+		assert.deepEqual(rc.formNotEnabledLines(undefined), rc.formNotEnabledLines('employee'));
+	});
+
+	it('rows 9 and 10: the ORG_ADMIN reasons by mode', () => {
+		const im903 = (mode) => rc.classifyExecResponse({ transport: 'legacy', status: 400, bodyText: JSON.stringify({ code: 'IM903', message: 'disabled' }), mode });
+		assert.equal(im903('public').reason, 'Endpoint execution is disabled for this environment (SDK Endpoints are a closed beta)');
+		assert.equal(im903('employee').reason, 'Endpoint execution is disabled for this environment');
+		assert.equal(im903(undefined).reason, 'Endpoint execution is disabled for this environment');
+		assert.equal(im903('public').action, 'ORG_ADMIN');
+		const paused = (mode) => rc.classifyExecResponse({ transport: 'v1', status: 429, bodyText: JSON.stringify({ message: 'The organization is paused.' }), mode });
+		assert.equal(paused('public').reason, 'the organization or team is paused (check its status in Make or ask an organization admin)');
+		assert.equal(paused('employee').reason, 'the organization or team is paused');
+		assert.equal(paused(undefined).reason, 'the organization or team is paused');
+		assert.equal(paused('public').action, 'ORG_ADMIN');
+	});
+
+	it('row 11: the install step names an app with no module, in both modes', () => {
+		const lines = rc.orgAdminLines({ slug: 'my-app', version: 1, orgId: 486, teamId: 7 });
+		assert.ok(lines.includes('  2. Create a scenario, add any module of this app (a private app shows a Private tag), save the scenario, and confirm the install dialog. An app with no module cannot be installed this way: add a module first.'));
+		assert.equal(lines.filter((l) => l.startsWith('  2. ')).length, 1);
+	});
+
+	it('row 12: an RPC gets the short connection text, an Endpoint keeps today\'s', () => {
+		const connection = { types: ['app#x-account'], scopes: {} };
+		const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: null, connection, slug: 'x-app' };
+		const rpc = rc.connectionAction({ state: 'none', foreign: 0 }, { ...ctx, kind: 'rpc' }).lines.join('\n');
+		assert.ok(rpc.includes("Create the connection request now with the connection-creation tool of this plugin's Make MCP server (team 7, appName app#x-app). The user types the credentials on Make's own page. The account type above is the form's connection type, not the app name."));
+		assert.doesNotMatch(rpc, /endpointNames/);
+		assert.doesNotMatch(rpc, /compiled name/);
+		const ep = rc.connectionAction({ state: 'none', foreign: 0 }, { ...ctx, kind: 'endpoint' }).lines.join('\n');
+		assert.match(ep, /Pass endpointNames for every endpoint/);
+		const none = rc.connectionAction({ state: 'none', foreign: 0 }, ctx).lines.join('\n');
+		assert.match(none, /Pass endpointNames for every endpoint/);
+	});
+
+	it('row 12: the RPC text sits after the link-failure line and before the scopes', () => {
+		const connection = { types: ['app#x-account'], scopes: { 'app#x-account': ['read'] } };
+		const ctx = { host: 'https://eu1.make.com', teamId: 7, connectionId: null, connection, slug: 'x-app', kind: 'rpc', request: { reason: 'HTTP 403' } };
+		const lines = rc.connectionAction({ state: 'none', foreign: 0 }, ctx).lines;
+		const at = lines.findIndex((l) => l.startsWith('Create the connection request now'));
+		assert.equal(lines[at - 1], '(An authorization link could not be requested: HTTP 403.)');
+		assert.equal(lines[at + 1], 'Grant these scopes:');
+	});
+
+	it('rows 13 and 14: the draft note and the RPC billing line by mode and measurement', () => {
+		assert.equal(rc.draftNote('public'), 'You run the draft of your own app, with the files you pushed. If someone else owns this app, you run its committed version, which can differ.');
+		assert.equal(rc.draftNote('employee'), 'The app author runs the pushed draft; anyone else runs the committed version.');
+		assert.equal(rc.draftNote(undefined), 'The app author runs the pushed draft; anyone else runs the committed version.');
+		assert.equal(rc.RPC_MEASURED_CREDITS, null);
+		assert.equal(rc.billingLine({ kind: 'endpoint', mode: 'public' }), 'billing: about 0.1 credit per run, also when the run fails');
+		assert.equal(rc.billingLine({ kind: 'endpoint', mode: 'employee' }), 'billing: about 0.1 credit per run, also when the run fails');
+		assert.equal(rc.billingLine({ kind: 'rpc', mode: 'employee', credits: 2 }), 'billing: no charge expected (not verified)');
+		assert.equal(rc.billingLine({ kind: 'rpc', mode: 'public' }), 'billing: no charge expected (not verified)');
+		assert.equal(rc.billingLine({ kind: 'rpc', mode: 'public', credits: null }), 'billing: no charge expected (not verified)');
+		assert.equal(rc.billingLine({ kind: 'rpc', mode: 'public', credits: 0 }), 'billing: no charge seen in one measured run');
+		assert.equal(rc.billingLine({ kind: 'rpc', mode: 'public', credits: 2 }), 'billing: one measured run cost 2 credits');
+	});
+
+	it('the summary uses the mode', () => {
+		const base = { kind: 'rpc', slug: 'my-app', version: 1, name: 'r', host: 'h', teamId: 7, transportNote: 'rpc', connection: null, others: 0, warnings: [], notes: [], input: {}, maskedKeys: [], sideEffects: 's' };
+		assert.ok(rc.renderRunSummary({ ...base, mode: 'public' }).split('\n').includes(`note: ${rc.draftNote('public')}`));
+		assert.ok(rc.renderRunSummary({ ...base, mode: 'employee' }).split('\n').includes(`note: ${rc.draftNote('employee')}`));
+		const lines = rc.renderRunSummary({ ...base, kind: 'endpoint', mode: 'public' }).split('\n');
+		assert.ok(lines.includes(rc.billingLine({ kind: 'endpoint', mode: 'public' })));
+	});
+});
+
+describe('the live-run notice', () => {
+	const ok = ['my-app', '2', 'rpc', 'listBoards'];
+	const NOTICE_HEAD = [
+		'This is the first live run for this Make API token. Tell the user the following, then ask once whether to go on.',
+		"A live run is not a simulation. It calls the vendor's real API with the user's own connection.",
+		'  - It can create, change or delete real data in the vendor account. The summary above gives the side-effect label of this component.',
+	];
+	const NOTICE_TAIL = [
+		'  - Records the run creates stay in the vendor account until they are deleted. After the run, list them and delete the ones the app can delete.',
+		'  - The output can contain personal data. Show it to the user only. Do not save it in the app folder, a context file or a ticket.',
+	];
+	const LAST = 'If the user agrees, run the same command again with --accept-live-notice. The script then remembers the answer for this token and does not ask again. If the user declines, stop: nothing was sent.';
+	const ENDPOINT_BULLET = '  - SDK Endpoints are a closed beta. If this account has no access, Make refuses the call and nothing runs.';
+	const CHARGE = '  - Make can charge for it. An Endpoint run costs about 0.1 credit, also when the run fails.';
+
+	it('parses --accept-live-notice as a switch', () => {
+		assert.ok(rc.parseArgs([...ok, '--accept-live-notice']).acceptLiveNotice === true);
+		assert.ok(rc.parseArgs(ok).acceptLiveNotice === false);
+		assert.throws(() => rc.parseArgs([...ok, '--accept-live-notice=1']), /--accept-live-notice takes no value/);
+		assert.throws(() => rc.parseArgs([...ok, '--accept-live-notice', '--accept-live-notice']), /given twice/);
+		assert.throws(() => rc.parseArgs([...ok, '--nope']), /--dry-run, --save-team, --accept-live-notice/);
+	});
+
+	it('builds the entry that the notice file keeps, with no token in it', () => {
+		assert.deepEqual(rc.liveNoticeEntry('k', Date.parse('2026-11-05T12:00:00Z')), { schema: 1, noticeVersion: 1, key: 'k', acceptedAt: '2026-11-05T12:00:00.000Z' });
+		assert.equal(rc.NOTICE_SCHEMA, 1);
+		assert.equal(rc.NOTICE_VERSION, 1);
+	});
+
+	it('accepts only the same schema, key and notice version', () => {
+		const entry = rc.liveNoticeEntry('k', 0);
+		assert.equal(rc.liveNoticeAccepted(entry, 'k'), true);
+		assert.equal(rc.liveNoticeAccepted(null, 'k'), false);
+		assert.equal(rc.liveNoticeAccepted(undefined, 'k'), false);
+		assert.equal(rc.liveNoticeAccepted({ ...entry, schema: 2 }, 'k'), false);
+		assert.equal(rc.liveNoticeAccepted(entry, 'other'), false);
+		assert.equal(rc.liveNoticeAccepted({ ...entry, noticeVersion: 2 }, 'k'), false);
+		assert.equal(rc.liveNoticeAccepted(entry, 'k', 2), false);
+		assert.equal(rc.liveNoticeAccepted({ ...entry, noticeVersion: 2 }, 'k', 2), true);
+	});
+
+	it('the RPC notice is the spec block without its ACTION line', () => {
+		const lines = rc.liveNoticeLines({ kind: 'rpc', credits: null });
+		assert.deepEqual(lines, [...NOTICE_HEAD, `${CHARGE} An RPC run is not expected to be charged, but this was not measured.`, ...NOTICE_TAIL, LAST]);
+		assert.ok(!lines.some((l) => l.startsWith('ACTION:')));
+	});
+
+	it('the Endpoint notice has the closed-beta bullet before the last paragraph', () => {
+		const lines = rc.liveNoticeLines({ kind: 'endpoint', credits: null });
+		assert.equal(lines.length, 8);
+		assert.equal(lines[lines.length - 2], ENDPOINT_BULLET);
+		assert.equal(lines[lines.length - 1], LAST);
+		assert.deepEqual(lines.filter((l) => l !== ENDPOINT_BULLET), rc.liveNoticeLines({ kind: 'rpc', credits: null }));
+	});
+
+	it('the RPC sentence follows the measured cost (after step W44)', () => {
+		assert.equal(rc.rpcNoticeSentence(null), 'An RPC run is not expected to be charged, but this was not measured.');
+		assert.equal(rc.rpcNoticeSentence(0), 'An RPC run showed no charge in one measured run, but Make may charge for it.');
+		assert.equal(rc.rpcNoticeSentence(2), 'An RPC run is charged too: one measured run cost 2 credits.');
+		assert.equal(rc.rpcNoticeSentence(), rc.rpcNoticeSentence(rc.RPC_MEASURED_CREDITS));
+		assert.ok(rc.liveNoticeLines({ kind: 'rpc', credits: 2 }).includes(`${CHARGE} An RPC run is charged too: one measured run cost 2 credits.`));
+		assert.ok(rc.liveNoticeLines({ kind: 'endpoint', credits: 0 }).includes(`${CHARGE} An RPC run showed no charge in one measured run, but Make may charge for it.`));
+		assert.deepEqual(rc.liveNoticeLines({ kind: 'rpc' }), rc.liveNoticeLines({ kind: 'rpc', credits: rc.RPC_MEASURED_CREDITS }));
+	});
+
+	it('the dry-run note names the one-time stop', () => {
+		assert.equal(rc.NOTICE_DRY_RUN_NOTE, 'note: the first real run stops once with a live-run notice (ACTION: CONFIRM_LIVE_RUN).');
+		assert.equal(rc.NOTICE_NOT_SAVED_NOTE, 'note: the answer could not be saved in ~/.make-custom-app/live-run-notice.json, so the next live run asks again.');
 	});
 });
